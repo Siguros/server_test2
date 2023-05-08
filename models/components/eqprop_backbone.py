@@ -1,0 +1,569 @@
+import torch.nn as nn
+import torch
+import torch.nn.functional as F
+from typing import Any, Tuple, List, Union, Sequence, overload, Iterator, Mapping
+from src.utils.eqprop_util import interleave, type_as, deltaV
+from models.components.E_minimizer import newton_solve2, newton_solver
+import numpy as np
+from collections import OrderedDict
+from pytorch_lightning.utilities.parsing import AttributeDict
+
+
+class EP(nn.Module):
+    def __init__(
+        self,
+        batch_size: int,
+        beta: float = 1e-2,
+        dims: list = [784, 500, 10],
+        iters: tuple = (20, 4),
+        activation=torch.sigmoid,
+        epsilon: float = 0.5,
+        criterion=nn.MSELoss(reduction="none"),
+        L: Sequence = None,
+        U: Sequence = None,
+        *args,
+        **kwargs
+    ):
+        """Equilibrium Propagation (EP) model
+
+        Args:
+            batch_size (_type_): _description_
+            beta (float, optional): loss coupling strength. Defaults to 1e-2.
+            dims (list, optional): dimensions of network architectures. Defaults to [784,500,10].
+            iters (tuple, optional): Iterations for minimizing phases. Defaults to (200,4).
+            activation (_type_, optional): nonlinear activation function for nodes. Defaults to torch.sigmoid.
+            epsilon (float, optional): step size for minimizing Energy. Defaults to 0.5.
+            criterion (_type_, optional): loss function. Defaults to nn.MSELoss(reduction='none').
+        """
+
+        super(EP, self).__init__()
+
+        self.batch_size = batch_size
+        self.beta = beta
+        self.bias: Union[bool, int] = kwargs.get("bias", True)
+        self.pos_W = kwargs.get("pos_W", False)
+        self.doubling = kwargs.get("doubling", False)
+        self.num_classes = dims[-1]
+        if self.doubling:
+            interleave.on()
+            self.num_classes //= 2
+        self.eps = epsilon
+        self.dims = dims
+        self.L = L
+        self.U = U
+        assert len(iters) == 2, ValueError("2 iteration steps(free, nudge) required")
+        self.free_iters, self.nudge_iters = iters
+        self.activation = activation
+
+        self._Nodes = [
+            torch.empty((batch_size, n))
+            .normal_(0.5, 0.5)
+            .clamp(0, 1)
+            .requires_grad_(True)
+            for n in dims[1:]
+        ]
+
+        self.criterion = criterion
+        # self.inner_optimizer = torch.optim.SGD(self._Nodes, lr=self.eps)
+        self._init_weights()
+        # self.metric_handler = metricHandler().setup(num_layers=len(self.dims) - 1)
+
+    def _init_weights(self):
+        # pos_W, bias
+        self.W = nn.ModuleList()
+        bias = False if self.bias == 2 else self.bias
+
+        for idx in range(len(self.dims) - 1):
+            if idx == 0 & self.bias == 2:
+                self.W.append(nn.Linear(self.dims[idx], self.dims[idx + 1], bias=True))
+                nn.init.constant_(self.W[idx].bias, 1)
+            else:
+                self.W.append(nn.Linear(self.dims[idx], self.dims[idx + 1], bias=bias))
+            if self.pos_W:
+                assert self.L is not None, ValueError("L is required for pos_W")
+                assert self.U is not None, ValueError("U is required for pos_W")
+                if type(self.L) == Union[float, int]:
+                    self.L = [self.L] * (len(self.dims) - 1)
+                    self.U = [self.U] * (len(self.dims) - 1)
+
+                assert len(self.L) == len(self.dims) - 1, ValueError(
+                    "L and U must have the same length as dims"
+                )
+                nn.init.uniform_(self.W[idx].weight, self.L[idx], self.U[idx])
+            else:
+                nn.init.xavier_uniform_(self.W[idx].weight)
+
+    @type_as
+    def forward(self, x, y=None, beta=0.0) -> List[torch.Tensor]:
+        """relax Nodes till converge"""
+        self.W.requires_grad_(False)  # freeze weights
+        if beta == 0.0:
+            opt_nodes = self.minimize(x, y, beta=beta, iters=self.free_iters)
+        else:
+            opt_nodes = self.minimize(x, y, beta=beta, iters=self.nudge_iters)
+        return opt_nodes
+
+    # TODO: implement a better algorithm to find the optimal nodes (e.g. Newton's method)
+
+    def minimize(
+        self,
+        x,
+        y=None,
+        Nodes: List[torch.Tensor] = None,
+        beta=0.0,
+        iters=None,
+        **kwargs
+    ) -> List[torch.Tensor]:
+        """minimize the total energy function using torch.autograd"""
+        Nodes = self._Nodes if Nodes is None else Nodes
+        iters = self.free_iters if iters is None else iters
+        self.W.requires_grad_(False)  # freeze weights
+        for _ in range(iters):
+            # print(Nodes)
+            self.step(Nodes, x, y, beta)
+        relaxedNodes1 = [nodes.clone().detach() for nodes in Nodes]
+        return relaxedNodes1
+
+    def step(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
+        """update Nodes one step
+
+        Args:
+            Nodes (List[torch.Tensor]): _description_
+            x (_type_): _description_
+            y (_type_, optional): _description_. Defaults to None.
+            beta (float, optional): _description_. Defaults to 0.0.
+        """
+        # compute grads(dE/du)
+        E, __ = self.Tenergy(Nodes, x, y, beta=beta)
+        # update Nodes
+        grads = torch.autograd.grad(E.sum(), Nodes)
+        with torch.no_grad():
+            for idx, layergrads in enumerate(grads):
+                Nodes[idx] -= self.eps * layergrads
+                Nodes[idx] = torch.clamp(Nodes[idx], 0, 1)
+                Nodes[idx].requires_grad_(True)
+
+    # TODO: make net._Nodes gradient zero after step
+    def step_(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
+        """alternative method to step. Use autograd.backward() instead.
+
+        Args:
+            Nodes (List[torch.Tensor]): _description_
+            x (_type_): _description_
+            y (_type_, optional): _description_. Defaults to None.
+            beta (float, optional): _description_. Defaults to 0.0.
+        """
+        E, _ = self.Tenergy(Nodes, x, y, beta)
+        E.sum().backward()
+        with torch.no_grad():
+            for idx, nodes in enumerate(Nodes):
+                nodes -= self.eps * nodes.grad
+                nodes = torch.clamp(nodes, 0, 1)
+                nodes.requires_grad_(True)
+                nodes.grad = None  # ...?
+
+    def energy(self, Nodes: List[torch.Tensor], x) -> torch.Tensor:
+        """energy function"""
+        it = len(Nodes)
+        act = self.activation
+        assert it == len(self.dims) - 1, ValueError(
+            "number of nodes must match the number of layers"
+        )
+        assert it == len(self.W), ValueError(
+            "number of nodes must match the number of layers"
+        )
+
+        def layer_energy(n: torch.Tensor, w: nn.Module, m: torch.Tensor):
+            """energy function for a layer
+
+            Args:
+                n (torch.Tensor):B x I
+                w (torch.nn.Linear): O x I
+                m (torch.Tensor): B x O
+
+            Returns:
+                E_layer = E_nodes - E_weights - E_biases
+            """
+            nodes_energy = 0.5 * torch.sum(torch.pow(n, 2), dim=1)
+            weights_energy = 0.5 * (torch.matmul(act(m), w.weight) * act(n)).sum(dim=1)
+            biases_energy = (
+                torch.matmul(act(m), w.bias) if getattr(w, "bias") is not None else 0.0
+            )
+            return nodes_energy - weights_energy - biases_energy
+
+        for idx in range(it):
+            if idx == 0:
+                E = layer_energy(x, self.W[idx], Nodes[idx])
+            else:
+                E += layer_energy(Nodes[idx - 1], self.W[idx], Nodes[idx])
+        E += 0.5 * torch.sum(
+            torch.pow(Nodes[-1], 2), dim=1
+        )  # add E_nodes of output layer
+        return E
+
+    def Tenergy(
+        self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0, **kwargs
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute Total Free Energy: Wsum rho(u_i)W_{ij}rho(u_j)"""
+        E = self.energy(Nodes, x)
+        L = None
+        if beta != 0:
+            assert y is not None, ValueError("y must be provided if beta != 0")
+            L = self.loss(Nodes[-1], y)
+            E += beta * L
+            L = L.mean().detach()
+        return (E, L)
+
+    @interleave(type="in")
+    def loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """Compute loss"""
+        if self.criterion.__class__.__name__.find("MSE") != -1:
+            y = F.one_hot(y, num_classes=self.num_classes)
+            L = self.criterion(y_hat.float(), y.float()).sum(dim=1).squeeze()
+        else:
+            L = self.criterion(y_hat.float(), y).squeeze()
+        return L
+
+    @torch.no_grad()
+    def update(
+        self, free_nodes: List[torch.Tensor], nudge_nodes: List[torch.Tensor], x
+    ) -> None:
+        """Update weights with hardcoded gradients from theorm.
+        dw_ij = (rho(un_i)rho(un_j) - rho(uf_i)rho(uf_j))/beta
+        Annot.
+          un<>: minimized nudge_nodes
+          uf<>: minimized free_nodes
+
+        Args:
+            free_nodes (List[torch.Tensor]): _description_
+            nudge_nodes (List[torch.Tensor]): _description_
+            x (_type_): _description_
+        """
+        # lr = 1e-1
+        act = self.activation
+        free_nodes.insert(0, x)
+        nudge_nodes.insert(0, x)
+        self.W.requires_grad_(True)
+        self.W.zero_grad()
+        for idx, W in enumerate(self.W):
+            W.weight.grad = (
+                torch.matmul(
+                    act(nudge_nodes[idx + 1]).mean(dim=0, keepdim=True).T,
+                    act(nudge_nodes[idx]).mean(dim=0, keepdim=True),
+                )
+                - torch.matmul(
+                    act(free_nodes[idx + 1]).mean(dim=0, keepdim=True).T,
+                    act(free_nodes[idx]).mean(dim=0, keepdim=True),
+                )
+            ) / (-self.beta)
+            # consider bias as synaptic weights with u_i = 1
+            if getattr(W, "bias") is not None:
+                W.bias.grad = (
+                    act(nudge_nodes[idx + 1]).mean(dim=0)
+                    - act(free_nodes[idx + 1]).mean(dim=0)
+                ) / (-self.beta)
+
+    def update_(
+        self, free_nodes, nudge_nodes, x, y
+    ) -> Tuple[torch.Tensor, torch.Tensor, Any]:
+        """update weights from optimized free_nodes & nudge_nodes using autograd.backward()
+
+        Args:
+            free_nodes (_type_): _description_
+            nudge_nodes (_type_): _description_
+            x (_type_): _description_
+            y (_type_): _description_
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, Any]: Free Energy, Nudge Energy, (optional) loss
+        """
+
+        self.W.requires_grad_(True)
+        self.W.zero_grad()
+        # set W.grads
+        Efs, _ = self.Tenergy(free_nodes, x, y, beta=0.0)
+        Ef = Efs.mean()
+        Ef.backward(retain_graph=True)
+        Ens, loss = self.Tenergy(nudge_nodes, x, y, beta=self.beta)
+        En = Ens.mean()
+        (-En).backward()
+        return (Ef.clone().detach(), En.clone().detach(), loss)
+
+    @property
+    def Nodes(self) -> List[torch.Tensor]:
+        """get nodes"""
+        Nodes = [nodes.clone().detach().requires_grad_(True) for nodes in self._Nodes]
+        return Nodes
+
+
+class AnalogEP(EP):
+    """use slightly different energy(pseudopower)
+
+    Attrs:
+        _Nodes (List[torch.Tensor]): output node voltages of each layer
+    """
+
+    def __init__(
+        self,
+        batch_size: int,
+        beta: float = 1e-2,
+        dims: list = [784, 500, 10],
+        activation=lambda x: x,
+        epsilon: float = 0.2,
+        criterion=nn.MSELoss(reduction="none"),
+        *args,
+        **kwargs
+    ):
+        super().__init__(
+            batch_size,
+            beta,
+            dims,
+            (1, 1),
+            activation,
+            epsilon,
+            criterion,
+            *args,
+            **kwargs
+        )
+        self.fdV = []
+        self.ndV = []
+        AnalogEP.minimize = newton_solver
+
+    def _init_weights(self):
+        super()._init_weights()
+
+    def energy(self, Nodes, x) -> torch.Tensor:
+        if not hasattr(self, "Is"):
+            self.Is = 1e-6
+            self.Vl = 0.1
+            self.Vr = 0.9
+
+        num_layers = len(Nodes)
+        act = self.activation
+        assert num_layers == len(self.dims) - 1, ValueError(
+            "number of nodes must match the number of layers"
+        )
+        assert num_layers == len(self.W), ValueError(
+            "number of nodess must match the number of layers"
+        )
+
+        def layer_power(n: torch.Tensor, w: nn.Module, m: torch.Tensor):
+            """energy function for a layer
+
+            Args:
+                n (torch.Tensor):B x I
+                w (torch.nn.Linear): O x I
+                m (torch.Tensor): B x O
+
+            Returns:
+                E_layer = 0.5 * \Sum{G * (n_i - m_i)^2} : B
+            """
+            return 0.5 * torch.sum(w.weight * self.deltaV(n, m).pow(2), dim=(1, 2))
+
+        def rectifier_power(x: torch.Tensor):  # , Is=1e-8, Vt1=0.1, Vt2=0.9, eta=1):
+            def diode_power(V, Vt):
+                return 0.026 * self.Is * (
+                    torch.exp((V - Vt) / (0.026)) - 1
+                ) - self.Is * (V - Vt)
+
+            return torch.sum(
+                diode_power(-x, -self.Vl) + diode_power(x, self.Vr), dim=-1
+            )
+
+        for idx in range(num_layers):
+            if idx == 0:
+                E = layer_power(x, self.W[idx], Nodes[idx]) + rectifier_power(
+                    Nodes[idx]
+                )
+            elif idx != num_layers - 1:
+                E += layer_power(
+                    act(Nodes[idx - 1]), self.W[idx], Nodes[idx]
+                ) + rectifier_power(Nodes[idx])
+            else:
+                E += layer_power(act(Nodes[idx - 1]), self.W[idx], Nodes[idx])
+        return E
+
+    @classmethod
+    def deltaV(cls, n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
+        """compute deltaV matrix from 2 node voltages
+
+        Args:
+            n (torch.Tensor): (B x) I
+            m (torch.Tensor): (B x) O
+
+        Returns:
+            torch.Tensor: (B x) O x I
+        """
+        if len(n.shape) == 2:
+            assert n.shape[0] == m.shape[0], ValueError(
+                "n and m must have the same batch size"
+            )
+            N = n.clone().unsqueeze(dim=-1).repeat(1, 1, m.shape[-1]).transpose(1, 2)
+            M = m.clone().unsqueeze(dim=-1).repeat(1, 1, n.shape[-1])
+        elif len(n.shape) == 1:
+            N = n.clone().unsqueeze(dim=-1).repeat(1, m.shape[-1]).T
+            M = m.clone().unsqueeze(dim=-1).repeat(1, n.shape[-1])
+        else:
+            ValueError("n and m must be 1D or 2D")
+        return N - M
+
+    @torch.no_grad()
+    def update(
+        self, free_opt_Vout: List[torch.Tensor], nudge_opt_Vout: List[torch.Tensor], x
+    ):
+        """update weights from optimized Node Voltages (free_opt_Vout & nudge_opt_Vout)"""
+        self.W.requires_grad_(True)
+        self.W.zero_grad()
+        self.fdV.clear()
+        self.ndV.clear()
+        for idx, W in enumerate(self.W):
+            free_opt_vin = self.activation(free_opt_Vout[idx - 1]) if idx != 0 else x
+            fdV = self.deltaV(free_opt_vin, free_opt_Vout[idx])
+            self.fdV.append(fdV.mean(dim=0))
+            nudge_opt_vin = self.activation(nudge_opt_Vout[idx - 1]) if idx != 0 else x
+            ndV = self.deltaV(nudge_opt_vin, nudge_opt_Vout[idx])
+            self.ndV.append(ndV.mean(dim=0))
+            W.weight.grad = (1 / self.beta) * (
+                ndV.pow(2).mean(dim=0) - fdV.pow(2).mean(dim=0)
+            )
+
+            # TODO: bias?
+
+
+from src.utils.eqprop_util import AddNodes
+from abc import ABC, abstractmethod
+
+
+class EqProp(ABC):
+    def __init__(self, input_size, output_size, hyper_params):
+        pass
+
+    @abstractmethod
+    def forward(self, x):
+        pass
+
+    @abstractmethod
+    def eqprop(
+        self,
+    ):
+        pass
+
+    @abstractmethod
+    def energy(self, x):
+        pass
+
+
+class AnalogEP2(nn.Module):
+    """Directly implement analog eqprop
+
+    Args:
+        nn (_type_): _description_
+    """
+
+    def __init__(
+        self,
+        batch_size: int,
+        input_size: int = 784,
+        lin1_size: int = 256,
+        output_size: int = 10,
+        beta=0.1,
+        hyper_params: dict = {"bias": False},
+    ) -> None:
+        super().__init__()
+        self.hparams = hyper_params
+        self.model = nn.Sequential(
+            OrderedDict(
+                [
+                    (
+                        "lin1",
+                        nn.Linear(input_size, lin1_size, bias=self.hparams["bias"]),
+                    ),
+                    (
+                        "last",
+                        nn.Linear(lin1_size, output_size, bias=self.hparams["bias"]),
+                    ),
+                ]
+            )
+        )
+        self.beta = beta
+
+        AnalogEP2.minimize = newton_solve2
+
+        self.dims = [input_size, lin1_size, output_size]
+        input_shape = (batch_size, input_size)
+
+        # Add free/nudge nodes per layer as buffers
+        addnode_fn = AddNodes(input_shape)
+        self.model.apply(addnode_fn)
+
+        self.model.register_buffer(
+            "ypred", torch.empty(batch_size, output_size)
+        )
+
+    @interleave(type="out")
+    def forward(self, x):
+        """forward propagation.
+
+        Args:
+            x (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        # assert self.training is False
+        self.reset_nodes()
+        self.minimize(x)
+        logits = self.model.get_buffer("last.free_node")
+        self.model.ypred = logits.clone().detach().requires_grad_(True)
+        return self.model.ypred
+
+    def eqprop(self, batch):
+        """Nudge phase & grad calculaiton.
+        y is needed for internal loss calculation
+
+        Args:
+            x (_type_): _description_
+            y (_type_): _description_
+        """
+        assert self.training is True
+        x,y = batch
+        self.minimize(x,y)
+        self.prev_free = self.prev_nudge = x
+        self.model.apply(self._update)
+
+    def _update(self, submodule: nn.Module):
+        """set gradients of params manually
+
+        Args:
+            submodule (nn.Module): _description_
+        """
+        if hasattr(submodule, "weight"):
+            free_n = submodule.get_buffer("free_node")
+            nudge_n = submodule.get_buffer("nudge_node")
+            free_dV = deltaV(self.prev_free, free_n)
+            nudge_dV = deltaV(self.prev_nudge, nudge_n)
+            submodule.weight.grad = (nudge_dV.pow(2).mean(dim=0)-free_dV.pow(2).mean(dim=0)) / self.beta
+            if submodule.bias != None:
+                submodule.bias.grad = 0
+            
+            self.prev_free = free_n
+            self.prev_nudge = nudge_n
+            
+    def energy(self):
+        """compute energy"""
+        # consider CNN, RNN case and generalized energy
+        ...
+
+    def reset_nodes(self):
+        for buf in self.model.buffers():
+            buf = torch.zeros_like(buf)
+
+
+    class EqPropWrapper(nn.Module):
+        """Wrapper for EqProp
+        Has same interface as nn.Module
+        Full control over eqprop process (data)
+
+        Args:
+            nn (_type_): _description_
+        """

@@ -10,7 +10,7 @@ from src.utils import eqprop_util
 
 
 class EqPropLitModule(LightningModule):
-    """EqProp Meta class
+    """EqProp Meta class.
 
     Has control over in/output node manipulation and training procedure
     It does not know detailed EqProp algorithm
@@ -32,25 +32,23 @@ class EqPropLitModule(LightningModule):
         net: EqProp,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler._LRScheduler,
-        **kwargs,
+        double_input: bool = False,
+        double_output: bool = False,
+        positive_w: bool = False,
+        bias: bool = False,
+        clip_weights: bool = False,
+        normalize_weights: bool = False,
     ):
         super().__init__()
-
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        KWARGS = ("double_input", "double_output", "positive_w", "bias", "clip_weights")
-        [
-            setattr(self, k, v)
-            if k in KWARGS
-            else ValueError(f"{k} is not supported. Choose keywords in {KWARGS}")
-            for k, v in kwargs.items()
-        ]
-
         self.save_hyperparameters(logger=False, ignore=["net"])
 
         self.net: EqProp = net(hyper_params=self.hparams)
-        self.net.model.apply(eqprop_util.init_params(min_w=1e-5, max_w=1)) if getattr(self, "positive_w", False) else None
-        eqprop_util.interleave._on = getattr(self, "double_output", False)
+        self.net.model.apply(
+            eqprop_util.init_params(min_w=1e-5, max_w=1)
+        ) if self.hparams.positive_w else ...
+        eqprop_util.interleave.on() if self.hparams.double_output else ...
 
         # loss function
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -71,7 +69,11 @@ class EqPropLitModule(LightningModule):
         self.automatic_optimization = False
 
         # set param clipper
-        # self.clipper = eqprop.ClipParams(L=0.0, U=1.0) if self. else None
+        self.adjuster = (
+            eqprop_util.AdjustParams(L=1e-5, U=None, normalize=self.hparams.normalize_weights)
+            if self.hparams.clip_weights
+            else ...
+        )
 
     def on_train_start(self):
         # by default lightning executes validation step sanity checks before training starts,
@@ -79,7 +81,7 @@ class EqPropLitModule(LightningModule):
         self.val_acc_best.reset()
 
     def model_forward(self, batch: Any):
-        self.batch = self.preprocessing_input(batch) if getattr(self, "double_input", False) else batch
+        self.batch = self.preprocessing_input(batch) if self.hparams.double_input else batch
         x, y = self.batch
         logits = self.net.forward(x)
         loss = self.criterion(logits, y)
@@ -93,7 +95,7 @@ class EqPropLitModule(LightningModule):
         self.manual_backward(loss)
         self.net.eqprop(self.batch)
         opt.step()
-        # self.clipper()
+        self.net.apply(self.adjuster) if self.hparams.clip_weights else None
 
     def training_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_forward(batch)
@@ -102,12 +104,8 @@ class EqPropLitModule(LightningModule):
         # update and log metrics
         self.train_loss(loss)
         self.train_acc(preds, targets)
-        self.log(
-            "train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True
-        )
-        self.log(
-            "train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True
-        )
+        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
 
         # we can return here dict with any tensors
         # and then read it in some callback or in `training_epoch_end()` below
@@ -142,9 +140,7 @@ class EqPropLitModule(LightningModule):
         # update and log metrics
         self.test_loss(loss)
         self.test_acc(preds, targets)
-        self.log(
-            "test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True
-        )
+        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
 
         return {"loss": loss, "preds": preds, "targets": targets}

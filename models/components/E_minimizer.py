@@ -2,8 +2,8 @@
 from typing import List, Union
 
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
+import torch.nn.functional as F
 
 # from src.models.components.eqprop_backbone import AnalogEP2
 from src.utils.eqprop_util import rectifier_a, rectifier_i
@@ -20,8 +20,8 @@ def newton_solver(
     iters=None,
     training=True,
 ) -> List[torch.Tensor]:
-    """Find node voltages by linearize & iteratively solve network to satisfy KCL.
-    Used as a method of AnalogEP class
+    """Find node voltages by linearize & iteratively solve network to satisfy KCL. Used as a method
+    of AnalogEP class.
 
     Args:
         x (_type_): _description_
@@ -54,27 +54,23 @@ def newton_solve2(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) ->
     dims = getattr(self, "dims")
     self.model.requires_grad_(False)
 
-    if not hasattr(self,"sparse"):
+    if not hasattr(self, "sparse"):
         self.sparse = True if sum([dim**2 for dim in dims]) / sum(dims) ** 2 < 0.1 else False
 
     def get_params(submodule: nn.Module):
         if hasattr(submodule, "weight"):
             W.append(submodule.get_parameter("weight"))
-            B.append(submodule.get_parameter("bias")) if self.hparams[
-                "bias"
-            ] == True else ...
+            B.append(submodule.get_parameter("bias")) if self.hparams["bias"] == True else ...
 
     self.model.apply(get_params)
     free_phase = True if y == None else False
     if free_phase:
         i_ext = 0
     else:
-        i_ext = self.beta * self.model.ypred.grad
+        i_ext = -self.beta * self.model.ypred.grad
 
     vout = (
-        _stepsolve2(x, W, dims, i_ext=i_ext)
-        if not self.sparse
-        else _sparsesolve(x, W, B, i_ext)
+        _stepsolve2(x, W, dims, i_ext=i_ext) if not self.sparse else _sparsesolve(x, W, B, i_ext)
     )
     Nodes = list(vout.split(dims[1:], dim=1))
     Nodes.reverse()
@@ -93,7 +89,7 @@ def newton_solve2(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) ->
 def _stepsolve(
     x: torch.Tensor, W: torch.nn.ModuleList, dims, i_ext=0, atol=1e-6, it=30
 ) -> torch.Tensor:
-    """solve J\Delta{X}=-f iteraitvely"""
+    r"""Solve J\Delta{X}=-f iteraitvely."""
     if not hasattr(_stepsolve, "Is"):
         _stepsolve.Is = 1e-6
         _stepsolve.Vr = 0.9
@@ -119,9 +115,7 @@ def _stepsolve(
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         ## nonlinearity comes here
-        A = rectifier_a(
-            v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl
-        )
+        A = rectifier_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
@@ -139,7 +133,7 @@ def _stepsolve(
 
 
 @torch.no_grad()
-def _stepsolve2(x:torch.Tensor, W:list, dims:list, B=None, i_ext=None):
+def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     atol = 1e-6
     it = 30
     if not hasattr(_stepsolve, "Is"):
@@ -167,9 +161,7 @@ def _stepsolve2(x:torch.Tensor, W:list, dims:list, B=None, i_ext=None):
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         ## nonlinearity comes here
-        A = rectifier_a(
-            v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl
-        )
+        A = rectifier_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)

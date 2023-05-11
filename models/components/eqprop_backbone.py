@@ -1,12 +1,14 @@
-import torch.nn as nn
-import torch
-import torch.nn.functional as F
-from typing import Any, Tuple, List, Union, Sequence, overload, Iterator, Mapping
-from src.utils.eqprop_util import interleave, type_as, deltaV
-from models.components.E_minimizer import newton_solve2, newton_solver
-import numpy as np
 from collections import OrderedDict
+from typing import Any, Iterator, List, Mapping, Sequence, Tuple, Union, overload
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
+
+from models.components.E_minimizer import newton_solve2, newton_solver
+from src.utils.eqprop_util import deltaV, interleave, type_as
 
 
 class EP(nn.Module):
@@ -24,7 +26,7 @@ class EP(nn.Module):
         *args,
         **kwargs
     ):
-        """Equilibrium Propagation (EP) model
+        """Equilibrium Propagation (EP) model.
 
         Args:
             batch_size (_type_): _description_
@@ -36,7 +38,7 @@ class EP(nn.Module):
             criterion (_type_, optional): loss function. Defaults to nn.MSELoss(reduction='none').
         """
 
-        super(EP, self).__init__()
+        super().__init__()
 
         self.batch_size = batch_size
         self.beta = beta
@@ -56,10 +58,7 @@ class EP(nn.Module):
         self.activation = activation
 
         self._Nodes = [
-            torch.empty((batch_size, n))
-            .normal_(0.5, 0.5)
-            .clamp(0, 1)
-            .requires_grad_(True)
+            torch.empty((batch_size, n)).normal_(0.5, 0.5).clamp(0, 1).requires_grad_(True)
             for n in dims[1:]
         ]
 
@@ -95,7 +94,7 @@ class EP(nn.Module):
 
     @type_as
     def forward(self, x, y=None, beta=0.0) -> List[torch.Tensor]:
-        """relax Nodes till converge"""
+        """Relax Nodes till converge."""
         self.W.requires_grad_(False)  # freeze weights
         if beta == 0.0:
             opt_nodes = self.minimize(x, y, beta=beta, iters=self.free_iters)
@@ -106,15 +105,9 @@ class EP(nn.Module):
     # TODO: implement a better algorithm to find the optimal nodes (e.g. Newton's method)
 
     def minimize(
-        self,
-        x,
-        y=None,
-        Nodes: List[torch.Tensor] = None,
-        beta=0.0,
-        iters=None,
-        **kwargs
+        self, x, y=None, Nodes: List[torch.Tensor] = None, beta=0.0, iters=None, **kwargs
     ) -> List[torch.Tensor]:
-        """minimize the total energy function using torch.autograd"""
+        """Minimize the total energy function using torch.autograd."""
         Nodes = self._Nodes if Nodes is None else Nodes
         iters = self.free_iters if iters is None else iters
         self.W.requires_grad_(False)  # freeze weights
@@ -125,7 +118,7 @@ class EP(nn.Module):
         return relaxedNodes1
 
     def step(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
-        """update Nodes one step
+        """Update Nodes one step.
 
         Args:
             Nodes (List[torch.Tensor]): _description_
@@ -163,18 +156,16 @@ class EP(nn.Module):
                 nodes.grad = None  # ...?
 
     def energy(self, Nodes: List[torch.Tensor], x) -> torch.Tensor:
-        """energy function"""
+        """Energy function."""
         it = len(Nodes)
         act = self.activation
         assert it == len(self.dims) - 1, ValueError(
             "number of nodes must match the number of layers"
         )
-        assert it == len(self.W), ValueError(
-            "number of nodes must match the number of layers"
-        )
+        assert it == len(self.W), ValueError("number of nodes must match the number of layers")
 
         def layer_energy(n: torch.Tensor, w: nn.Module, m: torch.Tensor):
-            """energy function for a layer
+            """Energy function for a layer.
 
             Args:
                 n (torch.Tensor):B x I
@@ -186,9 +177,7 @@ class EP(nn.Module):
             """
             nodes_energy = 0.5 * torch.sum(torch.pow(n, 2), dim=1)
             weights_energy = 0.5 * (torch.matmul(act(m), w.weight) * act(n)).sum(dim=1)
-            biases_energy = (
-                torch.matmul(act(m), w.bias) if getattr(w, "bias") is not None else 0.0
-            )
+            biases_energy = torch.matmul(act(m), w.bias) if getattr(w, "bias") is not None else 0.0
             return nodes_energy - weights_energy - biases_energy
 
         for idx in range(it):
@@ -196,9 +185,7 @@ class EP(nn.Module):
                 E = layer_energy(x, self.W[idx], Nodes[idx])
             else:
                 E += layer_energy(Nodes[idx - 1], self.W[idx], Nodes[idx])
-        E += 0.5 * torch.sum(
-            torch.pow(Nodes[-1], 2), dim=1
-        )  # add E_nodes of output layer
+        E += 0.5 * torch.sum(torch.pow(Nodes[-1], 2), dim=1)  # add E_nodes of output layer
         return E
 
     def Tenergy(
@@ -216,7 +203,7 @@ class EP(nn.Module):
 
     @interleave(type="in")
     def loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """Compute loss"""
+        """Compute loss."""
         if self.criterion.__class__.__name__.find("MSE") != -1:
             y = F.one_hot(y, num_classes=self.num_classes)
             L = self.criterion(y_hat.float(), y.float()).sum(dim=1).squeeze()
@@ -225,10 +212,9 @@ class EP(nn.Module):
         return L
 
     @torch.no_grad()
-    def update(
-        self, free_nodes: List[torch.Tensor], nudge_nodes: List[torch.Tensor], x
-    ) -> None:
+    def update(self, free_nodes: List[torch.Tensor], nudge_nodes: List[torch.Tensor], x) -> None:
         """Update weights with hardcoded gradients from theorm.
+
         dw_ij = (rho(un_i)rho(un_j) - rho(uf_i)rho(uf_j))/beta
         Annot.
           un<>: minimized nudge_nodes
@@ -259,13 +245,10 @@ class EP(nn.Module):
             # consider bias as synaptic weights with u_i = 1
             if getattr(W, "bias") is not None:
                 W.bias.grad = (
-                    act(nudge_nodes[idx + 1]).mean(dim=0)
-                    - act(free_nodes[idx + 1]).mean(dim=0)
+                    act(nudge_nodes[idx + 1]).mean(dim=0) - act(free_nodes[idx + 1]).mean(dim=0)
                 ) / (-self.beta)
 
-    def update_(
-        self, free_nodes, nudge_nodes, x, y
-    ) -> Tuple[torch.Tensor, torch.Tensor, Any]:
+    def update_(self, free_nodes, nudge_nodes, x, y) -> Tuple[torch.Tensor, torch.Tensor, Any]:
         """update weights from optimized free_nodes & nudge_nodes using autograd.backward()
 
         Args:
@@ -277,7 +260,6 @@ class EP(nn.Module):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, Any]: Free Energy, Nudge Energy, (optional) loss
         """
-
         self.W.requires_grad_(True)
         self.W.zero_grad()
         # set W.grads
@@ -291,7 +273,7 @@ class EP(nn.Module):
 
     @property
     def Nodes(self) -> List[torch.Tensor]:
-        """get nodes"""
+        """Get nodes."""
         Nodes = [nodes.clone().detach().requires_grad_(True) for nodes in self._Nodes]
         return Nodes
 
@@ -315,15 +297,7 @@ class AnalogEP(EP):
         **kwargs
     ):
         super().__init__(
-            batch_size,
-            beta,
-            dims,
-            (1, 1),
-            activation,
-            epsilon,
-            criterion,
-            *args,
-            **kwargs
+            batch_size, beta, dims, (1, 1), activation, epsilon, criterion, *args, **kwargs
         )
         self.fdV = []
         self.ndV = []
@@ -344,11 +318,11 @@ class AnalogEP(EP):
             "number of nodes must match the number of layers"
         )
         assert num_layers == len(self.W), ValueError(
-            "number of nodess must match the number of layers"
+            "number of nodes must match the number of layers"
         )
 
         def layer_power(n: torch.Tensor, w: nn.Module, m: torch.Tensor):
-            """energy function for a layer
+            r"""Energy function for a layer.
 
             Args:
                 n (torch.Tensor):B x I
@@ -362,30 +336,24 @@ class AnalogEP(EP):
 
         def rectifier_power(x: torch.Tensor):  # , Is=1e-8, Vt1=0.1, Vt2=0.9, eta=1):
             def diode_power(V, Vt):
-                return 0.026 * self.Is * (
-                    torch.exp((V - Vt) / (0.026)) - 1
-                ) - self.Is * (V - Vt)
+                return 0.026 * self.Is * (torch.exp((V - Vt) / (0.026)) - 1) - self.Is * (V - Vt)
 
-            return torch.sum(
-                diode_power(-x, -self.Vl) + diode_power(x, self.Vr), dim=-1
-            )
+            return torch.sum(diode_power(-x, -self.Vl) + diode_power(x, self.Vr), dim=-1)
 
         for idx in range(num_layers):
             if idx == 0:
-                E = layer_power(x, self.W[idx], Nodes[idx]) + rectifier_power(
+                E = layer_power(x, self.W[idx], Nodes[idx]) + rectifier_power(Nodes[idx])
+            elif idx != num_layers - 1:
+                E += layer_power(act(Nodes[idx - 1]), self.W[idx], Nodes[idx]) + rectifier_power(
                     Nodes[idx]
                 )
-            elif idx != num_layers - 1:
-                E += layer_power(
-                    act(Nodes[idx - 1]), self.W[idx], Nodes[idx]
-                ) + rectifier_power(Nodes[idx])
             else:
                 E += layer_power(act(Nodes[idx - 1]), self.W[idx], Nodes[idx])
         return E
 
     @classmethod
     def deltaV(cls, n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
-        """compute deltaV matrix from 2 node voltages
+        """Compute deltaV matrix from 2 node voltages.
 
         Args:
             n (torch.Tensor): (B x) I
@@ -395,9 +363,7 @@ class AnalogEP(EP):
             torch.Tensor: (B x) O x I
         """
         if len(n.shape) == 2:
-            assert n.shape[0] == m.shape[0], ValueError(
-                "n and m must have the same batch size"
-            )
+            assert n.shape[0] == m.shape[0], ValueError("n and m must have the same batch size")
             N = n.clone().unsqueeze(dim=-1).repeat(1, 1, m.shape[-1]).transpose(1, 2)
             M = m.clone().unsqueeze(dim=-1).repeat(1, 1, n.shape[-1])
         elif len(n.shape) == 1:
@@ -408,9 +374,7 @@ class AnalogEP(EP):
         return N - M
 
     @torch.no_grad()
-    def update(
-        self, free_opt_Vout: List[torch.Tensor], nudge_opt_Vout: List[torch.Tensor], x
-    ):
+    def update(self, free_opt_Vout: List[torch.Tensor], nudge_opt_Vout: List[torch.Tensor], x):
         """update weights from optimized Node Voltages (free_opt_Vout & nudge_opt_Vout)"""
         self.W.requires_grad_(True)
         self.W.zero_grad()
@@ -423,15 +387,14 @@ class AnalogEP(EP):
             nudge_opt_vin = self.activation(nudge_opt_Vout[idx - 1]) if idx != 0 else x
             ndV = self.deltaV(nudge_opt_vin, nudge_opt_Vout[idx])
             self.ndV.append(ndV.mean(dim=0))
-            W.weight.grad = (1 / self.beta) * (
-                ndV.pow(2).mean(dim=0) - fdV.pow(2).mean(dim=0)
-            )
+            W.weight.grad = (1 / self.beta) * (ndV.pow(2).mean(dim=0) - fdV.pow(2).mean(dim=0))
 
             # TODO: bias?
 
 
-from src.utils.eqprop_util import AddNodes
 from abc import ABC, abstractmethod
+
+from src.utils.eqprop_util import AddNodes
 
 
 class EqProp(ABC):
@@ -454,7 +417,7 @@ class EqProp(ABC):
 
 
 class AnalogEP2(nn.Module):
-    """Directly implement analog eqprop
+    """Directly implement analog eqprop.
 
     Args:
         nn (_type_): _description_
@@ -496,9 +459,7 @@ class AnalogEP2(nn.Module):
         addnode_fn = AddNodes(input_shape)
         self.model.apply(addnode_fn)
 
-        self.model.register_buffer(
-            "ypred", torch.empty(batch_size, output_size)
-        )
+        self.model.register_buffer("ypred", torch.empty(batch_size, output_size))
 
     @interleave(type="out")
     def forward(self, x):
@@ -518,21 +479,20 @@ class AnalogEP2(nn.Module):
         return self.model.ypred
 
     def eqprop(self, batch):
-        """Nudge phase & grad calculaiton.
-        y is needed for internal loss calculation
+        """Nudge phase & grad calculaiton. y is needed for internal loss calculation.
 
         Args:
             x (_type_): _description_
             y (_type_): _description_
         """
         assert self.training is True
-        x,y = batch
-        self.minimize(x,y)
+        x, y = batch
+        self.minimize(x, y)
         self.prev_free = self.prev_nudge = x
         self.model.apply(self._update)
 
     def _update(self, submodule: nn.Module):
-        """set gradients of params manually
+        """Set gradients of params manually.
 
         Args:
             submodule (nn.Module): _description_
@@ -542,15 +502,17 @@ class AnalogEP2(nn.Module):
             nudge_n = submodule.get_buffer("nudge_node")
             free_dV = deltaV(self.prev_free, free_n)
             nudge_dV = deltaV(self.prev_nudge, nudge_n)
-            submodule.weight.grad = (nudge_dV.pow(2).mean(dim=0)-free_dV.pow(2).mean(dim=0)) / self.beta
+            submodule.weight.grad = (
+                nudge_dV.pow(2).mean(dim=0) - free_dV.pow(2).mean(dim=0)
+            ) / self.beta
             if submodule.bias != None:
                 submodule.bias.grad = 0
-            
+
             self.prev_free = free_n
             self.prev_nudge = nudge_n
-            
+
     def energy(self):
-        """compute energy"""
+        """Compute energy."""
         # consider CNN, RNN case and generalized energy
         ...
 
@@ -559,11 +521,11 @@ class AnalogEP2(nn.Module):
             buf = torch.zeros_like(buf)
 
 
-    class EqPropWrapper(nn.Module):
-        """Wrapper for EqProp
-        Has same interface as nn.Module
-        Full control over eqprop process (data)
+class EqPropWrapper(nn.Module):
+    """Wrapper for EqProp Has same interface as nn.Module Full control over eqprop process (data)
 
-        Args:
-            nn (_type_): _description_
-        """
+    Args:
+        nn (_type_): _description_
+    """
+
+    pass

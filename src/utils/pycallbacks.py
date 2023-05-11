@@ -8,6 +8,8 @@ from pytorch_lightning import Callback, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.loggers.base import DummyLogger, LoggerCollection
 
+from src.models.components.eqprop_backbone import AnalogEP
+
 LOGGER_TYPE = {"tb": TensorBoardLogger, "wandb": WandbLogger}
 
 
@@ -90,9 +92,7 @@ class AdvLoggerCallback(Callback):
                 self.log_histogram(f"Vdrop_{key_prefix}_{idx}", value, step, key_suffix, **kwargs)
 
     # TODO: add log metrics
-    def log_everything(
-        self, backbone: AnalogEP, key_suffix: str, step: int = None, **kwargs
-    ):
+    def log_everything(self, backbone: AnalogEP, key_suffix: str, step: int = None, **kwargs):
         if self.log_optn["Vdrops"]:
             self.log_Vdrops(backbone.fdV, step, key_prefix="free", key_suffix=key_suffix, **kwargs)
             self.log_Vdrops(

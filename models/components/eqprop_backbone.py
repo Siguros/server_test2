@@ -505,7 +505,7 @@ class AnalogEP2(nn.Module):
             submodule.weight.grad = (
                 nudge_dV.pow(2).mean(dim=0) - free_dV.pow(2).mean(dim=0)
             ) / self.beta
-            if submodule.bias != None:
+            if submodule.bias is not None:
                 submodule.bias.grad = 0
 
             self.prev_free = free_n

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 # from src.models.components.eqprop_backbone import AnalogEP2
 from src.utils.eqprop_util import rectifier_a, rectifier_i
 
-## functions below are used as instance methods
+# functions below are used as instance methods
 
 
 def newton_solver(
@@ -60,10 +60,10 @@ def newton_solve2(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) ->
     def get_params(submodule: nn.Module):
         if hasattr(submodule, "weight"):
             W.append(submodule.get_parameter("weight"))
-            B.append(submodule.get_parameter("bias")) if self.hparams["bias"] == True else ...
+            B.append(submodule.get_parameter("bias")) if self.hparams["bias"] else ...
 
     self.model.apply(get_params)
-    free_phase = True if y == None else False
+    free_phase = True if y is None else False
     if free_phase:
         i_ext = 0
     else:
@@ -114,7 +114,7 @@ def _stepsolve(
     L = L.expand(b, *L.shape)  #
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
-        ## nonlinearity comes here
+        # nonlinearity comes here
         A = rectifier_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
@@ -160,7 +160,7 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     L = L.expand(b, *L.shape)  #
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
-        ## nonlinearity comes here
+        # nonlinearity comes here
         A = rectifier_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])

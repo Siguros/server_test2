@@ -138,7 +138,7 @@ class EP(nn.Module):
 
     # TODO: make net._Nodes gradient zero after step
     def step_(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
-        """alternative method to step. Use autograd.backward() instead.
+        """Alternative method to step. Use autograd.backward() instead.
 
         Args:
             Nodes (List[torch.Tensor]): _description_
@@ -249,7 +249,7 @@ class EP(nn.Module):
                 ) / (-self.beta)
 
     def update_(self, free_nodes, nudge_nodes, x, y) -> Tuple[torch.Tensor, torch.Tensor, Any]:
-        """update weights from optimized free_nodes & nudge_nodes using autograd.backward()
+        """Update weights from optimized free_nodes & nudge_nodes using autograd.backward()
 
         Args:
             free_nodes (_type_): _description_
@@ -279,7 +279,7 @@ class EP(nn.Module):
 
 
 class AnalogEP(EP):
-    """use slightly different energy(pseudopower)
+    """Use slightly different energy(pseudopower)
 
     Attrs:
         _Nodes (List[torch.Tensor]): output node voltages of each layer
@@ -375,7 +375,7 @@ class AnalogEP(EP):
 
     @torch.no_grad()
     def update(self, free_opt_Vout: List[torch.Tensor], nudge_opt_Vout: List[torch.Tensor], x):
-        """update weights from optimized Node Voltages (free_opt_Vout & nudge_opt_Vout)"""
+        """Update weights from optimized Node Voltages (free_opt_Vout & nudge_opt_Vout)"""
         self.W.requires_grad_(True)
         self.W.zero_grad()
         self.fdV.clear()
@@ -462,8 +462,9 @@ class AnalogEP2(nn.Module):
         self.model.register_buffer("ypred", torch.empty(batch_size, output_size))
 
     @interleave(type="out")
+    @torch.no_grad()
     def forward(self, x):
-        """forward propagation.
+        """Forward propagation.
 
         Args:
             x (_type_): _description_
@@ -478,6 +479,7 @@ class AnalogEP2(nn.Module):
         self.model.ypred = logits.clone().detach().requires_grad_(True)
         return self.model.ypred
 
+    @torch.no_grad()
     def eqprop(self, batch):
         """Nudge phase & grad calculaiton. y is needed for internal loss calculation.
 

@@ -1,0 +1,14 @@
+# @package _global_
+
+# runs with execution time and memory profiling
+
+defaults:
+  - default.yaml
+
+trainer:
+  max_epochs: 1
+  # limit_train_batches: 0.5
+  fast_dev_run: 300
+  profiler:
+    _target_: pytorch_lightning.profiler.PyTorchProfiler
+    profile_memory: True

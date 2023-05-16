@@ -58,6 +58,7 @@ def newton_solve2(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) ->
         self.sparse = True if sum([dim**2 for dim in dims]) / sum(dims) ** 2 < 0.1 else False
 
     def get_params(submodule: nn.Module):
+        nonlocal W, B
         if hasattr(submodule, "weight"):
             W.append(submodule.get_parameter("weight"))
             B.append(submodule.get_parameter("bias")) if self.hparams["bias"] else ...
@@ -68,10 +69,11 @@ def newton_solve2(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) ->
         i_ext = 0
     else:
         i_ext = -self.beta * self.model.ypred.grad
-
+        del self.model.ypred.grad
     vout = (
         _stepsolve2(x, W, dims, i_ext=i_ext) if not self.sparse else _sparsesolve(x, W, B, i_ext)
     )
+    del W, B
     Nodes = list(vout.split(dims[1:], dim=1))
     Nodes.reverse()
 
@@ -170,7 +172,11 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
         )
         # or SPOSV
         lo, info = torch.linalg.cholesky_ex(J)
-        dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+        if any(info):  # singular
+            lo, piv, info = torch.linalg.lu_factor_ex(J)
+            dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+        else:
+            dv = torch.cholesky_solve(-f, lo).squeeze(-1)
         thrs = 1e-1  # / idx
         dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
         idx += 1
@@ -179,7 +185,7 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
 
 
 def _sparsesolve(x, W, B, i_ext):
-    """multifrontal?
+    """Multifrontal?
 
     Args:
         x (_type_): _description_

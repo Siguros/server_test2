@@ -1,3 +1,4 @@
+import gc
 from typing import Any, List
 
 import torch
@@ -111,6 +112,9 @@ class EqPropLitModule(LightningModule):
         # and then read it in some callback or in `training_epoch_end()` below
         # remember to always return loss from `training_step()` or backpropagation will fail!
         return {"loss": loss, "preds": preds, "targets": targets}
+
+    def training_step_end(self, d) -> None:
+        gc.collect()
 
     def training_epoch_end(self, outputs: List[Any]):
         # `outputs` is a list of dicts returned from `training_step()`

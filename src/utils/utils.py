@@ -29,6 +29,7 @@ def task_wrapper(task_func: Callable) -> Callable:
     - Logging the task total execution time
     - Logging the output dir
     """
+
     def wrap(cfg: DictConfig):
         # apply extra utilities
         extras(cfg)

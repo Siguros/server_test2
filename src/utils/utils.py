@@ -1,8 +1,9 @@
+import functools
 import warnings
 from importlib.util import find_spec
 from typing import Callable
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from src.utils import pylogger, rich_utils
 
@@ -110,3 +111,18 @@ def get_metric_value(metric_dict: dict, metric_name: str) -> float:
     log.info(f"Retrieved metric value! <{metric_name}={metric_value}>")
 
     return metric_value
+
+
+def register_custom_resolver(resolver: Callable) -> Callable:
+    """Registers custom resolver for hydra config files.."""
+
+    def main_decorator(task_function: Callable) -> Callable:
+        @functools.wraps(task_function)
+        def decorated_main(*args, **kwargs):
+            if not OmegaConf.has_resolver(resolver.__name__):
+                OmegaConf.register_new_resolver(resolver.__name__, resolver)
+            task_function(*args, **kwargs)
+
+        return decorated_main
+
+    return main_decorator

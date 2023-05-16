@@ -1,8 +1,8 @@
 import gc
-from typing import Any, List
+from typing import Any
 
 import torch
-from pytorch_lightning import LightningModule
+from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
@@ -17,22 +17,22 @@ class EqPropLitModule(LightningModule):
     It does not know detailed EqProp algorithm
 
     A LightningModule organizes your PyTorch code into 6 sections:
-        - Computations (init)
-        - Train loop (training_step)
+        - Initialization (__init__)
+        - Train Loop (training_step)
         - Validation loop (validation_step)
         - Test loop (test_step)
         - Prediction Loop (predict_step)
         - Optimizers and LR Schedulers (configure_optimizers)
 
     Docs:
-        https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
+        https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
     """
 
     def __init__(
         self,
         net: EqProp,
         optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler._LRScheduler,
+        scheduler: torch.optim.lr_scheduler,
         double_input: bool = False,
         double_output: bool = False,
         positive_w: bool = False,
@@ -111,14 +111,10 @@ class EqPropLitModule(LightningModule):
         # we can return here dict with any tensors
         # and then read it in some callback or in `training_epoch_end()` below
         # remember to always return loss from `training_step()` or backpropagation will fail!
-        return {"loss": loss, "preds": preds, "targets": targets}
+        return loss
 
-    def training_step_end(self, d) -> None:
+    def on_training_step_end(self) -> None:
         gc.collect()
-
-    def training_epoch_end(self, outputs: List[Any]):
-        # `outputs` is a list of dicts returned from `training_step()`
-        pass
 
     def validation_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_forward(batch)
@@ -129,14 +125,12 @@ class EqPropLitModule(LightningModule):
         self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
 
-        return {"loss": loss, "preds": preds, "targets": targets}
-
-    def validation_epoch_end(self, outputs: List[Any]):
+    def on_validation_epoch_end(self):
         acc = self.val_acc.compute()  # get current val acc
         self.val_acc_best(acc)  # update best so far val acc
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
         # otherwise metric would be reset by lightning after each epoch
-        self.log("val/acc_best", self.val_acc_best.compute(), prog_bar=True)
+        self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
 
     def test_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_forward(batch)
@@ -147,9 +141,7 @@ class EqPropLitModule(LightningModule):
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
 
-        return {"loss": loss, "preds": preds, "targets": targets}
-
-    def test_epoch_end(self, outputs: List[Any]):
+    def on_test_epoch_end(self, outputs: Any):
         pass
 
     def configure_optimizers(self):
@@ -157,7 +149,7 @@ class EqPropLitModule(LightningModule):
         Normally you'd need one. But in the case of GANs or similar you might have multiple.
 
         Examples:
-            https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#configure-optimizers
+            https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
         """
         optimizer = self.hparams.optimizer(params=self.parameters())
         if self.hparams.scheduler is not None:
@@ -183,10 +175,4 @@ class EqPropLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    import hydra
-    import omegaconf
-    import pyrootutils
-
-    root = pyrootutils.setup_root(__file__, pythonpath=True)
-    cfg = omegaconf.OmegaConf.load(root / "configs" / "model" / "mnist_eqprop.yaml")
-    _ = hydra.utils.instantiate(cfg)
+    _ = EqPropLitModule(None, None, None)

@@ -6,7 +6,7 @@ from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
-from src.models.components.eqprop_backbone import EqProp
+from src.models.components.eqprop_backbone import AnalogEP2
 from src.utils import eqprop_util
 
 
@@ -30,7 +30,7 @@ class EqPropLitModule(LightningModule):
 
     def __init__(
         self,
-        net: EqProp,
+        net: AnalogEP2,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         double_input: bool = False,
@@ -45,7 +45,7 @@ class EqPropLitModule(LightningModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False, ignore=["net"])
 
-        self.net: EqProp = net(hyper_params=self.hparams)
+        self.net: AnalogEP2 = net(hyper_params=self.hparams)
         self.net.model.apply(
             eqprop_util.init_params(min_w=1e-5, max_w=1)
         ) if self.hparams.positive_w else ...

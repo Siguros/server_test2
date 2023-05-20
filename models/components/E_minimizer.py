@@ -6,7 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # from src.models.components.eqprop_backbone import AnalogEP2
-from src.utils.eqprop_util import rectifier_a, rectifier_i, rectifier_p3_a, rectifier_p3_i
+from src.utils.eqprop_util import (
+    rectifier_a,
+    rectifier_i,
+    rectifier_p3_a,
+    rectifier_p3_i,
+)
 
 # functions below are used as instance methods
 
@@ -173,7 +178,7 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
         # or SPOSV
         lo, info = torch.linalg.cholesky_ex(J)
         if any(info):  # singular
-            lo, piv, info = torch.linalg.lu_factor_ex(J+1e-6*torch.eye(J.size(-1)))
+            lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
             dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
         else:
             dv = torch.cholesky_solve(-f, lo).squeeze(-1)
@@ -195,12 +200,13 @@ def _sparsesolve(x, W, dims, B, i_ext):
     """
     ...
 
+
 def block_tri_cholesky(W: List[torch.Tensor]):
     """Blockwise cholesky decomposition for a block diagonal matrix.
 
     Args:
         W (List[torch.Tensor]): List of lower triangular blocks.
-    
+
     Returns:
         L (List[torch.Tensor]): List of lower triangular blocks.
         C (List[torch.Tensor]): List of diagonal blocks. as column vectors.
@@ -208,16 +214,17 @@ def block_tri_cholesky(W: List[torch.Tensor]):
 
     n = len(W)
     C = [torch.zeros_like(W[i]) for i in range(n)]
-    L = [torch.zeros_like(W[i]) for i in range(n+1)]
+    L = [torch.zeros_like(W[i]) for i in range(n + 1)]
     W.append(0)
     D_prev = torch.sqrt(W[0].sum(dim=-1))
     for i in range(n):
-        C[i] = torch.bmm(W[i], 1/D_prev) # C[i] = W[i] @ D_prev^-T
-        D = torch.sqrt(W[i].sum(dim=-2)+W[i+1].sum(dim=-1)) - C[i].pow(2)
-        L[i+1] = torch.sqrt(D)
+        C[i] = torch.bmm(W[i], 1 / D_prev)  # C[i] = W[i] @ D_prev^-T
+        D = torch.sqrt(W[i].sum(dim=-2) + W[i + 1].sum(dim=-1)) - C[i].pow(2)
+        L[i + 1] = torch.sqrt(D)
         D_prev = D
-    
+
     return L, C
+
 
 def block_tri_solve(L, C, B):
     """Blockwise cholesky solve for a block diagonal matrix.
@@ -226,7 +233,7 @@ def block_tri_solve(L, C, B):
         L (List[torch.Tensor]): List of lower triangular blocks.
         C (List[torch.Tensor]): List of diagonal blocks.
         B (torch.Tensor): RHS.
-    
+
     Returns:
         X (torch.Tensor): Solution.
     """
@@ -234,9 +241,9 @@ def block_tri_solve(L, C, B):
     n = len(L)
     X = torch.zeros_like(B)
     for i in range(n):
-        X[:, i*C[i].size(-1):(i+1)*C[i].size(-1)] = torch.cholesky_solve(
-            B[:, i*C[i].size(-1):(i+1)*C[i].size(-1)],
-            L[i+1] + torch.bmm(C[i].transpose(-1, -2), C[i])
+        X[:, i * C[i].size(-1) : (i + 1) * C[i].size(-1)] = torch.cholesky_solve(
+            B[:, i * C[i].size(-1) : (i + 1) * C[i].size(-1)],
+            L[i + 1] + torch.bmm(C[i].transpose(-1, -2), C[i]),
         )
-    
+
     return X

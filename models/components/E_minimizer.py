@@ -168,7 +168,7 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
-        A = rectifier_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
+        A = rectifier_p3_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
@@ -214,19 +214,18 @@ def block_tri_cholesky(W: List[torch.Tensor]):
 
     n = len(W)
     C = [torch.zeros_like(W[i]) for i in range(n)]
-    L = [torch.zeros_like(W[i]) for i in range(n + 1)]
+    L = [None] * (n + 1)
     W.append(0)
-    D_prev = torch.sqrt(W[0].sum(dim=-1))
+    L[0] = torch.sqrt(W[0].sum(dim=-1))
     for i in range(n):
-        C[i] = torch.bmm(W[i], 1 / D_prev)  # C[i] = W[i] @ D_prev^-T
-        D = torch.sqrt(W[i].sum(dim=-2) + W[i + 1].sum(dim=-1)) - C[i].pow(2)
+        C[i] = W[i] / L[i]  # C[i] = W[i] @ D_prev^-T, trsm()
+        D = W[i].sum(dim=-2) + W[i + 1].sum(dim=-1) - torch.bmm(C[i], C[i].mT)
         L[i + 1] = torch.sqrt(D)
-        D_prev = D
 
     return L, C
 
 
-def block_tri_solve(L, C, B):
+def block_tri_cholesky_solve(L, C, B):
     """Blockwise cholesky solve for a block diagonal matrix.
 
     Args:

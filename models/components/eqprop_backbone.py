@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
 
-from models.components.E_minimizer import newton_solve2, newton_solver
+from src.models.components.E_minimizer import newton_solve2, newton_solver
 from src.utils.eqprop_util import deltaV, interleave, type_as
 
 

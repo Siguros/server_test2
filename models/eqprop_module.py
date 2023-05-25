@@ -116,6 +116,11 @@ class EqPropLitModule(LightningModule):
     def on_training_step_end(self) -> None:
         gc.collect()
 
+    def on_train_epoch_end(self) -> None:
+        sch = self.lr_schedulers()
+        if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            sch.step(self.train_loss.compute())
+
     def validation_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_forward(batch)
 

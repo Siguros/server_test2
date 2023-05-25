@@ -122,7 +122,7 @@ def _stepsolve(
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
-        A = rectifier_p3_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
+        A = rectifier_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)

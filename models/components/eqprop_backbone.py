@@ -481,7 +481,7 @@ class AnalogEP2(nn.Module):
 
     @torch.no_grad()
     def eqprop(self, batch):
-        """Nudge phase & grad calculaiton. y is required for internal loss calculation.
+        """Nudge phase & grad calculation. y is required for internal loss calculation.
 
         Args:
             batch (tuple): (x, y)
@@ -492,6 +492,7 @@ class AnalogEP2(nn.Module):
         self.prev_free = self.prev_nudge = x
         self.model.apply(self._update)
 
+    # TODO: bias term
     def _update(self, submodule: nn.Module):
         """Set gradients of parameters manually.
 

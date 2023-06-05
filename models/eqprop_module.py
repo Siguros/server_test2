@@ -121,6 +121,7 @@ class EqPropLitModule(LightningModule):
         if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau):
             sch.step(self.train_loss.compute())
 
+    # TODO: mem leak?
     def validation_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_forward(batch)
 

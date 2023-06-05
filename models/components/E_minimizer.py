@@ -6,12 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # from src.models.components.eqprop_backbone import AnalogEP2
-from src.utils.eqprop_util import (
-    rectifier_a,
-    rectifier_i,
-    rectifier_p3_a,
-    rectifier_p3_i,
-)
+from src.utils.eqprop_util import OTS, P3OTS
 
 # functions below are used as instance methods
 
@@ -97,10 +92,8 @@ def _stepsolve(
     x: torch.Tensor, W: torch.nn.ModuleList, dims, i_ext=0, atol=1e-6, it=30
 ) -> torch.Tensor:
     r"""Solve J\Delta{X}=-f iteraitvely."""
-    if not hasattr(_stepsolve, "Is"):
-        _stepsolve.Is = 1e-6
-        _stepsolve.Vr = 0.9
-        _stepsolve.Vl = 0.1
+    if not hasattr(_stepsolve, "rectifier"):
+        _stepsolve.rectifier = OTS(Is=1e-6, Vr=0.9, Vl=0.1)
     b = x.size(0)
     size = sum(dims[1:])
     paddedG = [torch.zeros(dims[1], size).type_as(x)]
@@ -122,12 +115,12 @@ def _stepsolve(
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
-        A = rectifier_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
+        A = _stepsolve.rectifier.a(v[:, : -dims[-1]], Is=_stepsolve.rectifier.Is, Vr=_stepsolve.rectifier.Vr, Vl=_stepsolve.rectifier.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-        f[:, : -dims[-1], 0] += rectifier_i(
-            v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl
+        f[:, : -dims[-1], 0] += _stepsolve.rectifier.i(
+            v[:, : -dims[-1]], Is=_stepsolve.rectifier.Is, Vr=_stepsolve.rectifier.Vr, Vl=_stepsolve.rectifier.Vl
         )
         # or SPOSV
         lo, info = torch.linalg.cholesky_ex(J)
@@ -138,15 +131,13 @@ def _stepsolve(
         v += dv
     return v
 
-
+# TODO: bias
 @torch.no_grad()
 def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     atol = 1e-6
     it = 30
-    if not hasattr(_stepsolve, "Is"):
-        _stepsolve.Is = 1e-6
-        _stepsolve.Vr = 0.9
-        _stepsolve.Vl = 0.1
+    if not hasattr(_stepsolve2, "rectifier"):
+        _stepsolve2.rectifier = P3OTS(Is=1e-6, Vr=0.9, Vl=0.1)
     b = x.size(0)
     size = sum(dims[1:])
     paddedG = [torch.zeros(dims[1], size).type_as(x)]
@@ -168,12 +159,12 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
-        A = rectifier_p3_a(v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl)
+        A = _stepsolve2.rectifier.a(v[:, : -dims[-1]], Is=_stepsolve2.rectifier.Is, Vr=_stepsolve2.rectifier.Vr, Vl=_stepsolve2.rectifier.Vl)
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-        f[:, : -dims[-1], 0] += rectifier_p3_i(
-            v[:, : -dims[-1]], Is=_stepsolve.Is, Vr=_stepsolve.Vr, Vl=_stepsolve.Vl
+        f[:, : -dims[-1], 0] += _stepsolve2.rectifier.i(
+            v[:, : -dims[-1]], Is=_stepsolve2.rectifier.Is, Vr=_stepsolve2.rectifier.Vr, Vl=_stepsolve2.rectifier.Vl
         )
         # or SPOSV
         lo, info = torch.linalg.cholesky_ex(J)
@@ -200,7 +191,7 @@ def _sparsesolve(x, W, dims, B, i_ext):
     """
     ...
 
-
+# TODO: custom CUDA kernel
 def block_tri_cholesky(W: List[torch.Tensor]):
     """Blockwise cholesky decomposition for a block diagonal matrix.
 

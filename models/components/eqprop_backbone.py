@@ -398,17 +398,21 @@ from src.utils.eqprop_util import AddNodes
 
 
 class EqProp(ABC):
+    """EqProp base class.
+
+    Args:
+        ABC (_type_): _description_
+    """
+
     def __init__(self, input_size, output_size, hyper_params):
-        pass
+        self.iseqprop = True
 
     @abstractmethod
     def forward(self, x):
         pass
 
     @abstractmethod
-    def eqprop(
-        self,
-    ):
+    def eqprop(self, x, dy):
         pass
 
     @abstractmethod
@@ -434,6 +438,7 @@ class AnalogEP2(nn.Module):
     ) -> None:
         super().__init__()
         self.hparams = hyper_params
+        self.iseqprop = True
         self.model = nn.Sequential(
             OrderedDict(
                 [
@@ -507,8 +512,13 @@ class AnalogEP2(nn.Module):
             submodule.weight.grad = (
                 nudge_dV.pow(2).mean(dim=0) - free_dV.pow(2).mean(dim=0)
             ) / self.beta
-            if submodule.bias is not None:
-                submodule.bias.grad = 0
+            if submodule.bias:
+                submodule.bias.grad = (
+                    (nudge_n - free_n)
+                    * (
+                        nudge_n + free_n - 2 * torch.ones_like(free_n)
+                    )  # (n-1)^2-(f-1)^2=2(n-f)(n+f-2)
+                ).mean(dim=0) / self.beta
 
             self.prev_free = free_n
             self.prev_nudge = nudge_n
@@ -523,11 +533,24 @@ class AnalogEP2(nn.Module):
             buf = torch.zeros_like(buf)
 
 
-class EqPropWrapper(nn.Module):
-    """Wrapper for EqProp Has same interface as nn.Module Full control over eqprop process (data)
+class EqPropWrapper(torch.autograd.Function):
+    """Wrapper for EqProp that has same interface as nn.Module Full control over eqprop process
+    (data)"""
 
-    Args:
-        nn (_type_): _description_
-    """
+    @staticmethod
+    def forward(ctx, eqprop_layer: EqProp, input):
+        ctx.eqprop_layer = eqprop_layer
+        output = eqprop_layer.forward(input)
+        # ctx.save_for_backward(input, output) # output is not needed
+        ctx.save_for_backward(input)
+        return output
 
-    pass
+    # TODO: implement backward explicitly
+    @staticmethod
+    def backward(ctx, grad_output):
+        # input, output = ctx.saved_tensors
+        input = ctx.saved_tensors
+        eqprop_layer: EqProp = ctx.eqprop_layer
+        eqprop_layer.eqprop((input, grad_output))
+        grad_input = None  # dummy, dy/dx?
+        return grad_input

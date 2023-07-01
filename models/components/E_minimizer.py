@@ -71,7 +71,9 @@ def newton_solve2(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) ->
         i_ext = -self.beta * self.model.ypred.grad
         del self.model.ypred.grad
     vout = (
-        _stepsolve2(x, W, dims, i_ext=i_ext) if not self.sparse else _sparsesolve(x, W, B, i_ext)
+        _stepsolve2(x, W, dims, B, i_ext=i_ext)
+        if not self.sparse
+        else _sparsesolve(x, W, B, i_ext)
     )
     del W, B
     Nodes = list(vout.split(dims[1:], dim=1))
@@ -115,12 +117,20 @@ def _stepsolve(
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
-        A = _stepsolve.rectifier.a(v[:, : -dims[-1]], Is=_stepsolve.rectifier.Is, Vr=_stepsolve.rectifier.Vr, Vl=_stepsolve.rectifier.Vl)
+        A = _stepsolve.rectifier.a(
+            v[:, : -dims[-1]],
+            Is=_stepsolve.rectifier.Is,
+            Vr=_stepsolve.rectifier.Vr,
+            Vl=_stepsolve.rectifier.Vl,
+        )
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
         f[:, : -dims[-1], 0] += _stepsolve.rectifier.i(
-            v[:, : -dims[-1]], Is=_stepsolve.rectifier.Is, Vr=_stepsolve.rectifier.Vr, Vl=_stepsolve.rectifier.Vl
+            v[:, : -dims[-1]],
+            Is=_stepsolve.rectifier.Is,
+            Vr=_stepsolve.rectifier.Vr,
+            Vl=_stepsolve.rectifier.Vl,
         )
         # or SPOSV
         lo, info = torch.linalg.cholesky_ex(J)
@@ -130,6 +140,7 @@ def _stepsolve(
         idx += 1
         v += dv
     return v
+
 
 # TODO: bias
 @torch.no_grad()
@@ -147,7 +158,7 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     ]
     Ll = torch.cat(paddedG, dim=-2)
     L = Ll + Ll.mT
-    B = torch.zeros((x.size(0), size)).type_as(x)
+    B = torch.zeros((x.size(0), size)).type_as(x) if not B else B
     B[:, : dims[1]] = x @ W[0].T
     B[:, -dims[-1] :] = i_ext
     D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
@@ -159,12 +170,20 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
-        A = _stepsolve2.rectifier.a(v[:, : -dims[-1]], Is=_stepsolve2.rectifier.Is, Vr=_stepsolve2.rectifier.Vr, Vl=_stepsolve2.rectifier.Vl)
+        A = _stepsolve2.rectifier.a(
+            v[:, : -dims[-1]],
+            Is=_stepsolve2.rectifier.Is,
+            Vr=_stepsolve2.rectifier.Vr,
+            Vl=_stepsolve2.rectifier.Vl,
+        )
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
         f[:, : -dims[-1], 0] += _stepsolve2.rectifier.i(
-            v[:, : -dims[-1]], Is=_stepsolve2.rectifier.Is, Vr=_stepsolve2.rectifier.Vr, Vl=_stepsolve2.rectifier.Vl
+            v[:, : -dims[-1]],
+            Is=_stepsolve2.rectifier.Is,
+            Vr=_stepsolve2.rectifier.Vr,
+            Vl=_stepsolve2.rectifier.Vl,
         )
         # or SPOSV
         lo, info = torch.linalg.cholesky_ex(J)
@@ -189,7 +208,8 @@ def _sparsesolve(x, W, dims, B, i_ext):
         B (_type_): _description_
         i_ext (_type_): _description_
     """
-    ...
+    raise NotImplementedError
+
 
 # TODO: custom CUDA kernel
 def block_tri_cholesky(W: List[torch.Tensor]):

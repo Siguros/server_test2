@@ -96,7 +96,7 @@ def _stepsolve(
     r"""Solve J\Delta{X}=-f iteraitvely."""
     if not hasattr(_stepsolve, "rectifier"):
         _stepsolve.rectifier = OTS(Is=1e-6, Vr=0.9, Vl=0.1)
-    b = x.size(0)
+    batchsize = x.size(0)
     size = sum(dims[1:])
     paddedG = [torch.zeros(dims[1], size).type_as(x)]
     [
@@ -113,7 +113,7 @@ def _stepsolve(
     lo, info = torch.linalg.cholesky_ex(L)
     v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
     dv = torch.ones(1).type_as(x)
-    L = L.expand(b, *L.shape)  #
+    L = L.expand(batchsize, *L.shape)  #
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
@@ -132,7 +132,7 @@ def _stepsolve(
             Vr=_stepsolve.rectifier.Vr,
             Vl=_stepsolve.rectifier.Vl,
         )
-        # or SPOSV
+        # or SPOSV()
         lo, info = torch.linalg.cholesky_ex(J)
         dv = torch.cholesky_solve(-f, lo).squeeze(-1)
         thrs = 1e-1  # / idx
@@ -144,13 +144,14 @@ def _stepsolve(
 
 # TODO: bias
 @torch.no_grad()
-def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
+def _stepsolve2(x: torch.Tensor, W: list, dims: list, B: list | None = None, i_ext=None):
     atol = 1e-6
     it = 30
     if not hasattr(_stepsolve2, "rectifier"):
         _stepsolve2.rectifier = P3OTS(Is=1e-6, Vr=0.9, Vl=0.1)
-    b = x.size(0)
+    batchsize = x.size(0)
     size = sum(dims[1:])
+    # construct the laplacian
     paddedG = [torch.zeros(dims[1], size).type_as(x)]
     [
         paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
@@ -158,15 +159,22 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B=None, i_ext=None):
     ]
     Ll = torch.cat(paddedG, dim=-2)
     L = Ll + Ll.mT
-    B = torch.zeros((x.size(0), size)).type_as(x) if not B else B
-    B[:, : dims[1]] = x @ W[0].T
-    B[:, -dims[-1] :] = i_ext
+    # construct the RHS
+    B = (
+        torch.zeros((x.size(0), size)).type_as(x)
+        if not B
+        else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+    )
+    B[:, : dims[1]] += x @ W[0].T
+    B[:, -dims[-1] :] += i_ext
+    # construct the diagonal
     D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
     L += D0.diag()
+    # initial solution
     lo, info = torch.linalg.cholesky_ex(L)
     v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
     dv = torch.ones(1).type_as(x)
-    L = L.expand(b, *L.shape)  #
+    L = L.expand(batchsize, *L.shape)
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
@@ -213,7 +221,8 @@ def _sparsesolve(x, W, dims, B, i_ext):
 
 # TODO: custom CUDA kernel
 def block_tri_cholesky(W: List[torch.Tensor]):
-    """Blockwise cholesky decomposition for a block diagonal matrix.
+    """Blockwise cholesky decomposition for a size varying block tridiagonal matrix. see spftrf()
+    in LAPACK.
 
     Args:
         W (List[torch.Tensor]): List of lower triangular blocks.
@@ -237,7 +246,7 @@ def block_tri_cholesky(W: List[torch.Tensor]):
 
 
 def block_tri_cholesky_solve(L, C, B):
-    """Blockwise cholesky solve for a block diagonal matrix.
+    """Blockwise cholesky solve for a size varying block tridiagonal matrix.
 
     Args:
         L (List[torch.Tensor]): List of lower triangular blocks.

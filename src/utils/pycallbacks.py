@@ -116,15 +116,15 @@ class AdvLoggerCallback(Callback):
                 var_grad, mean_grad = (
                     torch.var_mean(value.grad) if value.grad is not None else (0, 0)
                 )
-                condition_number = torch.linalg.cond(value)
                 layer_name, _ = key.split("weight")
                 metrics = {
                     layer_name + "var": var,
                     layer_name + "mean": mean,
                     layer_name + "var_grad": var_grad,
                     layer_name + "mean_grad": mean_grad,
-                    layer_name + "condition_number": condition_number,
                 }
+                if len(value.shape) == 2:
+                    metrics[layer_name + "condition_number"] = torch.linalg.cond(value)
                 self.log_scalars(metrics, layer_name, step, key_suffix, **kwargs)
         # phasewise
         if self.log_optn["minimize"]:

@@ -404,8 +404,9 @@ class EqProp(ABC):
         ABC (_type_): _description_
     """
 
-    def __init__(self, input_size, output_size, hyper_params):
+    def __init__(self, beta=0.1, *args, **kwargs):
         self.iseqprop = True
+        self.beta = beta
 
     @abstractmethod
     def forward(self, x):
@@ -512,7 +513,7 @@ class AnalogEP2(nn.Module):
             submodule.weight.grad = (
                 nudge_dV.pow(2).mean(dim=0) - free_dV.pow(2).mean(dim=0)
             ) / self.beta
-            if submodule.bias:
+            if submodule.bias is not None:
                 submodule.bias.grad = (
                     (nudge_n - free_n)
                     * (
@@ -545,7 +546,7 @@ class EqPropWrapper(torch.autograd.Function):
         ctx.save_for_backward(input)
         return output
 
-    # TODO: implement backward explicitly
+    # : implement backward explicitly
     @staticmethod
     def backward(ctx, grad_output):
         # input, output = ctx.saved_tensors

@@ -106,8 +106,8 @@ class AdvLoggerCallback(Callback):
                 imdata = deltaV(value, value_prev)
                 self.log_image(key, imdata, step)
         # layerwise
-        Weights: Iterator = net.named_parameters()
-        for key, value in Weights:
+        params: Iterator = net.named_parameters()
+        for key, value in params:
             if self.log_optn["histogram"]:
                 self.log_histogram(key, value, step, key_suffix, **kwargs)
                 self.log_histogram(key + ".grad", value.grad, step, key_suffix, **kwargs)
@@ -116,7 +116,7 @@ class AdvLoggerCallback(Callback):
                 var_grad, mean_grad = (
                     torch.var_mean(value.grad) if value.grad is not None else (0, 0)
                 )
-                layer_name, _ = key.split("weight")
+                layer_name = key
                 metrics = {
                     layer_name + "var": var,
                     layer_name + "mean": mean,

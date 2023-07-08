@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # from src.models.components.eqprop_backbone import AnalogEP2
-from src.utils.eqprop_util import OTS, P3OTS
+from src.eqprop import eqprop_util
 
 # functions below are used as instance methods
 
@@ -95,7 +95,7 @@ def _stepsolve(
 ) -> torch.Tensor:
     r"""Solve J\Delta{X}=-f iteraitvely."""
     if not hasattr(_stepsolve, "rectifier"):
-        _stepsolve.rectifier = OTS(Is=1e-6, Vr=0.9, Vl=0.1)
+        _stepsolve.rectifier = eqprop_util.OTS(Is=1e-6, Vr=0.9, Vl=0.1)
     batchsize = x.size(0)
     size = sum(dims[1:])
     paddedG = [torch.zeros(dims[1], size).type_as(x)]
@@ -148,7 +148,7 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B: list | None = None, i_e
     atol = 1e-6
     it = 30
     if not hasattr(_stepsolve2, "rectifier"):
-        _stepsolve2.rectifier = P3OTS(Is=1e-6, Vr=0.9, Vl=0.1)
+        _stepsolve2.rectifier = eqprop_util.P3OTS(Is=1e-6, Vr=0.9, Vl=0.1)
     batchsize = x.size(0)
     size = sum(dims[1:])
     # construct the laplacian

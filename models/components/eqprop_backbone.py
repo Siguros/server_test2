@@ -7,8 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
 
-from src.models.components.E_minimizer import newton_solve2, newton_solver
-from src.utils.eqprop_util import deltaV, interleave, type_as
+from src.eqprop.E_minimizer import newton_solve2, newton_solver
+from src.eqprop.eqprop_util import deltaV, interleave, type_as
 
 
 class EP(nn.Module):
@@ -394,7 +394,7 @@ class AnalogEP(EP):
 
 from abc import ABC, abstractmethod
 
-from src.utils.eqprop_util import AddNodes
+from src.eqprop.eqprop_util import AddNodes
 
 
 class EqProp(ABC):

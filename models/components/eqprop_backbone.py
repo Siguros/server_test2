@@ -394,7 +394,7 @@ class AnalogEP(EP):
 
 from abc import ABC, abstractmethod
 
-from src.eqprop.eqprop_util import AddNodes
+from src import eqprop
 
 
 class EqProp(ABC):
@@ -435,11 +435,13 @@ class AnalogEP2(nn.Module):
         lin1_size: int = 256,
         output_size: int = 10,
         beta=0.1,
+        solver: eqprop.newtonSolver = eqprop.newtonSolver(),
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()
         self.hparams = hyper_params
         self.iseqprop = True
+        self.solver = solver
         self.model = nn.Sequential(
             OrderedDict(
                 [
@@ -455,16 +457,12 @@ class AnalogEP2(nn.Module):
             )
         )
         self.beta = beta
-
-        AnalogEP2.minimize = newton_solve2
-
         self.dims = [input_size, lin1_size, output_size]
         input_shape = (batch_size, input_size)
 
         # Add free/nudge nodes per layer as buffers
-        addnode_fn = AddNodes(input_shape)
+        addnode_fn = eqprop.AddNodes(input_shape)
         self.model.apply(addnode_fn)
-
         self.model.register_buffer("ypred", torch.empty(batch_size, output_size))
 
     @interleave(type="out")
@@ -480,7 +478,9 @@ class AnalogEP2(nn.Module):
         """
         # assert self.training is False
         self.reset_nodes()
-        self.minimize(x)
+        params = self.model.parameters()
+        Nodes = self.solver(params, x)
+        self.set_nodes(Nodes, free_phase=True)
         logits = self.model.get_buffer("last.free_node")
         self.model.ypred = logits.clone().detach().requires_grad_(True)
         return self.model.ypred
@@ -494,11 +494,12 @@ class AnalogEP2(nn.Module):
         """
         assert self.training is True
         x, y = batch
-        self.minimize(x, y)
+        params = self.model.parameters()
+        Nodes = self.solver(params, x, y)
+        self.set_nodes(Nodes, free_phase=False)
         self.prev_free = self.prev_nudge = x
         self.model.apply(self._update)
 
-    # TODO: bias term
     def _update(self, submodule: nn.Module):
         """Set gradients of parameters manually.
 
@@ -532,6 +533,18 @@ class AnalogEP2(nn.Module):
     def reset_nodes(self):
         for buf in self.model.buffers():
             buf = torch.zeros_like(buf)
+
+    def set_nodes(self, Nodes: list, free_phase: bool) -> None:
+        """Set free/nudge nodes to each layer."""
+
+        def _set_nodes_layer(submodule: nn.Module):
+            if hasattr(submodule, "free_node"):
+                if free_phase:
+                    submodule.free_node = Nodes.pop()
+                else:
+                    submodule.nudge_node = Nodes.pop()
+
+        self.model.apply(_set_nodes_layer)
 
 
 class EqPropWrapper(torch.autograd.Function):

@@ -49,44 +49,44 @@ def newton_solver(
     return Nodes
 
 
-def newton_solve2(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) -> None:
-    W, B = [], []
-    dims = getattr(self, "dims")
-    self.model.requires_grad_(False)
+# TODO: implement this
+class newtonSolver:
+    def __init__(
+        self, OTS: eqprop_util.OTS = eqprop_util.OTS(), max_iter: int = 30, atol: float = 1e-6
+    ) -> None:
+        self.OTS = OTS
+        self.max_iter = max_iter
+        self.atol = atol
 
-    if not hasattr(self, "sparse"):
-        self.sparse = True if sum([dim**2 for dim in dims]) / sum(dims) ** 2 < 0.1 else False
+    def __call__(self, params, x: torch.Tensor, y: Union[None, torch.Tensor] = None) -> None:
+        W, B = [], []
+        dims = getattr(self, "dims")
+        self.model.requires_grad_(False)
 
-    def get_params(submodule: nn.Module):
-        nonlocal W, B
+        if not hasattr(self, "sparse"):
+            self.sparse = True if sum([dim**2 for dim in dims]) / sum(dims) ** 2 < 0.1 else False
+
+        self.model.apply(self.get_params)
+        free_phase = True if y is None else False
+        if free_phase:
+            i_ext = 0
+        else:
+            i_ext = -self.beta * self.model.ypred.grad
+            del self.model.ypred.grad
+        vout = (
+            _stepsolve2(x, W, dims, B, i_ext=i_ext, OTS=self.OTS, it=self.max_iter, atol=self.atol)
+            if not self.sparse
+            else _sparsesolve(x, W, B, i_ext)
+        )
+        del W, B
+        Nodes = list(vout.split(dims[1:], dim=1))
+        Nodes.reverse()
+        return Nodes
+
+    def get_params(self, submodule: nn.Module):
         if hasattr(submodule, "weight"):
-            W.append(submodule.get_parameter("weight"))
-            B.append(submodule.get_parameter("bias")) if self.hparams["bias"] else ...
-
-    self.model.apply(get_params)
-    free_phase = True if y is None else False
-    if free_phase:
-        i_ext = 0
-    else:
-        i_ext = -self.beta * self.model.ypred.grad
-        del self.model.ypred.grad
-    vout = (
-        _stepsolve2(x, W, dims, B, i_ext=i_ext)
-        if not self.sparse
-        else _sparsesolve(x, W, B, i_ext)
-    )
-    del W, B
-    Nodes = list(vout.split(dims[1:], dim=1))
-    Nodes.reverse()
-
-    def buffer_setter(submodule: nn.Module):
-        if hasattr(submodule, "free_node"):
-            if free_phase:
-                submodule.free_node = Nodes.pop()
-            else:
-                submodule.nudge_node = Nodes.pop()
-
-    self.model.apply(buffer_setter)
+            self.cls.W.append(submodule.get_parameter("weight"))
+            self.cls.B.append(submodule.get_parameter("bias")) if self.hparams["bias"] else ...
 
 
 @torch.no_grad()
@@ -142,13 +142,18 @@ def _stepsolve(
     return v
 
 
-# TODO: bias
 @torch.no_grad()
-def _stepsolve2(x: torch.Tensor, W: list, dims: list, B: list | None = None, i_ext=None):
-    atol = 1e-6
-    it = 30
-    if not hasattr(_stepsolve2, "rectifier"):
-        _stepsolve2.rectifier = eqprop_util.P3OTS(Is=1e-6, Vr=0.9, Vl=0.1)
+def _stepsolve2(
+    x: torch.Tensor,
+    W: list,
+    dims: list,
+    B: list | None = None,
+    i_ext=None,
+    OTS=eqprop_util.OTS(),
+    it=30,
+    atol=1e-6,
+) -> torch.Tensor:
+    r"""Solve J\Delta{X}=-f iteraitvely."""
     batchsize = x.size(0)
     size = sum(dims[1:])
     # construct the laplacian
@@ -178,21 +183,11 @@ def _stepsolve2(x: torch.Tensor, W: list, dims: list, B: list | None = None, i_e
     idx = 1
     while (dv.abs().max() > atol) and (idx < it):
         # nonlinearity comes here
-        A = _stepsolve2.rectifier.a(
-            v[:, : -dims[-1]],
-            Is=_stepsolve2.rectifier.Is,
-            Vr=_stepsolve2.rectifier.Vr,
-            Vl=_stepsolve2.rectifier.Vl,
-        )
+        A = OTS.a(v[:, : -dims[-1]])
         J = L.clone()
         J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-        f[:, : -dims[-1], 0] += _stepsolve2.rectifier.i(
-            v[:, : -dims[-1]],
-            Is=_stepsolve2.rectifier.Is,
-            Vr=_stepsolve2.rectifier.Vr,
-            Vl=_stepsolve2.rectifier.Vl,
-        )
+        f[:, : -dims[-1], 0] += OTS.i(v[:, : -dims[-1]])
         # or SPOSV
         lo, info = torch.linalg.cholesky_ex(J)
         if any(info):  # singular

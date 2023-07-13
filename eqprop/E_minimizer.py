@@ -1,5 +1,5 @@
 # from __future__ import annotations
-from typing import List, Union, Generator
+from typing import Generator, List, Union
 
 import torch
 import torch.nn as nn
@@ -7,10 +7,12 @@ import torch.nn.functional as F
 
 # from src.models.components.eqprop_backbone import AnalogEP2
 from src.eqprop import eqprop_util
+from src.utils import get_pylogger
+
+log = get_pylogger(__name__)
+
 
 # functions below are used as instance methods
-
-
 def newton_solver(
     self,
     x,
@@ -51,19 +53,20 @@ def newton_solver(
 
 # TODO: implement this
 class newtonSolver:
-
     def __init__(
         self, OTS: eqprop_util.OTS = eqprop_util.OTS(), max_iter: int = 30, atol: float = 1e-6
     ) -> None:
         self.OTS = OTS
         self.max_iter = max_iter
         self.atol = atol
-    
-    def set_params_from_net(self, net: 'AnalogEP2') -> None:
+
+    def set_params_from_net(self, net: "AnalogEP2") -> None:  # noqa F821
         self.dims = net.dims
-        self.sparse = True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
+        self.sparse = (
+            True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
+        )
         assert hasattr(net.model, "ypred"), ValueError("model must have a ypred attribute")
-        self.model =net.model
+        self.model = net.model
         self.beta = net.beta
 
     @torch.no_grad()
@@ -75,11 +78,22 @@ class newtonSolver:
             self.model.apply(self.get_params)
             i_ext = 0
         else:
-            assert self.W is not None and self.B is not None, ValueError("W and B must be exist in free phase")
+            assert self.W is not None and self.B is not None, ValueError(
+                "W and B must be exist in free phase"
+            )
             i_ext = -self.beta * self.model.ypred.grad
             del self.model.ypred.grad
         vout = (
-            _stepsolve2(x, self.W, self.dims, self.B, i_ext=i_ext, OTS=self.OTS, max_iter=self.max_iter, atol=self.atol)
+            _stepsolve2(
+                x,
+                self.W,
+                self.dims,
+                self.B,
+                i_ext=i_ext,
+                OTS=self.OTS,
+                max_iter=self.max_iter,
+                atol=self.atol,
+            )
             if not self.sparse
             else _sparsesolve(x, self.W, self.B, i_ext)
         )
@@ -143,6 +157,7 @@ def _stepsolve(
         dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
         idx += 1
         v += dv
+    log.debug(f"stepsolve converged in {idx} iterations")
     return v
 
 

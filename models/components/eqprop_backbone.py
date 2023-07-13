@@ -6,9 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
-
-from src.eqprop.E_minimizer import newton_solve2, newton_solver
-from src.eqprop.eqprop_util import deltaV, interleave, type_as
+from src.eqprop import newton_solver, newtonSolver, AddNodes, deltaV, interleave, type_as 
 
 
 class EP(nn.Module):
@@ -394,8 +392,6 @@ class AnalogEP(EP):
 
 from abc import ABC, abstractmethod
 
-from src import eqprop
-
 
 class EqProp(ABC):
     """EqProp base class.
@@ -435,13 +431,14 @@ class AnalogEP2(nn.Module):
         lin1_size: int = 256,
         output_size: int = 10,
         beta=0.1,
-        solver: eqprop.newtonSolver = eqprop.newtonSolver(),
+        solver:newtonSolver=newtonSolver(),
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()
         self.hparams = hyper_params
         self.iseqprop = True
-        self.solver = solver
+        self.beta = beta
+        self.dims = [input_size, lin1_size, output_size]
         self.model = nn.Sequential(
             OrderedDict(
                 [
@@ -456,14 +453,17 @@ class AnalogEP2(nn.Module):
                 ]
             )
         )
-        self.beta = beta
-        self.dims = [input_size, lin1_size, output_size]
-        input_shape = (batch_size, input_size)
 
         # Add free/nudge nodes per layer as buffers
-        addnode_fn = eqprop.AddNodes(input_shape)
+        input_shape = (batch_size, input_size)
+        addnode_fn = AddNodes(input_shape)
         self.model.apply(addnode_fn)
         self.model.register_buffer("ypred", torch.empty(batch_size, output_size))
+
+        # set solver
+        solver.set_params_from_net(self)
+        self.solver = solver
+
 
     @interleave(type="out")
     @torch.no_grad()
@@ -479,7 +479,7 @@ class AnalogEP2(nn.Module):
         # assert self.training is False
         self.reset_nodes()
         params = self.model.parameters()
-        Nodes = self.solver(params, x)
+        Nodes = self.solver(x)
         self.set_nodes(Nodes, free_phase=True)
         logits = self.model.get_buffer("last.free_node")
         self.model.ypred = logits.clone().detach().requires_grad_(True)
@@ -495,7 +495,7 @@ class AnalogEP2(nn.Module):
         assert self.training is True
         x, y = batch
         params = self.model.parameters()
-        Nodes = self.solver(params, x, y)
+        Nodes = self.solver(x, y)
         self.set_nodes(Nodes, free_phase=False)
         self.prev_free = self.prev_nudge = x
         self.model.apply(self._update)

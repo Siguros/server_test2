@@ -1,5 +1,5 @@
 # from __future__ import annotations
-from typing import List, Union
+from typing import List, Union, Generator
 
 import torch
 import torch.nn as nn
@@ -51,42 +51,46 @@ def newton_solver(
 
 # TODO: implement this
 class newtonSolver:
+
     def __init__(
         self, OTS: eqprop_util.OTS = eqprop_util.OTS(), max_iter: int = 30, atol: float = 1e-6
     ) -> None:
         self.OTS = OTS
         self.max_iter = max_iter
         self.atol = atol
+    
+    def set_params_from_net(self, net: 'AnalogEP2') -> None:
+        self.dims = net.dims
+        self.sparse = True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
+        assert hasattr(net.model, "ypred"), ValueError("model must have a ypred attribute")
+        self.model =net.model
+        self.beta = net.beta
 
-    def __call__(self, params, x: torch.Tensor, y: Union[None, torch.Tensor] = None) -> None:
-        W, B = [], []
-        dims = getattr(self, "dims")
-        self.model.requires_grad_(False)
-
-        if not hasattr(self, "sparse"):
-            self.sparse = True if sum([dim**2 for dim in dims]) / sum(dims) ** 2 < 0.1 else False
-
-        self.model.apply(self.get_params)
+    @torch.no_grad()
+    def __call__(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) -> None:
+        assert hasattr(self, "model"), ValueError("model must be set before calling")
         free_phase = True if y is None else False
         if free_phase:
+            self.W, self.B = [], []
+            self.model.apply(self.get_params)
             i_ext = 0
         else:
+            assert self.W is not None and self.B is not None, ValueError("W and B must be exist in free phase")
             i_ext = -self.beta * self.model.ypred.grad
             del self.model.ypred.grad
         vout = (
-            _stepsolve2(x, W, dims, B, i_ext=i_ext, OTS=self.OTS, it=self.max_iter, atol=self.atol)
+            _stepsolve2(x, self.W, self.dims, self.B, i_ext=i_ext, OTS=self.OTS, max_iter=self.max_iter, atol=self.atol)
             if not self.sparse
-            else _sparsesolve(x, W, B, i_ext)
+            else _sparsesolve(x, self.W, self.B, i_ext)
         )
-        del W, B
-        Nodes = list(vout.split(dims[1:], dim=1))
+        Nodes = list(vout.split(self.dims[1:], dim=1))
         Nodes.reverse()
         return Nodes
 
     def get_params(self, submodule: nn.Module):
         if hasattr(submodule, "weight"):
-            self.cls.W.append(submodule.get_parameter("weight"))
-            self.cls.B.append(submodule.get_parameter("bias")) if self.hparams["bias"] else ...
+            self.W.append(submodule.get_parameter("weight"))
+            self.B.append(submodule.get_parameter("bias")) if submodule.bias is not None else ...
 
 
 @torch.no_grad()
@@ -150,7 +154,7 @@ def _stepsolve2(
     B: list | None = None,
     i_ext=None,
     OTS=eqprop_util.OTS(),
-    it=30,
+    max_iter=30,
     atol=1e-6,
 ) -> torch.Tensor:
     r"""Solve J\Delta{X}=-f iteraitvely."""
@@ -181,7 +185,7 @@ def _stepsolve2(
     dv = torch.ones(1).type_as(x)
     L = L.expand(batchsize, *L.shape)
     idx = 1
-    while (dv.abs().max() > atol) and (idx < it):
+    while (dv.abs().max() > atol) and (idx < max_iter):
         # nonlinearity comes here
         A = OTS.a(v[:, : -dims[-1]])
         J = L.clone()

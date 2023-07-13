@@ -115,6 +115,7 @@ class EqPropLitModule(LightningModule):
 
     def on_training_step_end(self) -> None:
         gc.collect()
+        torch.cuda.empty_cache()
 
     def on_train_epoch_end(self) -> None:
         sch = self.lr_schedulers()

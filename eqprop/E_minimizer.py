@@ -99,6 +99,8 @@ class newtonSolver:
         )
         Nodes = list(vout.split(self.dims[1:], dim=1))
         Nodes.reverse()
+        if not free_phase:
+            del self.W, self.B
         return Nodes
 
     def get_params(self, submodule: nn.Module):

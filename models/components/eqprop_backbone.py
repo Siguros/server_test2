@@ -6,7 +6,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
-from src.eqprop import newton_solver, newtonSolver, AddNodes, deltaV, interleave, type_as 
+
+from src.eqprop import (
+    AddNodes,
+    deltaV,
+    interleave,
+    newton_solver,
+    newtonSolver,
+    type_as,
+)
 
 
 class EP(nn.Module):
@@ -431,7 +439,7 @@ class AnalogEP2(nn.Module):
         lin1_size: int = 256,
         output_size: int = 10,
         beta=0.1,
-        solver:newtonSolver=newtonSolver(),
+        solver: newtonSolver = newtonSolver(),
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()
@@ -463,7 +471,6 @@ class AnalogEP2(nn.Module):
         # set solver
         solver.set_params_from_net(self)
         self.solver = solver
-
 
     @interleave(type="out")
     @torch.no_grad()
@@ -545,6 +552,7 @@ class AnalogEP2(nn.Module):
                     submodule.nudge_node = Nodes.pop()
 
         self.model.apply(_set_nodes_layer)
+        del Nodes
 
 
 class EqPropWrapper(torch.autograd.Function):

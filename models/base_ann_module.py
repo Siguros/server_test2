@@ -6,8 +6,8 @@ from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
 
-class MNISTLitModule(LightningModule):
-    """Example of LightningModule for MNIST classification.
+class ANNLitModule(LightningModule):
+    """Example of LightningModule for MNIST & classification.
 
     A LightningModule organizes your PyTorch code into 6 sections:
         - Initialization (__init__)
@@ -134,4 +134,4 @@ class MNISTLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = MNISTLitModule(None, None, None)
+    _ = ANNLitModule(None, None, None)

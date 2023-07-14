@@ -220,6 +220,7 @@ def _stepsolve2(
         dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
         idx += 1
         v += dv
+    log.debug(f"stepsolve converged in {idx} iterations")
     return v
 
 

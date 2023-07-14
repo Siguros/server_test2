@@ -132,11 +132,11 @@ class MNISTVAELitModule(LightningModule):
         return {"optimizer": optimizer}
 
     def criterion(self, x_hat, mean, log_var, x):
-        batch_size, channels, width, height = x.size()
+        batch_size, channel_size, h, w = x.size()
         x = x.view(batch_size, -1)
         reproduction_loss = torch.nn.functional.binary_cross_entropy(x_hat, x, reduction="sum")
         KLD = -0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
-        return reproduction_loss + KLD
+        return (reproduction_loss + KLD) / batch_size
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ class VGG11(nn.Module):
         kernel_size=3,
         hidden_channels=(64, 128, 256, 512, 512),
         classifier_hidden=4096,
+        sample_x_size: Optional[torch.Size] = (1, 3, 32, 32),
     ):
         h1, h2, h3, h4, h5 = hidden_channels
         super().__init__()
@@ -49,7 +50,7 @@ class VGG11(nn.Module):
             nn.Linear(classifier_hidden, num_classes),
         )
         # forward pass to get the output shape
-        self.forward(torch.ones((1, in_channels, 32, 32)))
+        self.forward(torch.ones(sample_x_size))
 
     def forward(self, x):
         x = self.features(x)
@@ -59,15 +60,12 @@ class VGG11(nn.Module):
         return x
 
 
-class VGG11avg(nn.Module):
+class VGG11avg(VGG11):
     """VGG11 with average pooling instead of max pooling."""
 
-    def __init__(self, sample_x, **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         for i, module in enumerate(self.features.children()):
-            # print(i, module)
-            # print(sample_x.shape)
-            sample_x = module(sample_x)
             if isinstance(module, nn.MaxPool2d):
                 self.features[i] = nn.AvgPool2d(kernel_size=2, stride=2)
 
@@ -108,18 +106,22 @@ class VGG11Im2Col(VGG11avg):
         in_channels=3,
         kernel_size: Optional[int] = 3,
         hidden_channels: tuple | None = None,
-        sample_x: torch.Tensor = torch.ones((1, 3, 32, 32)),
+        sample_x_size: tuple = (1, 3, 32, 32),
         classifier_hidden=4096,
     ):
         if hidden_channels is None:
-            self.hidden_channels = tuple(
+            hidden_channels = tuple(
                 (kernel_size**2 * torch.tensor([7, 7 * 2, 7 * 4, 7 * 8, 7 * 9])).tolist()
             )
-        else:
-            self.hidden_channels = hidden_channels
         super().__init__(
-            num_classes, in_channels, kernel_size, self.hidden_channels, classifier_hidden
+            num_classes=num_classes,
+            in_channels=in_channels,
+            kernel_size=kernel_size,
+            hidden_channels=hidden_channels,
+            classifier_hidden=classifier_hidden,
+            sample_x_size=sample_x_size,
         )
+        sample_x = torch.ones(sample_x_size)
         for i, module in enumerate(self.features.children()):
             # print(i, module)
             # print(sample_x.shape)

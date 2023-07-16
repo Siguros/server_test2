@@ -123,9 +123,9 @@ class AdvLoggerCallback(Callback):
                     layer_name + "var_grad": var_grad,
                     layer_name + "mean_grad": mean_grad,
                 }
-                if len(value.shape) == 2:
-                    metrics[layer_name + "condition_number"] = torch.linalg.cond(value)
-                self.log_scalars(metrics, layer_name, step, key_suffix, **kwargs)
+            # if len(value.shape) == 2:
+            #     metrics[layer_name + "condition_number"] = torch.linalg.cond(value)
+            # self.log_scalars(metrics, layer_name, step, key_suffix, **kwargs)
         # phasewise
         if self.log_optn["minimize"]:
             handler = net.metric_handler

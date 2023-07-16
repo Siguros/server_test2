@@ -220,8 +220,12 @@ def _stepsolve2(
         dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
         idx += 1
         v += dv
+
+    log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
     if idx == max_iter:
-        log.warning(f"stepsolve did not converge in {max_iter} iterations, dv={dv.abs().max()}")
+        log.warning(
+            f"stepsolve did not converge in {max_iter} iterations, dv={dv.abs().max():.3e}"
+        )
     else:
         log.debug(f"stepsolve converged in {idx} iterations")
     return v

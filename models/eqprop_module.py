@@ -49,7 +49,12 @@ class EqPropLitModule(LightningModule):
         self.net.model.apply(
             eqprop_util.init_params(min_w=1e-5, max_w=1)
         ) if self.hparams.positive_w else ...
-        eqprop_util.interleave.on() if self.hparams.double_output else ...
+        if self.hparams.double_input and self.hparams.double_output:
+            eqprop_util.interleave.on()
+        elif not self.hparams.double_input and not self.hparams.double_output:
+            pass
+        else:
+            raise ValueError("double_input and double_output must be both True or both False")
 
         # loss function
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -70,11 +75,13 @@ class EqPropLitModule(LightningModule):
         self.automatic_optimization = False
 
         # set param clipper
-        self.adjuster = (
-            eqprop_util.AdjustParams(L=1e-5, U=None, normalize=self.hparams.normalize_weights)
-            if self.hparams.clip_weights
-            else ...
-        )
+        if self.hparams.clip_weights or self.hparams.normalize_weights:
+            self.adjuster = eqprop_util.AdjustParams(
+                L=1e-5,
+                U=None,
+                normalize=self.hparams.normalize_weights,
+                clamp=self.hparams.clip_weights,
+            )
 
     def on_train_start(self):
         # by default lightning executes validation step sanity checks before training starts,
@@ -82,8 +89,15 @@ class EqPropLitModule(LightningModule):
         self.val_acc_best.reset()
 
     def model_forward(self, batch: Any):
-        self.batch = self.preprocessing_input(batch) if self.hparams.double_input else batch
-        x, y = self.batch
+        if self.hparams.double_input and self.hparams.double_output:
+            self.batch = self.preprocessing_input(batch)
+            x, y = self.batch
+        elif not self.hparams.double_input and not self.hparams.double_output:
+            x, y = batch
+            x = x.view(x.shape[0], -1)
+            self.batch = (x, y)
+        else:
+            raise ValueError("double_input and double_output must be both True or both False")
         logits = self.net.forward(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
@@ -96,7 +110,8 @@ class EqPropLitModule(LightningModule):
         self.manual_backward(loss)
         self.net.eqprop(self.batch)
         opt.step()
-        self.net.apply(self.adjuster) if self.hparams.clip_weights else None
+        if self.hparams.clip_weights or self.hparams.normalize_weights:
+            self.net.apply(self.adjuster)
 
     def training_step(self, batch: Any, batch_idx: int):
         loss, preds, targets = self.model_forward(batch)

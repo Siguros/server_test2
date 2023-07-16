@@ -202,17 +202,20 @@ class AdjustParams:
         self,
         L: Union[float, None] = 0.0,
         U: Union[float, None] = None,
+        clamp: bool = True,
         normalize: bool = False,
     ) -> None:
         self.min = L
         self.max = U
         self.normalize = normalize
+        self.clamp = clamp
 
     @torch.no_grad()
     def __call__(self, submodule: nn.Module):
         for name, param in submodule.named_parameters():
             if name == "weight":
-                param.clamp_(self.min, self.max)
+                if self.clamp:
+                    param.clamp_(self.min, self.max)
                 if self.normalize:
                     nn.functional.normalize(param, dim=1, p=2)
 

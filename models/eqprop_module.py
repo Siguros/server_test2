@@ -49,12 +49,10 @@ class EqPropLitModule(LightningModule):
         self.net.model.apply(
             eqprop_util.init_params(min_w=1e-5, max_w=1)
         ) if self.hparams.positive_w else ...
-        if self.hparams.double_input and self.hparams.double_output:
-            eqprop_util.interleave.on()
-        elif not self.hparams.double_input and not self.hparams.double_output:
-            pass
-        else:
-            raise ValueError("double_input and double_output must be both True or both False")
+        if self.hparams.double_output:
+            eqprop_util.interleave.on()  # output
+        if not self.hparams.double_input:
+            self.preprocessing_input = lambda x: x.view(x.shape[0], -1)
 
         # loss function
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -89,15 +87,9 @@ class EqPropLitModule(LightningModule):
         self.val_acc_best.reset()
 
     def model_forward(self, batch: Any):
-        if self.hparams.double_input and self.hparams.double_output:
-            self.batch = self.preprocessing_input(batch)
-            x, y = self.batch
-        elif not self.hparams.double_input and not self.hparams.double_output:
-            x, y = batch
-            x = x.view(x.shape[0], -1)
-            self.batch = (x, y)
-        else:
-            raise ValueError("double_input and double_output must be both True or both False")
+        x, y = batch
+        x = self.preprocessing_input(x)
+        self.batch = (x, y)
         logits = self.net.forward(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
@@ -188,12 +180,11 @@ class EqPropLitModule(LightningModule):
         return {"optimizer": optimizer}
 
     @staticmethod
-    def preprocessing_input(batch):
-        x, y = batch
+    def preprocessing_input(x):
         x = x.view(x.size(0), -1)  # == x.view(-1,x.size(-1)**2)
         x = x.repeat_interleave(2, dim=1)
         x[:, 1::2] = -x[:, ::2]
-        return x, y
+        return x
 
 
 if __name__ == "__main__":

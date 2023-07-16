@@ -66,47 +66,44 @@ class newtonSolver:
             True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
         )
         assert hasattr(net.model, "ypred"), ValueError("model must have a ypred attribute")
-        self.model = net.model
+        self.model: nn.Module = net.model
         self.beta = net.beta
 
     @torch.no_grad()
     def __call__(self, x: torch.Tensor, y: Union[None, torch.Tensor] = None) -> None:
         assert hasattr(self, "model"), ValueError("model must be set before calling")
         free_phase = True if y is None else False
-        if free_phase:
-            self.W, self.B = [], []
-            self.model.apply(self.get_params)
-            i_ext = 0
-        else:
-            assert self.W is not None and self.B is not None, ValueError(
-                "W and B must be exist in free phase"
-            )
+        W, B = [], []
+        self.model.apply(lambda submodule: self.get_params(submodule, W, B))
+        i_ext = 0
+        if not free_phase:
             i_ext = -self.beta * self.model.ypred.grad
-            del self.model.ypred.grad
+            self.model.zero_grad()
         vout = (
             _stepsolve2(
                 x,
-                self.W,
+                W,
                 self.dims,
-                self.B,
+                B,
                 i_ext=i_ext,
                 OTS=self.OTS,
                 max_iter=self.max_iter,
                 atol=self.atol,
             )
             if not self.sparse
-            else _sparsesolve(x, self.W, self.B, i_ext)
+            else _sparsesolve(x, W, B, i_ext)
         )
         Nodes = list(vout.split(self.dims[1:], dim=1))
         Nodes.reverse()
-        if not free_phase:
-            del self.W, self.B
         return Nodes
 
-    def get_params(self, submodule: nn.Module):
+    def get_params(
+        self, submodule: nn.Module, W: list[torch.Tensor], B: list[torch.Tensor]
+    ) -> None:
         if hasattr(submodule, "weight"):
-            self.W.append(submodule.get_parameter("weight"))
-            self.B.append(submodule.get_parameter("bias")) if submodule.bias is not None else ...
+            W.append(submodule.get_parameter("weight"))
+            if submodule.bias is not None:
+                B.append(submodule.get_parameter("bias"))
 
 
 @torch.no_grad()
@@ -159,7 +156,10 @@ def _stepsolve(
         dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
         idx += 1
         v += dv
-    log.debug(f"stepsolve converged in {idx} iterations")
+    if idx == it:
+        log.warning(f"stepsolve did not converge in {it} iterations, dv={dv.abs().max()}")
+    else:
+        log.debug(f"stepsolve converged in {idx} iterations")
     return v
 
 
@@ -220,7 +220,10 @@ def _stepsolve2(
         dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
         idx += 1
         v += dv
-    log.debug(f"stepsolve converged in {idx} iterations")
+    if idx == max_iter:
+        log.warning(f"stepsolve did not converge in {max_iter} iterations, dv={dv.abs().max()}")
+    else:
+        log.debug(f"stepsolve converged in {idx} iterations")
     return v
 
 

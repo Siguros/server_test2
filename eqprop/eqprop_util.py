@@ -24,10 +24,11 @@ class interleave:
                     y_hat, *others = args
                     new_args = self.interleave(y_hat), *others
                     outs = func(obj, *new_args, **kwargs)
+                    return outs
                 elif self.type == "out":  # mod all outputs
                     outs = func(obj, *args, **kwargs)
                     # outs = [self.interleave(out) for out in outs]
-                return self.interleave(outs)
+                    return self.interleave(outs)
             else:
                 return func(obj, *args, **kwargs)
 

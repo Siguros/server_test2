@@ -80,7 +80,7 @@ class newtonSolver:
             i_ext = -self.beta * self.model.ypred.grad
             self.model.zero_grad()
         vout = (
-            _stepsolve3(
+            _stepsolve2(
                 x,
                 W,
                 self.dims,
@@ -164,6 +164,74 @@ def _stepsolve(
 
 
 @torch.no_grad()
+def _stepsolve2(
+    x: torch.Tensor,
+    W: list,
+    dims: list,
+    B: list | None = None,
+    i_ext=None,
+    OTS=eqprop_util.OTS(),
+    max_iter=30,
+    atol=1e-6,
+) -> torch.Tensor:
+    r"""Solve J\Delta{X}=-f iteraitvely."""
+    batchsize = x.size(0)
+    size = sum(dims[1:])
+    # construct the laplacian
+    paddedG = [torch.zeros(dims[1], size).type_as(x)]
+    [
+        paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
+        for i, g in enumerate(W[1:])
+    ]
+    Ll = torch.cat(paddedG, dim=-2)
+    L = Ll + Ll.mT
+    # construct the RHS
+    B = (
+        torch.zeros((x.size(0), size)).type_as(x)
+        if not B
+        else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+    )
+    B[:, : dims[1]] += x @ W[0].T
+    B[:, -dims[-1] :] += i_ext
+    # construct the diagonal
+    D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
+    L += D0.diag()
+    # initial solution
+    lo, info = torch.linalg.cholesky_ex(L)
+    v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+    dv = torch.ones(1).type_as(x)
+    L = L.expand(batchsize, *L.shape)
+    idx = 1
+    while (dv.abs().max() > atol) and (idx < max_iter):
+        # nonlinearity comes here
+        A = OTS.a(v[:, : -dims[-1]])
+        J = L.clone()
+        J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
+        f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+        f[:, : -dims[-1], 0] += OTS.i(v[:, : -dims[-1]])
+        # or SPOSV
+        lo, info = torch.linalg.cholesky_ex(J)
+        if any(info):  # singular
+            lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+            dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+        else:
+            dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+        thrs = 1e-1  # / idx
+        dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
+        idx += 1
+        v += dv
+
+    log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
+    if idx == max_iter:
+        log.warning(
+            f"stepsolve did not converge in {max_iter} iterations, dv={dv.abs().max():.3e}"
+        )
+    else:
+        log.debug(f"stepsolve converged in {idx} iterations")
+    return v
+
+
+@torch.no_grad()
 def _stepsolve3(
     x: torch.Tensor,
     W: list,
@@ -181,7 +249,7 @@ def _stepsolve3(
     paddedG = [torch.zeros(dims[1], size).type_as(x)]
     for i, g in enumerate(W[1:]):
         paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
-        
+
     Ll = torch.cat(paddedG, dim=-2)
     L = Ll + Ll.mT
     # construct the RHS
@@ -194,10 +262,10 @@ def _stepsolve3(
     B[:, -dims[-1] :] += i_ext
     # construct the diagonal
     D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
-    P_inv = 1/D0
+    P_inv = 1 / D0
     L += D0.diag()
     # initial solution
-    lo, info = torch.linalg.cholesky_ex(L*P_inv)
+    lo, info = torch.linalg.cholesky_ex(L * P_inv)
     y = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
     v = P_inv * y
     dv = torch.ones(1).type_as(x)
@@ -211,7 +279,7 @@ def _stepsolve3(
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
         f[:, : -dims[-1], 0] += OTS.i(v[:, : -dims[-1]])
         # or SPOSV
-        Precond_J = J*P_inv
+        Precond_J = J * P_inv
         lo, info = torch.linalg.cholesky_ex(Precond_J)
         if any(info):  # singular
             log.debug(f"J is singular, info={info}")
@@ -234,7 +302,8 @@ def _stepsolve3(
         log.debug(f"stepsolve converged in {idx} iterations")
     return v
 
-def _inv_L(W: torch.Tensor, D0:torch.Tensor, dims:list) -> torch.Tensor:
+
+def _inv_L(W: torch.Tensor, D0: torch.Tensor, dims: list) -> torch.Tensor:
     hidden_len = dims[1]
     D1 = D0[hidden_len:]
     D2 = D0[:hidden_len]
@@ -244,6 +313,7 @@ def _inv_L(W: torch.Tensor, D0:torch.Tensor, dims:list) -> torch.Tensor:
     inv_L[:, 0] = inv_schur_L @ W.T @ D2.diag()
     inv_L[:, 1:] = -inv_schur_L @ W.T @ D2.diag() @ W
     return inv_L
+
 
 def _sparsesolve(x, W, dims, B, i_ext):
     """Use torch.block_diag to construct the sparse matrix.

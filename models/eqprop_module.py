@@ -51,6 +51,7 @@ class EqPropLitModule(LightningModule):
         ) if self.hparams.positive_w else ...
         if self.hparams.double_output:
             eqprop_util.interleave.on()  # output
+            eqprop_util.interleave.set_num_output(self.hparams.double_output)
         if not self.hparams.double_input:
             self.preprocessing_input = lambda x: x.view(x.shape[0], -1)
 

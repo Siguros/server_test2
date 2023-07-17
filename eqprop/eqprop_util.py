@@ -10,10 +10,12 @@ class interleave:
     """Decorator class for interleaving in/out nodes."""
 
     _on = False
+    _num_output: int = 2
 
     def __init__(self, type: str = None):
         assert type == "in" or type == "out", 'type must be either "in" or "out"'
         self.type = type
+        self.num_output = interleave._num_output
 
     def __call__(self, func: Callable[..., Sequence[torch.Tensor]]) -> Callable:
         # print(f"called. , {self._on}")
@@ -34,15 +36,27 @@ class interleave:
 
         return wrapper
 
-    @staticmethod
-    def interleave(t: torch.Tensor) -> torch.Tensor:
+    def interleave(self, t: torch.Tensor) -> torch.Tensor:
         """Interleave 2D tensor."""
         assert t.dim() == 2, "interleave only works on 2D tensors"
-        return t[:, ::2] - t[:, 1::2]
+        if self.num_output == 1:
+            return t
+
+        elif self.num_output == 2:
+            return t[:, ::2] - t[:, 1::2]
+        else:
+            t_reshaped = t.reshape(t.shape[0], t.shape[1] // 4, 4)
+            result = t_reshaped.sum(-1)
+
+            return result
 
     @classmethod
     def on(cls):
         cls._on = True
+
+    @classmethod
+    def set_num_output(cls, num_output):
+        cls._num_output = num_output
 
 
 class type_as:

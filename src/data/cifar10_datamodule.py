@@ -55,12 +55,14 @@ class CIFAR10DataModule(LightningDataModule):
                 transforms.RandomHorizontalFlip(),
                 transforms.Grayscale(num_output_channels=1),
                 transforms.ToTensor(),
+                transforms.Normalize((0.4914,), (0.2023,)),
             ]
         )
         self.transforms_test = transforms.Compose(
             [
                 transforms.Grayscale(num_output_channels=1),
                 transforms.ToTensor(),
+                transforms.Normalize((0.4914,), (0.2023,)),
             ]
         )
 

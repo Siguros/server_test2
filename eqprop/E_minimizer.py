@@ -80,7 +80,7 @@ class newtonSolver:
             i_ext = -self.beta * self.model.ypred.grad
             self.model.zero_grad()
         vout = (
-            _stepsolve4(
+            _stepsolve2(
                 x,
                 W,
                 self.dims,

@@ -33,8 +33,8 @@ class EqPropLitModule(LightningModule):
         net: AnalogEP2,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
-        double_input: bool = False,
-        double_output: bool = False,
+        double_input: bool = True,
+        scale_output: int = 4,
         positive_w: bool = False,
         bias: bool = False,
         clip_weights: bool = False,
@@ -49,9 +49,9 @@ class EqPropLitModule(LightningModule):
         self.net.model.apply(
             eqprop_util.init_params(min_w=1e-5, max_w=1)
         ) if self.hparams.positive_w else ...
-        if self.hparams.double_output:
-            eqprop_util.interleave.on()  # output
-            eqprop_util.interleave.set_num_output(self.hparams.double_output)
+        # if self.hparams.scale_output:
+        #     eqprop_util.interleave.on()  # output
+        #     eqprop_util.interleave.set_num_output(self.hparams.scale_output)
         if not self.hparams.double_input:
             self.preprocessing_input = lambda x: x.view(x.shape[0], -1)
 

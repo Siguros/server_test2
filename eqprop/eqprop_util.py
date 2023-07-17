@@ -9,19 +9,18 @@ import torch.nn as nn
 class interleave:
     """Decorator class for interleaving in/out nodes."""
 
-    _on = False
-    _num_output: int = 2
+    _num_output: int = None
 
     def __init__(self, type: str = None):
         assert type == "in" or type == "out", 'type must be either "in" or "out"'
         self.type = type
-        self.num_output = interleave._num_output
+        # self.num_output = interleave._num_output
 
     def __call__(self, func: Callable[..., Sequence[torch.Tensor]]) -> Callable:
         # print(f"called. , {self._on}")
         @functools.wraps(func)
         def wrapper(obj, *args, **kwargs) -> Sequence[torch.Tensor]:
-            if self._on:
+            if self._num_output:
                 if self.type == "in":  # mod y_hat
                     y_hat, *others = args
                     new_args = self.interleave(y_hat), *others
@@ -39,13 +38,13 @@ class interleave:
     def interleave(self, t: torch.Tensor) -> torch.Tensor:
         """Interleave 2D tensor."""
         assert t.dim() == 2, "interleave only works on 2D tensors"
-        if self.num_output == 1:
+        if self._num_output == 1:
             return t
 
-        elif self.num_output == 2:
+        elif self._num_output == 2:
             return t[:, ::2] - t[:, 1::2]
         else:
-            t_reshaped = t.reshape(t.shape[0], t.shape[1] // 4, 4)
+            t_reshaped = t.reshape(t.shape[0], t.shape[1] // self._num_output, self._num_output)
             result = t_reshaped.sum(-1)
 
             return result
@@ -56,6 +55,7 @@ class interleave:
 
     @classmethod
     def set_num_output(cls, num_output):
+        assert num_output % 2 == 0, "num_output must be even"
         cls._num_output = num_output
 
 

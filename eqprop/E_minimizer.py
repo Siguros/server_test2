@@ -197,12 +197,14 @@ def _stepsolve2(
     D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
     L += D0.diag()
     # initial solution
-    lo, info = torch.linalg.cholesky_ex(L)
-    v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
-    dv = torch.ones(1).type_as(x)
+    # lo, info = torch.linalg.cholesky_ex(L)
+    # v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+    v = torch.linalg.solve(L, B.unsqueeze(-1)).squeeze(-1)
+    dv_max = torch.ones(1).type_as(x)
+    # residual = torch.ones(1).type_as(x)
     L = L.expand(batchsize, *L.shape)
     idx = 1
-    while (dv.abs().max() > atol) and (idx < max_iter):
+    while (dv_max > atol) and (idx < max_iter):
         # nonlinearity comes here
         A = OTS.a(v[:, : -dims[-1]])
         J = L.clone()
@@ -210,16 +212,20 @@ def _stepsolve2(
         f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
         f[:, : -dims[-1], 0] += OTS.i(v[:, : -dims[-1]])
         # or SPOSV
-        lo, info = torch.linalg.cholesky_ex(J)
-        if any(info):  # singular
-            lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-            dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
-        else:
-            dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+        # lo, info = torch.linalg.cholesky_ex(J)
+        # if any(info):  # singular
+        #     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+        #     dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+        # else:
+        #     # dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+        dv = torch.linalg.solve(J, -f).squeeze(-1)
         thrs = 1e-1  # / idx
         dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
         idx += 1
         v += dv
+        dv_max = dv.abs().max()
+        log.debug(f"dv at idx {idx}: {dv_max:.3e}") if idx % 10 == 0 else None
+        # residual = torch.bmm(J, dv.unsqueeze(-1)) + f
 
     log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
     if idx == max_iter:
@@ -309,9 +315,11 @@ def _inv_L(W: torch.Tensor, D0: torch.Tensor, dims: list) -> torch.Tensor:
     D2 = D0[:hidden_len]
     schur_L = D1.diag() - W.T @ D2.diag() @ W
     inv_schur_L = schur_L.inverse()
-    inv_L = torch.empty(hidden_len, dims[1:])
-    inv_L[:, 0] = inv_schur_L @ W.T @ D2.diag()
-    inv_L[:, 1:] = -inv_schur_L @ W.T @ D2.diag() @ W
+    A = inv_schur_L @ W.T @ D2.diag()
+    B = -inv_schur_L @ W.T @ D2.diag() @ W
+    AB = torch.cat((A, B), dim=-1)
+    CD = torch.cat((B.mT, inv_schur_L), dim=-1)
+    inv_L = torch.cat((AB, CD), dim=-2)
     return inv_L
 
 

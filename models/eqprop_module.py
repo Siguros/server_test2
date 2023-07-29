@@ -129,6 +129,7 @@ class EqPropLitModule(LightningModule):
         sch = self.lr_schedulers()
         if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau):
             sch.step(self.train_loss.compute())
+        self.log("train/lr", self.optimizers().param_groups[0]["lr"], on_step=False, on_epoch=True)
 
     # TODO: mem leak?
     def validation_step(self, batch: Any, batch_idx: int):

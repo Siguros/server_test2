@@ -9,10 +9,10 @@ from pytorch_lightning.utilities.parsing import AttributeDict
 
 from src.eqprop import (
     AddNodes,
+    NewtonSolver,
     deltaV,
     interleave,
     newton_solver,
-    newtonSolver,
     type_as,
 )
 
@@ -439,7 +439,7 @@ class AnalogEP2(nn.Module):
         lin1_size: int = 256,
         output_size: int = 10,
         beta=0.1,
-        solver: newtonSolver = newtonSolver(),
+        solver: NewtonSolver = NewtonSolver(),
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()

@@ -139,5 +139,40 @@ class MNISTVAELitModule(LightningModule):
         return (reproduction_loss + KLD) / batch_size
 
 
+class VAEDecoderLitModule(MNISTVAELitModule):
+    def __init__(
+        self,
+        vae: torch.nn.Module,
+        pretrained_vae: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        scheduler: torch.optim.lr_scheduler,
+    ) -> None:
+        self.vae.encoder = pretrained_vae.encoder
+        super().__init__(vae, optimizer, scheduler)
+        self.criterion = self.vae_loss
+
+        # Freeze the encoder
+        for param in self.vae.encoder.parameters():
+            param.requires_grad = False
+
+        def configure_optimizers(self):
+            # Exclude encoder parameters
+            params = list(filter(lambda p: p.requires_grad, self.parameters()))
+
+            optimizer = self.hparams.optimizer(params=params)
+            if self.hparams.scheduler is not None:
+                scheduler = self.hparams.scheduler(optimizer=optimizer)
+                return {
+                    "optimizer": optimizer,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "monitor": "val/loss",
+                        "interval": "epoch",
+                        "frequency": 1,
+                    },
+                }
+            return {"optimizer": optimizer}
+
+
 if __name__ == "__main__":
     _ = MNISTVAELitModule(None, None, None)

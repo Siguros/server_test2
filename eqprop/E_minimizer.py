@@ -52,7 +52,7 @@ def newton_solver(
 
 
 # TODO: implement this
-class newtonSolver:
+class NewtonSolver:
     def __init__(
         self, OTS: eqprop_util.OTS = eqprop_util.OTS(), max_iter: int = 30, atol: float = 1e-6
     ) -> None:

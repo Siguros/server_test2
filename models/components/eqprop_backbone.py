@@ -7,14 +7,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
 
-from src.eqprop import (
+from src.eqprop.eqprop_util import (
     AddNodes,
-    NewtonSolver,
     deltaV,
     interleave,
-    newton_solver,
     type_as,
 )
+from src.eqprop.E_minimizer import newton_solver, NewtonSolver
 
 
 class EP(nn.Module):

@@ -33,7 +33,7 @@ class EqPropLitModule(LightningModule):
         net: AnalogEP2,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
-        double_input: bool = True,
+        scale_input: int = True,
         scale_output: int = 4,
         positive_w: bool = False,
         bias: bool = False,
@@ -52,7 +52,7 @@ class EqPropLitModule(LightningModule):
         # if self.hparams.scale_output:
         #     eqprop_util.interleave.on()  # output
         #     eqprop_util.interleave.set_num_output(self.hparams.scale_output)
-        if not self.hparams.double_input:
+        if not self.hparams.scale_input:
             self.preprocessing_input = lambda x: x.view(x.shape[0], -1)
 
         # loss function

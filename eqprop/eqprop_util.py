@@ -108,8 +108,8 @@ class P3OTS(BaseRectifier):
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
         super().__init__(Is, Vth, Vl, Vr)
 
-        self.i = torch.jit.script(rectifier_p3_i, example_inputs=(torch.rand(2, 3),))
-        self.a = torch.jit.script(rectifier_p3_a, example_inputs=(torch.rand(2, 3),))
+        self.i = rectifier_p3_i
+        self.a = rectifier_p3_a
 
 
 def rectifier_a(

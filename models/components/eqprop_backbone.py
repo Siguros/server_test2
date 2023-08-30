@@ -539,6 +539,7 @@ class AnalogEP2(nn.Module):
         """Set free/nudge nodes to each layer."""
 
         def _set_nodes_layer(submodule: nn.Module):
+            nonlocal Nodes
             if hasattr(submodule, "free_node"):
                 if free_phase:
                     submodule.free_node = Nodes.pop()

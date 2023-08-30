@@ -51,7 +51,6 @@ def newton_solver(
     return Nodes
 
 
-# TODO: implement this
 class NewtonSolver:
     def __init__(
         self, OTS: eqprop_util.OTS = eqprop_util.OTS(), max_iter: int = 30, atol: float = 1e-6

@@ -53,11 +53,12 @@ def newton_solver(
 
 class NewtonSolver:
     def __init__(
-        self, OTS: eqprop_util.OTS = eqprop_util.OTS(), max_iter: int = 30, atol: float = 1e-6
+        self, OTS: eqprop_util.OTS = eqprop_util.OTS(), max_iter: int = 30, atol: float = 1e-6, amp_factor: float = 1.0
     ) -> None:
         self.OTS = OTS
         self.max_iter = max_iter
         self.atol = atol
+        self.amp_factor = amp_factor
 
     def set_params_from_net(self, net: "AnalogEP2") -> None:  # noqa F821
         self.dims = net.dims
@@ -88,6 +89,7 @@ class NewtonSolver:
                 OTS=self.OTS,
                 max_iter=self.max_iter,
                 atol=self.atol,
+                amp_factor=self.amp_factor,
             )
             if not self.sparse
             else _sparsesolve(x, W, B, i_ext)
@@ -172,6 +174,7 @@ def _stepsolve2(
     OTS=eqprop_util.OTS(),
     max_iter=30,
     atol=1e-6,
+    amp_factor=1.0,
 ) -> torch.Tensor:
     r"""Solve J\Delta{X}=-f iteraitvely."""
     batchsize = x.size(0)
@@ -183,14 +186,14 @@ def _stepsolve2(
         for i, g in enumerate(W[1:])
     ]
     Ll = torch.cat(paddedG, dim=-2)
-    L = Ll + Ll.mT
+    L = Ll + Ll.mT/amp_factor
     # construct the RHS
     B = (
         torch.zeros((x.size(0), size)).type_as(x)
         if not B
         else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
     )
-    B[:, : dims[1]] += x @ W[0].T
+    B[:, : dims[1]] += (x/amp_factor) @ W[0].T
     B[:, -dims[-1] :] += i_ext
     # construct the diagonal
     D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))

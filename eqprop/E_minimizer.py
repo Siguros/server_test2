@@ -186,15 +186,16 @@ def _stepsolve2(
         for i, g in enumerate(W[1:])
     ]
     Ll = torch.cat(paddedG, dim=-2)
-    L = Ll + Ll.mT/amp_factor
+    L = Ll + Ll.mT * amp_factor
     # construct the RHS
     B = (
         torch.zeros((x.size(0), size)).type_as(x)
         if not B
         else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
     )
-    B[:, : dims[1]] += (x/amp_factor) @ W[0].T
+    B[:, : dims[1]] += x @ W[0].T
     B[:, -dims[-1] :] += i_ext
+    B *= amp_factor
     # construct the diagonal
     D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
     L += D0.diag()

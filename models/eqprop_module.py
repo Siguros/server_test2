@@ -1,5 +1,5 @@
 import gc
-from typing import Any
+from typing import Any, Optional
 
 import torch
 from lightning import LightningModule
@@ -53,7 +53,7 @@ class EqPropLitModule(LightningModule):
         #     eqprop_util.interleave.on()  # output
         #     eqprop_util.interleave.set_num_output(self.hparams.scale_output)
         if not self.hparams.scale_input:
-            self.preprocessing_input = lambda x: x.view(x.shape[0], -1)
+            self.interleave_input = lambda x: x.view(x.shape[0], -1)
 
         # loss function
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -87,28 +87,27 @@ class EqPropLitModule(LightningModule):
         # so we need to make sure val_acc_best doesn't store accuracy from these checks
         self.val_acc_best.reset()
 
-    def model_forward(self, batch: Any):
-        x, y = batch
-        x = self.preprocessing_input(x)
-        self.batch = (x, y)
+    def model_forward(self, x: torch.Tensor, y: torch.Tensor):
         logits = self.net.forward(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
         return loss, preds, y
 
-    def model_backward(self, loss: torch.Tensor):
+    def model_backward(self, loss: torch.Tensor, x: torch.Tensor):
         # loss.backward(), execute nudge (+ 3rd) phase
         opt = self.optimizers()
         opt.zero_grad()
         self.manual_backward(loss)
-        self.net.eqprop(self.batch)
+        self.net.eqprop(x)
         opt.step()
         if self.hparams.clip_weights or self.hparams.normalize_weights:
             self.net.apply(self.adjuster)
 
     def training_step(self, batch: Any, batch_idx: int):
-        loss, preds, targets = self.model_forward(batch)
-        self.model_backward(loss)
+        x, y = batch
+        x = self.interleave_input(x)
+        loss, preds, targets = self.model_forward(x, y)
+        self.model_backward(loss, x)
 
         # update and log metrics
         self.train_loss(loss)
@@ -133,7 +132,9 @@ class EqPropLitModule(LightningModule):
 
     # TODO: mem leak?
     def validation_step(self, batch: Any, batch_idx: int):
-        loss, preds, targets = self.model_forward(batch)
+        x, y = batch
+        x = self.interleave_input(x)
+        loss, preds, targets = self.model_forward(x, y)
 
         # update and log metrics
         self.val_loss(loss)
@@ -149,7 +150,9 @@ class EqPropLitModule(LightningModule):
         self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
 
     def test_step(self, batch: Any, batch_idx: int):
-        loss, preds, targets = self.model_forward(batch)
+        x, y = batch
+        x = self.interleave_input(x)
+        loss, preds, targets = self.model_forward(x, y)
 
         # update and log metrics
         self.test_loss(loss)
@@ -182,11 +185,25 @@ class EqPropLitModule(LightningModule):
         return {"optimizer": optimizer}
 
     @staticmethod
-    def preprocessing_input(x):
+    def interleave_input(x):
         x = x.view(x.size(0), -1)  # == x.view(-1,x.size(-1)**2)
         x = x.repeat_interleave(2, dim=1)
         x[:, 1::2] = -x[:, ::2]
         return x
+
+
+class EqPropMSELitModule(EqPropLitModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.criterion = torch.nn.MSELoss()
+
+    def model_forward(self, x: torch.Tensor, y: torch.Tensor):
+        logits = self.net.forward(x)
+        # make y onehot
+        y_onehot = torch.nn.functional.one_hot(y, num_classes=10).float()
+        loss = self.criterion(logits, y_onehot)
+        preds = torch.argmax(logits, dim=1)
+        return loss, preds, y
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
 
-from src.eqprop.E_minimizer import NewtonSolver, newton_solver
+from src.eqprop.E_minimizer import NewtonSolver
 from src.eqprop.eqprop_util import AddNodes, deltaV, interleave, type_as
 
 
@@ -299,9 +299,7 @@ class AnalogEP(EP):
         super().__init__(
             batch_size, beta, dims, (1, 1), activation, epsilon, criterion, *args, **kwargs
         )
-        self.fdV = []
-        self.ndV = []
-        AnalogEP.minimize = newton_solver
+        DeprecationWarning("AnalogEP is deprecated. Use AnalogEP2 instead.")
 
     def _init_weights(self):
         super()._init_weights()
@@ -392,33 +390,6 @@ class AnalogEP(EP):
             # TODO: bias?
 
 
-from abc import ABC, abstractmethod
-
-
-class EqProp(ABC):
-    """EqProp base class.
-
-    Args:
-        ABC (_type_): _description_
-    """
-
-    def __init__(self, beta=0.1, *args, **kwargs):
-        self.iseqprop = True
-        self.beta = beta
-
-    @abstractmethod
-    def forward(self, x):
-        pass
-
-    @abstractmethod
-    def eqprop(self, x, dy):
-        pass
-
-    @abstractmethod
-    def energy(self, x):
-        pass
-
-
 class AnalogEP2(nn.Module):
     """Directly implement analog eqprop.
 
@@ -479,7 +450,6 @@ class AnalogEP2(nn.Module):
         """
         # assert self.training is False
         self.reset_nodes()
-        params = self.model.parameters()
         Nodes = self.solver(x)
         self.set_nodes(Nodes, free_phase=True)
         logits = self.model.get_buffer("last.free_node")
@@ -487,16 +457,13 @@ class AnalogEP2(nn.Module):
         return self.model.ypred
 
     @torch.no_grad()
-    def eqprop(self, batch):
-        """Nudge phase & grad calculation. y is required for internal loss calculation.
+    def eqprop(self, x: torch.Tensor):
+        """Nudge phase & grad calculation.
 
-        Args:
-            batch (tuple): (x, y)
+        y is required for internal loss calculation.
         """
         assert self.training is True
-        x, y = batch
-        params = self.model.parameters()
-        Nodes = self.solver(x, y)
+        Nodes = self.solver(x, nudge_phase=True)
         self.set_nodes(Nodes, free_phase=False)
         self.prev_free = self.prev_nudge = x
         self.model.apply(self._update)
@@ -548,26 +515,3 @@ class AnalogEP2(nn.Module):
 
         self.model.apply(_set_nodes_layer)
         del Nodes
-
-
-class EqPropWrapper(torch.autograd.Function):
-    """Wrapper for EqProp that has same interface as nn.Module Full control over eqprop process
-    (data)"""
-
-    @staticmethod
-    def forward(ctx, eqprop_layer: EqProp, input):
-        ctx.eqprop_layer = eqprop_layer
-        output = eqprop_layer.forward(input)
-        # ctx.save_for_backward(input, output) # output is not needed
-        ctx.save_for_backward(input)
-        return output
-
-    # : implement backward explicitly
-    @staticmethod
-    def backward(ctx, grad_output):
-        # input, output = ctx.saved_tensors
-        input = ctx.saved_tensors
-        eqprop_layer: EqProp = ctx.eqprop_layer
-        eqprop_layer.eqprop((input, grad_output))
-        grad_input = None  # dummy, dy/dx?
-        return grad_input

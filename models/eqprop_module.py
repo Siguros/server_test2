@@ -2,6 +2,7 @@ import gc
 from typing import Any, Optional
 
 import torch
+import torch.nn.functional as F
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
@@ -47,7 +48,7 @@ class EqPropLitModule(LightningModule):
 
         self.net: AnalogEP2 = net(hyper_params=self.hparams)
         self.net.model.apply(
-            eqprop_util.init_params(min_w=1e-5, max_w=1)
+            eqprop_util.init_params(min_w=1e-7, max_w_gain=0.08)
         ) if self.hparams.positive_w else ...
         # if self.hparams.scale_output:
         #     eqprop_util.interleave.on()  # output
@@ -76,7 +77,7 @@ class EqPropLitModule(LightningModule):
         # set param clipper
         if self.hparams.clip_weights or self.hparams.normalize_weights:
             self.adjuster = eqprop_util.AdjustParams(
-                L=1e-5,
+                L=1e-7,
                 U=None,
                 normalize=self.hparams.normalize_weights,
                 clamp=self.hparams.clip_weights,
@@ -199,10 +200,11 @@ class EqPropMSELitModule(EqPropLitModule):
 
     def model_forward(self, x: torch.Tensor, y: torch.Tensor):
         logits = self.net.forward(x)
+        yhat = F.softmax(logits, dim=1)
         # make y onehot
-        y_onehot = torch.nn.functional.one_hot(y, num_classes=10).float()
-        loss = self.criterion(logits, y_onehot)
-        preds = torch.argmax(logits, dim=1)
+        y_onehot = F.one_hot(y, num_classes=10).float()
+        loss = self.criterion(yhat, y_onehot)
+        preds = torch.argmax(yhat, dim=1)
         return loss, preds, y
 
 

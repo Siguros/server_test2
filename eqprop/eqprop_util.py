@@ -236,12 +236,15 @@ class AdjustParams:
 
 
 def _init_params(
-    submodule: nn.Module, param_name: str = "weight", min_w: float = 1e-6, max_w: float = 1
+    submodule: nn.Module, param_name: str = "weight", min_w: float = 1e-6, max_w_gain: float = 1
 ):
     if hasattr(submodule, param_name):
-        for param in submodule.get_parameter(param_name):
-            nn.init.uniform_(param, min_w, max_w)
+        param = submodule.get_parameter(param_name)
+        # positive xaiver_uniform
+        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(param)
+        max_w = max_w_gain / math.sqrt(fan_in + fan_out)
+        nn.init.uniform_(param, min_w, max_w)
 
 
-def init_params(min_w: float = 1e-6, max_w: float = 1):
-    return functools.partial(_init_params, param_name="weight", min_w=min_w, max_w=max_w)
+def init_params(min_w: float = 1e-6, max_w_gain: float = 0.08):
+    return functools.partial(_init_params, param_name="weight", min_w=min_w, max_w_gain=max_w_gain)

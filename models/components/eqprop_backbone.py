@@ -7,8 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
 
-from src.eqprop.E_minimizer import NewtonSolver
 from src.eqprop.eqprop_util import AddNodes, deltaV, interleave, type_as
+from src.eqprop.solver import AnalogEqPropSolver
 
 
 class EP(nn.Module):
@@ -404,7 +404,7 @@ class AnalogEP2(nn.Module):
         lin1_size: int = 256,
         output_size: int = 10,
         beta=0.1,
-        solver: NewtonSolver = NewtonSolver(),
+        solver: AnalogEqPropSolver = AnalogEqPropSolver(),
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()
@@ -492,11 +492,6 @@ class AnalogEP2(nn.Module):
 
             self.prev_free = free_n
             self.prev_nudge = nudge_n
-
-    def energy(self):
-        """Compute energy."""
-        # consider CNN, RNN case and generalized energy
-        ...
 
     def reset_nodes(self):
         for buf in self.model.buffers():

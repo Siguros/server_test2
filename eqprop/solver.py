@@ -1,33 +1,76 @@
-# from __future__ import annotations
-from typing import Generator, List, Union
+from __future__ import annotations
+
+# from src.models.components.eqprop_backbone import AnalogEP2
+from abc import ABC, abstractmethod
+from typing import Any, Generator, List, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# from src.models.components.eqprop_backbone import AnalogEP2
 from src.eqprop import eqprop_util
 from src.utils import get_pylogger
+from tests.helpers.package_available import _XYCE_AVAILABLE
 
 log = get_pylogger(__name__)
 
 
-class NewtonSolver:
-    r"""Solve J\Delta{X}=-f with Newton's method."""
+class EqPropSolver:
+    """Solve for the equilibrium point of the network."""
 
-    def __init__(
-        self,
-        OTS: eqprop_util.OTS = eqprop_util.OTS(),
-        max_iter: int = 30,
-        atol: float = 1e-6,
-        amp_factor: float = 1.0,
-    ) -> None:
-        self.OTS = OTS
-        self.max_iter = max_iter
-        self.atol = atol
-        self.amp_factor = amp_factor
+    def __init__(self, strategy: AbstractStrategy, *args, **kwargs) -> None:
+        self.strategy = strategy(*args, **kwargs)
 
-    def set_params_from_net(self, net: "AnalogEP2") -> None:  # noqa F821
+    def __call__(self, x: Any, **kwargs: Any) -> Any:
+        i_ext = 0
+        if kwargs["nudge_phase"]:
+            i_ext = -self.beta * self.model.ypred.grad
+            self.model.zero_grad()
+        nodes = self.strategy.solve(x, i_ext, **kwargs)
+        if kwargs["compute_energy"]:
+            E = self.energy(nodes, x)
+            return nodes, E
+        else:
+            return nodes
+
+    def energy(self, Nodes, x) -> torch.Tensor:
+        """Energy function."""
+        it = len(Nodes)
+        act = self.activation
+        assert it == len(self.dims) - 1, ValueError(
+            "number of nodes must match the number of layers"
+        )
+        assert it == len(self.W), ValueError("number of nodes must match the number of layers")
+
+        def layer_energy(n: torch.Tensor, w: nn.Module, m: torch.Tensor):
+            """Energy function for a layer.
+
+            Args:
+                n (torch.Tensor):B x I
+                w (torch.nn.Linear): O x I
+                m (torch.Tensor): B x O
+
+            Returns:
+                E_layer = E_nodes - E_weights - E_biases
+            """
+            nodes_energy = 0.5 * torch.sum(torch.pow(n, 2), dim=1)
+            weights_energy = 0.5 * (torch.matmul(act(m), w.weight) * act(n)).sum(dim=1)
+            biases_energy = torch.matmul(act(m), w.bias) if getattr(w, "bias") is not None else 0.0
+            return nodes_energy - weights_energy - biases_energy
+
+        for idx in range(it):
+            if idx == 0:
+                E = layer_energy(x, self.W[idx], Nodes[idx])
+            else:
+                E += layer_energy(Nodes[idx - 1], self.W[idx], Nodes[idx])
+        E += 0.5 * torch.sum(torch.pow(Nodes[-1], 2), dim=1)  # add E_nodes of output layer
+        return E
+
+    def set_params_from_net(self, net: AnalogEP2) -> None:  # noqa F821
+        """Set parameters from a network.
+
+        Should be called in EqProp model side
+        """
         self.dims = net.dims
         self.sparse = (
             True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
@@ -36,41 +79,146 @@ class NewtonSolver:
         self.model: nn.Module = net.model
         self.beta = net.beta
 
-    @torch.no_grad()
-    def __call__(self, x: torch.Tensor, nudge_phase: bool = False) -> None:
-        assert hasattr(self, "model"), ValueError("model must be set before calling")
-        W, B = [], []
-        self.model.apply(lambda submodule: self.get_params(submodule, W, B))
-        i_ext = 0
-        if nudge_phase:
-            i_ext = -self.beta * self.model.ypred.grad
-            self.model.zero_grad()
-        vout = (
-            _densecholsol(
-                x,
-                W,
-                self.dims,
-                B,
-                i_ext=i_ext,
-                OTS=self.OTS,
-                max_iter=self.max_iter,
-                atol=self.atol,
-                amp_factor=self.amp_factor,
-            )
-            if not self.sparse
-            else _sparsecholsol(x, W, B, i_ext)
-        )
-        Nodes = list(vout.split(self.dims[1:], dim=1))
-        Nodes.reverse()
-        return Nodes
 
-    def get_params(
+class AnalogEqPropSolver(EqPropSolver):
+    def energy(self, Nodes, x) -> torch.Tensor:
+        num_layers = len(Nodes)
+        assert num_layers == len(self.dims) - 1, ValueError(
+            "number of nodes must match the number of layers"
+        )
+        assert num_layers == len(self.W), ValueError(
+            "number of nodes must match the number of layers"
+        )
+
+        def layer_power(n: torch.Tensor, w: nn.Module, m: torch.Tensor):
+            r"""Energy function for a layer.
+
+            Args:
+                n (torch.Tensor):B x I
+                w (torch.nn.Linear): O x I
+                m (torch.Tensor): B x O
+
+            Returns:
+                E_layer = 0.5 * \Sum{G * (n_i - m_i)^2} : B
+            """
+            return 0.5 * torch.sum(w.weight * self.deltaV(n, m).pow(2), dim=(1, 2))
+
+        def rectifier_power(x: torch.Tensor):  # , Is=1e-8, Vt1=0.1, Vt2=0.9, eta=1):
+            def diode_power(V, Vt):
+                return 0.026 * self.OTS.Is * (torch.exp((V - Vt) / (0.026)) - 1) - self.OTS.Is * (
+                    V - Vt
+                )
+
+            return torch.sum(diode_power(-x, -self.Vl) + diode_power(x, self.Vr), dim=-1)
+
+        for idx in range(num_layers):
+            if idx == 0:
+                E = layer_power(x, self.W[idx], Nodes[idx]) + rectifier_power(Nodes[idx])
+            elif idx != num_layers - 1:
+                E += layer_power(
+                    self.OTS(Nodes[idx - 1]), self.W[idx], Nodes[idx]
+                ) + rectifier_power(Nodes[idx])
+            else:
+                E += layer_power(self.OTS(Nodes[idx - 1]), self.W[idx], Nodes[idx])
+        return E
+
+
+class AbstractStrategy(ABC):
+    """Abstract class for different strategies to solve for the equilibrium point of the
+    network."""
+
+    def __init__(self, max_iter: int = 30, atol: float = 1e-6, amp_factor: float = 1.0):
+        self.max_iter = max_iter
+        self.atol = atol
+        self.amp_factor = amp_factor
+
+    @abstractmethod
+    def solve(self, *args, **kwargs) -> list[torch.Tensor]:
+        ...
+
+    def _get_layer_params(
         self, submodule: nn.Module, W: list[torch.Tensor], B: list[torch.Tensor]
     ) -> None:
         if hasattr(submodule, "weight"):
             W.append(submodule.get_parameter("weight"))
             if submodule.bias is not None:
                 B.append(submodule.get_parameter("bias"))
+
+    def get_params(self) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        assert hasattr(self, "model"), ValueError("model must be set before calling")
+        W, B = [], []
+        self.model.apply(lambda submodule: self._get_layer_params(submodule, W, B))
+        return W, B
+
+
+class SPICEStrategy(AbstractStrategy):
+    """Calculate Node potentials with SPICE."""
+
+    def __new__(cls):
+        # check if ngspice is installed
+        cls._check_spice()
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    @classmethod
+    def _check_spice(cls):
+        raise NotImplementedError()
+
+
+class TorchStrategy(AbstractStrategy):
+    """Calculate Node potentials with Torch."""
+
+    def __init__(
+        self,
+        *args,
+        OTS: eqprop_util.OTS = eqprop_util.OTS(),
+        **kwargs,
+    ) -> None:
+        self.OTS = OTS
+        super().__init__(*args, **kwargs)
+
+
+class XYCEStrategy(SPICEStrategy):
+    """Calculate Node potentials with Xyce."""
+
+    # TODO: check if xyce is installed
+    def _check_spice(cls):
+        if _XYCE_AVAILABLE:
+            return super().__new__()
+        else:
+            raise ImportError("Xyce is not installed.")
+
+    # TODO: set up xyce, generate netlist
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    # TODO: return nodes in equilibrium
+    def solve(self, *args, **kwargs) -> list[torch.Tensor]:
+        nodes = 0
+        return nodes
+
+
+class NewtonStrategy(TorchStrategy):
+    r"""Solve J\Delta{X}=-f with Newton's method."""
+
+    @torch.no_grad()
+    def solve(self, x: torch.Tensor, i_ext) -> list[torch.Tensor]:
+        W, B = self.get_params()
+        vout = _densecholsol(
+            x,
+            W,
+            self.dims,
+            B,
+            i_ext=i_ext,
+            OTS=self.OTS,
+            max_iter=self.max_iter,
+            atol=self.atol,
+            amp_factor=self.amp_factor,
+        )
+        Nodes = list(vout.split(self.dims[1:], dim=1))
+        Nodes.reverse()
+        return Nodes
 
 
 @torch.no_grad()
@@ -254,7 +402,7 @@ def _sparsecholsol(x, W, dims, B, i_ext):
 
 
 # TODO: custom CUDA kernel
-def _block_tri_cholesky(W: List[torch.Tensor]):
+def _block_tri_cholesky(W: list[torch.Tensor]):
     """Blockwise cholesky decomposition for a size varying block tridiagonal matrix. see spftrf()
     in LAPACK.
 

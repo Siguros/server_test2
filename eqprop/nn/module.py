@@ -49,7 +49,7 @@ class EqPropMixin_(torch.autograd.Function):
         input = ctx.saved_tensors
         eqprop_layer: EqProp = ctx.eqprop_layer
         eqprop_layer.eqprop((input, grad_output))
-        grad_input = None  # dummy, dy/dx?
+        grad_input = None  # dL/dx = g*(dV_nudge -dV_free)/beta
         return grad_input
 
 
@@ -58,8 +58,7 @@ class EqPropLinear(EqProp, nn.Linear):
 
     def __init__(self, *args, **kwargs):
         super(self, nn.Linear).__init__(*args, **kwargs)
-        if self.iseqprop:
-            self = EqPropMixin_(self)
+        super(self, EqProp).__init__(*args, **kwargs)
 
     def forward(self, x):
         return super().forward(x)

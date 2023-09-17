@@ -77,7 +77,7 @@ class type_as:
 
 
 class BaseRectifier:
-    def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
+    def __init__(self, Is, Vth, Vl, Vr):
         self.Is = Is
         self.Vth = Vth
         self.Vl = Vl
@@ -89,91 +89,78 @@ class BaseRectifier:
     def a(self, V: torch.Tensor):
         raise NotImplementedError
 
+    def p(self, V: torch.Tensor):
+        raise NotImplementedError
+
 
 class OTS(BaseRectifier):
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
         super().__init__(Is, Vth, Vl, Vr)
-        self.i = torch.jit.script(rectifier_i, example_inputs=(torch.rand(2, 3),))
-        self.a = torch.jit.script(rectifier_a, example_inputs=(torch.rand(2, 3),))
+
+    def a(self, V: torch.Tensor):
+        admittance = (
+            self.Is
+            / self.Vth
+            * (torch.exp((V - self.Vr) / self.Vth) + torch.exp((-V + self.Vl) / self.Vth))
+        )
+        return admittance
+
+    def i(self, V: torch.Tensor):
+        return self.Is * (
+            torch.exp((V - self.Vr) / self.Vth) - torch.exp((-V + self.Vl) / self.Vth)
+        )
+
+    @classmethod
+    def p(cls, V: torch.Tensor):
+        pass
 
 
 class PolyOTS(BaseRectifier):
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9, power=2):
         super().__init__(Is, Vth, Vl, Vr)
-        self.i = torch.jit.script(rectifier_poly_i, example_inputs=(torch.rand(2, 3),))
-        self.a = torch.jit.script(rectifier_poly_a, example_inputs=(torch.rand(2, 3),))
+        self.power = power
+
+    def a(
+        self,
+        V: torch.Tensor,
+    ):
+        x1 = (V - self.Vr) / self.Vth
+        x2 = (V - self.Vl) / self.Vth
+        res = 2
+        for i in range(1, self.power + 1):
+            res += i * (x1.pow(i) - (-x2).pow(i)) / math.factorial(i)
+        return self.Is / (self.Vth**2) * res
+
+    def i(
+        self,
+        V: torch.Tensor,
+    ):
+        x1 = (V - self.Vr) / self.Vth
+        x2 = (V - self.Vl) / self.Vth
+        res = 0
+        for i in range(1, self.power + 1):
+            res += ((x1 / self.Vth).pow(i) - (-x2 / self.Vth).pow(i)) / math.factorial(i)
+        return self.Is * res
 
 
 class P3OTS(BaseRectifier):
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
         super().__init__(Is, Vth, Vl, Vr)
 
-        self.i = rectifier_p3_i
-        self.a = rectifier_p3_a
+    def i(self, V: torch.Tensor):
+        x = V - (self.Vl + self.Vr) / 2
+        return 2 * self.Is / self.Vth * (x.pow(3))
 
-
-def rectifier_a(
-    V: torch.Tensor, Is: float = 1e-8, Vth: float = 0.026, Vl: float = 0.1, Vr: float = 0.9
-):
-    admittance = Is / Vth * (torch.exp((V - Vr) / Vth) + torch.exp((-V + Vl) / Vth))
-    return admittance
-
-
-def rectifier_i(
-    V: torch.Tensor, Is: float = 1e-8, Vth: float = 0.026, Vl: float = 0.1, Vr: float = 0.9
-):
-    return Is * (torch.exp((V - Vr) / Vth) - torch.exp((-V + Vl) / Vth))
-
-
-def rectifier_poly_a(
-    V: torch.Tensor,
-    Is: float = 1e-8,
-    Vth: float = 0.026,
-    Vl: float = 0.1,
-    Vr: float = 0.9,
-    power=2,
-):
-    x1 = (V - Vr) / Vth
-    x2 = (V - Vl) / Vth
-    res = 2
-    for i in range(1, power + 1):
-        res += i * (x1.pow(i) - (-x2).pow(i)) / math.factorial(i)
-    return Is / (Vth**2) * res
-
-
-def rectifier_poly_i(
-    V: torch.Tensor,
-    Is: float = 1e-8,
-    Vth: float = 0.026,
-    Vl: float = 0.1,
-    Vr: float = 0.9,
-    power=2,
-):
-    x1 = (V - Vr) / Vth
-    x2 = (V - Vl) / Vth
-    res = 0
-    for i in range(1, power + 1):
-        res += ((x1 / Vth).pow(i) - (-x2 / Vth).pow(i)) / math.factorial(i)
-    return Is * res
-
-
-def rectifier_p3_i(
-    V: torch.Tensor, Is: float = 1e-8, Vth: float = 0.026, Vl: float = 0.1, Vr: float = 0.9
-):
-    x = V - (Vl + Vr) / 2
-    return 2 * Is / Vth * (x.pow(3))
-
-
-def rectifier_p3_a(
-    V: torch.Tensor, Is: float = 1e-8, Vth: float = 0.026, Vl: float = 0.1, Vr: float = 0.9
-):
-    x = V - (Vl + Vr) / 2
-    return 2 * Is / Vth * (3 * x.pow(2))
+    def a(self, V: torch.Tensor):
+        x = V - (self.Vl + self.Vr) / 2
+        return 2 * self.Is / self.Vth * (3 * x.pow(2))
 
 
 @torch.jit.script
 def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
-    """Compute deltaV matrix from 2 node voltages.
+    """Compute batch-wise deltaV matrix from 2 node voltages.
+
+    Where deltaV[i, j] = n[i] - m[j]
 
     Args:
         n (torch.Tensor): (B x) I

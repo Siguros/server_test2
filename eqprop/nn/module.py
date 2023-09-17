@@ -1,18 +1,25 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 import torch
 import torch.nn as nn
+
+from src.eqprop import eqprop_util
 
 
 class EqProp(ABC):
     """EqProp base class.
 
     Args:
-        ABC (_type_): _description_
+        activation (torch.nn.functional): activation function
+        beta (float, optional): numerical approximation scale. Defaults to 0.1.
     """
 
-    def __init__(self, beta=0.1, *args, **kwargs):
+    def __init__(
+        self, activation: nn.functional.relu | eqprop_util.OTS, beta=0.1, *args: Any, **kwargs: Any
+    ) -> None:
         self.iseqprop = True
+        self.activation = activation
         self.beta = beta
 
     @abstractmethod
@@ -28,9 +35,12 @@ class EqProp(ABC):
         pass
 
 
-class EqPropMixin_(torch.autograd.Function):
-    """Wrapper for EqProp that has same interface as nn.Module Full control over eqprop process
-    (data)"""
+class EqPropFunc(torch.autograd.Function):
+    """Wrapper for EqProp.
+
+    Determines specific EqProp implementation. e.g. 3rd order, 2nd order, etc. Use with
+    EqPropFunc.apply() instead of EqProp.forward().
+    """
 
     @staticmethod
     def forward(ctx, eqprop_layer: EqProp, input):
@@ -41,7 +51,7 @@ class EqPropMixin_(torch.autograd.Function):
         ctx.save_for_backward(input)
         return output
 
-    # : implement backward explicitly
+    # : implement explicit backward pass
     @staticmethod
     # @torch.once_differentiable()
     def backward(ctx, grad_output):
@@ -71,7 +81,7 @@ class EqPropSequential(EqProp, nn.Sequential):
         super(self, nn.Sequential).__init__(*args, **kwargs)
         for module in self:
             if module.iseqprop:
-                module = EqPropMixin_(module)
+                module = EqPropFunc(module)
 
     def forward(self, x):
         for module in self:

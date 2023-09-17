@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-# from src.models.components.eqprop_backbone import AnalogEP2
 from abc import ABC, abstractmethod
-from typing import Any, Generator, List, Union
+from typing import Any, Callable
 
 import torch
 import torch.nn as nn
@@ -18,18 +17,38 @@ log = get_pylogger(__name__)
 class EqPropSolver:
     """Solve for the equilibrium point of the network."""
 
-    def __init__(self, strategy: AbstractStrategy, *args, **kwargs) -> None:
-        self.strategy = strategy(*args, **kwargs)
+    def __init__(
+        self, strategy: AbstractStrategy, activation: Callable, amp_factor: float = 1.0
+    ) -> None:
+        self.strategy = strategy
+        self.activation = activation
+        self.amp_factor = amp_factor
+        self.dims = None
+        self.model = None
+        self.beta = None
 
-    def __call__(self, x: Any, **kwargs: Any) -> Any:
+    def __call__(
+        self, x: torch.Tensor, **kwargs: Any
+    ) -> list[torch.Tensor] | tuple[list[torch.Tensor], torch.Tensor]:
+        """Call the solver.
+
+        Args:
+            x (torch.Tensor): _description_
+            nudge_phase (bool, optional): Defaults to False.
+            return_energy (bool, optional): Defaults to False.
+
+        Returns:
+            If `return_energy` is True, return (nodes, E).
+            Else, return nodes.
+        """
         i_ext = 0
-        if kwargs["nudge_phase"]:
+        if kwargs.get("nudge_phase", False):
             i_ext = -self.beta * self.model.ypred.grad
             self.model.zero_grad()
         nodes = self.strategy.solve(x, i_ext, **kwargs)
-        if kwargs["compute_energy"]:
+        if kwargs.get("return_energy", False):
             E = self.energy(nodes, x)
-            return nodes, E
+            return (nodes, E)
         else:
             return nodes
 
@@ -66,60 +85,76 @@ class EqPropSolver:
         E += 0.5 * torch.sum(torch.pow(Nodes[-1], 2), dim=1)  # add E_nodes of output layer
         return E
 
+    def Tenergy(self, Nodes, x, y, beta) -> torch.Tensor:
+        """Compute Total Free Energy: Wsum rho(u_i)W_{ij}rho(u_j)"""
+        E = self.energy(Nodes, x)
+        L = None
+        if beta != 0:
+            assert y is not None, ValueError("y must be provided if beta != 0")
+            L = self.criterion(Nodes[-1], y)
+            E += beta * L
+
     def set_params_from_net(self, net: AnalogEP2) -> None:  # noqa F821
         """Set parameters from a network.
 
         Should be called in EqProp model side
         """
         self.dims = net.dims
-        self.sparse = (
-            True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
-        )
         assert hasattr(net.model, "ypred"), ValueError("model must have a ypred attribute")
         self.model: nn.Module = net.model
         self.beta = net.beta
+        if isinstance(self.strategy, TorchStrategy):
+            st = self.strategy
+            st.OTS = self.activation
+            st.amp_factor = self.amp_factor
+            st.dims = self.dims
+            st.model = self.model
+            st.beta = self.beta
 
 
 class AnalogEqPropSolver(EqPropSolver):
+    def __init__(
+        self, strategy: AbstractStrategy, activation: eqprop_util.OTS, amp_factor: float = 1.0
+    ) -> None:
+        super().__init__(strategy, activation, amp_factor)
+
+    # TODO: Check validity when amp_factor is not 1
     def energy(self, Nodes, x) -> torch.Tensor:
         num_layers = len(Nodes)
         assert num_layers == len(self.dims) - 1, ValueError(
             "number of nodes must match the number of layers"
         )
-        assert num_layers == len(self.W), ValueError(
-            "number of nodes must match the number of layers"
-        )
 
-        def layer_power(n: torch.Tensor, w: nn.Module, m: torch.Tensor):
+        # TODO: Add bias
+        def layer_power(submodule: nn.Module, in_V: torch.Tensor, out_V: torch.Tensor):
             r"""Energy function for a layer.
 
             Args:
-                n (torch.Tensor):B x I
-                w (torch.nn.Linear): O x I
-                m (torch.Tensor): B x O
+                in_V (torch.Tensor):B x I
+                submodule (torch.nn.Linear): O x I
+                out_V (torch.Tensor): B x O
 
             Returns:
                 E_layer = 0.5 * \Sum{G * (n_i - m_i)^2} : B
             """
-            return 0.5 * torch.sum(w.weight * self.deltaV(n, m).pow(2), dim=(1, 2))
-
-        def rectifier_power(x: torch.Tensor):  # , Is=1e-8, Vt1=0.1, Vt2=0.9, eta=1):
-            def diode_power(V, Vt):
-                return 0.026 * self.OTS.Is * (torch.exp((V - Vt) / (0.026)) - 1) - self.OTS.Is * (
-                    V - Vt
-                )
-
-            return torch.sum(diode_power(-x, -self.Vl) + diode_power(x, self.Vr), dim=-1)
+            W = submodule.weight
+            in_V = in_V.unsqueeze(1)
+            out_V = out_V.unsqueeze(2)
+            return (
+                0.5 * torch.bmm(in_V.pow(2), W).sum(dim=(1, 2))
+                + torch.bmm(W, out_V.pow(2)).sum(dim=(1, 2))
+                - 2 * (in_V @ W @ out_V).squeeze()
+            )
 
         for idx in range(num_layers):
             if idx == 0:
-                E = layer_power(x, self.W[idx], Nodes[idx]) + rectifier_power(Nodes[idx])
+                E = layer_power(x, self.W[idx], Nodes[idx]) + self.activation.p(Nodes[idx])
             elif idx != num_layers - 1:
                 E += layer_power(
-                    self.OTS(Nodes[idx - 1]), self.W[idx], Nodes[idx]
-                ) + rectifier_power(Nodes[idx])
+                    self.amp_factor * (Nodes[idx - 1]), self.W[idx], Nodes[idx]
+                ) + self.activation.p(Nodes[idx])
             else:
-                E += layer_power(self.OTS(Nodes[idx - 1]), self.W[idx], Nodes[idx])
+                E += layer_power(self.amp_factor(Nodes[idx - 1]), self.W[idx], Nodes[idx])
         return E
 
 
@@ -127,13 +162,21 @@ class AbstractStrategy(ABC):
     """Abstract class for different strategies to solve for the equilibrium point of the
     network."""
 
-    def __init__(self, max_iter: int = 30, atol: float = 1e-6, amp_factor: float = 1.0):
+    def __init__(self, max_iter: int = 30, atol: float = 1e-6):
         self.max_iter = max_iter
         self.atol = atol
-        self.amp_factor = amp_factor
 
     @abstractmethod
-    def solve(self, *args, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        """Solve for the equilibrium point of the network.
+
+        Args:
+            x (_type_): input of the network.
+            i_ext (_type_): external current.
+
+        Returns:
+            list[torch.Tensor]: list of layer node potentials.
+        """
         ...
 
     def _get_layer_params(
@@ -157,9 +200,10 @@ class SPICEStrategy(AbstractStrategy):
     def __new__(cls):
         # check if ngspice is installed
         cls._check_spice()
+        return super().__new__(cls)
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
 
     @classmethod
     def _check_spice(cls):
@@ -171,30 +215,40 @@ class TorchStrategy(AbstractStrategy):
 
     def __init__(
         self,
-        *args,
-        OTS: eqprop_util.OTS = eqprop_util.OTS(),
         **kwargs,
     ) -> None:
-        self.OTS = OTS
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
+        """Initialize the solver.
+
+        Below attributes should be set in EqPropSolver.set_params_from_net()
+        """
+        self.OTS = None
+        self.dims = None
+        self.model = None
+        self.beta = None
+        self.amp_factor = 1.0
+        # self.sparse = (
+        #     True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
+        # )
 
 
 class XYCEStrategy(SPICEStrategy):
     """Calculate Node potentials with Xyce."""
 
     # TODO: check if xyce is installed
+    @classmethod
     def _check_spice(cls):
         if _XYCE_AVAILABLE:
-            return super().__new__()
+            pass
         else:
             raise ImportError("Xyce is not installed.")
 
     # TODO: set up xyce, generate netlist
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
 
     # TODO: return nodes in equilibrium
-    def solve(self, *args, **kwargs) -> list[torch.Tensor]:
+    def solve(self, **kwargs) -> list[torch.Tensor]:
         nodes = 0
         return nodes
 
@@ -202,177 +256,163 @@ class XYCEStrategy(SPICEStrategy):
 class NewtonStrategy(TorchStrategy):
     r"""Solve J\Delta{X}=-f with Newton's method."""
 
+    def __init__(self, clip_threshold, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.clip_threshold = clip_threshold
+
     @torch.no_grad()
-    def solve(self, x: torch.Tensor, i_ext) -> list[torch.Tensor]:
+    def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
         W, B = self.get_params()
-        vout = _densecholsol(
-            x,
-            W,
-            self.dims,
-            B,
-            i_ext=i_ext,
-            OTS=self.OTS,
-            max_iter=self.max_iter,
-            atol=self.atol,
-            amp_factor=self.amp_factor,
+        vout = self._densecholsol(x, W, B, i_ext)
+        nodes = list(vout.split(self.dims[1:], dim=1))
+        nodes.reverse()
+        return nodes
+
+    @torch.no_grad()
+    def _densecholsol(
+        self,
+        x: torch.Tensor,
+        W: list,
+        B: list | None = None,
+        i_ext=None,
+    ) -> torch.Tensor:
+        r"""Solve J\Delta{X}=-f with dense cholesky decomposition.
+
+        Args:
+            x (torch.Tensor): Input.
+            W (list): List of weight matrices.
+            dims (list): List of dimensions.
+            B (list, optional): List of bias vectors. Defaults to None.
+            i_ext ([type], optional): External current. Defaults to None.
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
+            self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
+            self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+        """
+        dims = self.dims
+        batchsize = x.size(0)
+        size = sum(dims[1:])
+        # construct the laplacian
+        paddedG = [torch.zeros(dims[1], size).type_as(x)]
+        [
+            paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
+            for i, g in enumerate(W[1:])
+        ]
+        Ll = torch.cat(paddedG, dim=-2)
+        L = Ll + Ll.mT * self.amp_factor
+        # construct the RHS
+        B = (
+            torch.zeros((x.size(0), size)).type_as(x)
+            if not B
+            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
         )
-        Nodes = list(vout.split(self.dims[1:], dim=1))
-        Nodes.reverse()
-        return Nodes
+        B[:, : dims[1]] += x @ W[0].T
+        B[:, -dims[-1] :] += i_ext
+        B *= self.amp_factor
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
+        L += D0.diag()
+        # initial solution
+        lo, info = torch.linalg.cholesky_ex(L)
+        v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        dv = torch.ones(1).type_as(x)
+        L = L.expand(batchsize, *L.shape)
+        idx = 1
+        while (dv.abs().max() > self.atol) and (idx < self.max_iter):
+            # nonlinearity comes here
+            A = self.OTS.a(v[:, : -dims[-1]])
+            J = L.clone()
+            J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
+            f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+            f[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+            # or SPOSV
+            lo, info = torch.linalg.cholesky_ex(J)
+            if any(info):  # singular
+                lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+                dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+            else:
+                dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+            dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)  # voltage limit
+            idx += 1
+            v += dv
 
-
-@torch.no_grad()
-def _densecholsol(
-    x: torch.Tensor,
-    W: list,
-    dims: list,
-    B: list | None = None,
-    i_ext=None,
-    OTS=eqprop_util.OTS(),
-    max_iter=30,
-    atol=1e-6,
-    amp_factor=1.0,
-) -> torch.Tensor:
-    r"""Solve J\Delta{X}=-f with dense cholesky decomposition.
-
-    Args:
-        x (torch.Tensor): Input.
-        W (list): List of weight matrices.
-        dims (list): List of dimensions.
-        B (list, optional): List of bias vectors. Defaults to None.
-        i_ext ([type], optional): External current. Defaults to None.
-        OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.OTS().
-        max_iter (int, optional): Maximum number of iterations. Defaults to 30.
-        atol (float, optional): Absolute tolerance. Defaults to 1e-6.
-        amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
-    """
-    batchsize = x.size(0)
-    size = sum(dims[1:])
-    # construct the laplacian
-    paddedG = [torch.zeros(dims[1], size).type_as(x)]
-    [
-        paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
-        for i, g in enumerate(W[1:])
-    ]
-    Ll = torch.cat(paddedG, dim=-2)
-    L = Ll + Ll.mT * amp_factor
-    # construct the RHS
-    B = (
-        torch.zeros((x.size(0), size)).type_as(x)
-        if not B
-        else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
-    )
-    B[:, : dims[1]] += x @ W[0].T
-    B[:, -dims[-1] :] += i_ext
-    B *= amp_factor
-    # construct the diagonal
-    D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
-    L += D0.diag()
-    # initial solution
-    lo, info = torch.linalg.cholesky_ex(L)
-    v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
-    dv = torch.ones(1).type_as(x)
-    L = L.expand(batchsize, *L.shape)
-    idx = 1
-    while (dv.abs().max() > atol) and (idx < max_iter):
-        # nonlinearity comes here
-        A = OTS.a(v[:, : -dims[-1]])
-        J = L.clone()
-        J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
-        f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-        f[:, : -dims[-1], 0] += OTS.i(v[:, : -dims[-1]])
-        # or SPOSV
-        lo, info = torch.linalg.cholesky_ex(J)
-        if any(info):  # singular
-            lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-            dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+        log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
+        if idx == self.max_iter:
+            log.warning(
+                f"stepsolve did not converge in {self.max_iter} iterations, dv={dv.abs().max():.3e}"
+            )
         else:
-            dv = torch.cholesky_solve(-f, lo).squeeze(-1)
-        thrs = 1e-1  # / idx
-        dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
-        idx += 1
+            log.debug(f"stepsolve converged in {idx} iterations")
+        return v
+
+    @torch.no_grad()
+    def _precondlusol(
+        self,
+        x: torch.Tensor,
+        W: list,
+        dims: list,
+        B: list | None = None,
+        i_ext=None,
+    ) -> torch.Tensor:
+        r"""Solve J\Delta{X}=-f with diag-preconditioned LU decomposition."""
+        batchsize = x.size(0)
+        size = sum(dims[1:])
+        # construct the laplacian
+        paddedG = [torch.zeros(dims[1], size).type_as(x)]
+        for i, g in enumerate(W[1:]):
+            paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
+
+        Ll = torch.cat(paddedG, dim=-2)
+        L = Ll + Ll.mT
+        # construct the RHS
+        B = (
+            torch.zeros((x.size(0), size)).type_as(x)
+            if not B
+            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+        )
+        B[:, : dims[1]] += x @ W[0].T
+        B[:, -dims[-1] :] += i_ext
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
+        P_inv = 1 / D0
+        L += D0.diag()
+        # initial solution
+        lo, info = torch.linalg.cholesky_ex(L * P_inv)
+        y = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        v = P_inv * y
+        dv = torch.ones(1).type_as(x)
+        L = L.expand(batchsize, *L.shape)
+        idx = 1
+        while (dv.abs().max() > self.atol) and (idx < self.max_iter):
+            # nonlinearity comes here
+            A = self.OTS.a(v[:, : -dims[-1]])
+            J = L.clone()
+            J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
+            f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+            f[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+            # or SPOSV
+            Precond_J = J * P_inv
+            lo, info = torch.linalg.cholesky_ex(Precond_J)
+            if any(info):  # singular
+                log.debug(f"J is singular, info={info}")
+                lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+                dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+            else:
+                dy = torch.cholesky_solve(-f, lo).squeeze(-1)
+                dv = P_inv * dy
+            thrs = 1e-1  # / idx
+            dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
+            idx += 1
         v += dv
 
-    log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
-    if idx == max_iter:
-        log.warning(
-            f"stepsolve did not converge in {max_iter} iterations, dv={dv.abs().max():.3e}"
-        )
-    else:
-        log.debug(f"stepsolve converged in {idx} iterations")
-    return v
-
-
-@torch.no_grad()
-def _precondlusol(
-    x: torch.Tensor,
-    W: list,
-    dims: list,
-    B: list | None = None,
-    i_ext=None,
-    OTS=eqprop_util.OTS(),
-    max_iter=30,
-    atol=1e-6,
-) -> torch.Tensor:
-    r"""Solve J\Delta{X}=-f with diag-preconditioned LU decomposition."""
-    batchsize = x.size(0)
-    size = sum(dims[1:])
-    # construct the laplacian
-    paddedG = [torch.zeros(dims[1], size).type_as(x)]
-    for i, g in enumerate(W[1:]):
-        paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
-
-    Ll = torch.cat(paddedG, dim=-2)
-    L = Ll + Ll.mT
-    # construct the RHS
-    B = (
-        torch.zeros((x.size(0), size)).type_as(x)
-        if not B
-        else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
-    )
-    B[:, : dims[1]] += x @ W[0].T
-    B[:, -dims[-1] :] += i_ext
-    # construct the diagonal
-    D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
-    P_inv = 1 / D0
-    L += D0.diag()
-    # initial solution
-    lo, info = torch.linalg.cholesky_ex(L * P_inv)
-    y = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
-    v = P_inv * y
-    dv = torch.ones(1).type_as(x)
-    L = L.expand(batchsize, *L.shape)
-    idx = 1
-    while (dv.abs().max() > atol) and (idx < max_iter):
-        # nonlinearity comes here
-        A = OTS.a(v[:, : -dims[-1]])
-        J = L.clone()
-        J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
-        f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-        f[:, : -dims[-1], 0] += OTS.i(v[:, : -dims[-1]])
-        # or SPOSV
-        Precond_J = J * P_inv
-        lo, info = torch.linalg.cholesky_ex(Precond_J)
-        if any(info):  # singular
-            log.debug(f"J is singular, info={info}")
-            lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-            dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+        log.debug(f"condition number of J: {torch.linalg.cond(Precond_J[0]):.2f}")
+        if idx == self.max_iter:
+            log.warning(
+                f"stepsolve did not converge in {self.max_iter} iterations, dv={dv.abs().max():.3e}"
+            )
         else:
-            dy = torch.cholesky_solve(-f, lo).squeeze(-1)
-            dv = P_inv * dy
-        thrs = 1e-1  # / idx
-        dv = dv.clamp(min=-thrs, max=thrs)  # voltage limit
-        idx += 1
-        v += dv
-
-    log.debug(f"condition number of J: {torch.linalg.cond(Precond_J[0]):.2f}")
-    if idx == max_iter:
-        log.warning(
-            f"stepsolve did not converge in {max_iter} iterations, dv={dv.abs().max():.3e}"
-        )
-    else:
-        log.debug(f"stepsolve converged in {idx} iterations")
-    return v
+            log.debug(f"stepsolve converged in {idx} iterations")
+        return v
 
 
 def _inv_L(W: torch.Tensor, D0: torch.Tensor, dims: list) -> torch.Tensor:

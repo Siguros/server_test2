@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
 
-from src.eqprop.eqprop_util import AddNodes, deltaV, interleave, type_as
+from src.eqprop.eqprop_util import AddNodes, interleave, type_as
 from src.eqprop.solver import AnalogEqPropSolver
 
 
@@ -391,7 +391,7 @@ class AnalogEP(EP):
 
 
 class AnalogEP2(nn.Module):
-    """Directly implement analog eqprop.
+    """Direct implementation of analog eqprop.
 
     Args:
         nn (_type_): _description_
@@ -400,11 +400,11 @@ class AnalogEP2(nn.Module):
     def __init__(
         self,
         batch_size: int,
+        solver: AnalogEqPropSolver,
         input_size: int = 784,
         lin1_size: int = 256,
         output_size: int = 10,
         beta=0.1,
-        solver: AnalogEqPropSolver = AnalogEqPropSolver(),
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()
@@ -458,11 +458,8 @@ class AnalogEP2(nn.Module):
 
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
-        """Nudge phase & grad calculation.
-
-        y is required for internal loss calculation.
-        """
-        assert self.training is True
+        """Nudge phase & grad calculation."""
+        assert self.training
         Nodes = self.solver(x, nudge_phase=True)
         self.set_nodes(Nodes, free_phase=False)
         self.prev_free = self.prev_nudge = x
@@ -471,17 +468,26 @@ class AnalogEP2(nn.Module):
     def _update(self, submodule: nn.Module):
         """Set gradients of parameters manually.
 
+        dL/dw = (nudge_dV^2 - free_dV^2)/beta
+        = [prev_nudge^2 - nudge_n^2
+        + prev_free^2 - free_n^2
+        - 2(prev_nudge.T@nudge_n - prev_free@free_n)]/beta
+
         Args:
             submodule (nn.Module): submodule of self.model
         """
         if hasattr(submodule, "weight"):
             free_n = submodule.get_buffer("free_node")
             nudge_n = submodule.get_buffer("nudge_node")
-            free_dV = deltaV(self.prev_free, free_n)
-            nudge_dV = deltaV(self.prev_nudge, nudge_n)
-            submodule.weight.grad = (
-                nudge_dV.pow(2).mean(dim=0) - free_dV.pow(2).mean(dim=0)
-            ) / self.beta
+            res = 2 * (
+                torch.bmm(free_n.unsqueeze(2), self.prev_free.unsqueeze(1)).squeeze().mean(dim=0)
+                - torch.bmm(nudge_n.unsqueeze(2), self.prev_nudge.unsqueeze(1))
+                .squeeze()
+                .mean(dim=0)
+            )
+            res += self.prev_nudge.pow(2).mean(dim=0) - self.prev_free.pow(2).mean(dim=0)
+            res += (nudge_n.pow(2).mean(dim=0) - free_n.pow(2).mean(dim=0)).unsqueeze(1)
+            submodule.weight.grad = res / self.beta
             if submodule.bias is not None:
                 submodule.bias.grad = (
                     (nudge_n - free_n)

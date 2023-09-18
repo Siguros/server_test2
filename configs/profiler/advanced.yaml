@@ -1,0 +1,3 @@
+_target_: lightning.pytorch.profilers.AdvancedProfiler
+dirpath: ${paths.output_dir}
+filename: advprofiler

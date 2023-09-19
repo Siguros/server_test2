@@ -44,6 +44,7 @@ class EqPropSolver:
         i_ext = 0
         if kwargs.get("nudge_phase", False):
             i_ext = -self.beta * self.model.ypred.grad
+            log.debug(f"i_ext: {i_ext.abs().mean():.5f}")
             self.model.zero_grad()
         nodes = self.strategy.solve(x, i_ext, **kwargs)
         if kwargs.get("return_energy", False):
@@ -188,6 +189,11 @@ class AbstractStrategy(ABC):
                 B.append(submodule.get_parameter("bias"))
 
     def get_params(self) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+        """Returns the weights and biases of the model as a tuple of two lists.
+
+        Each list contains torch.Tensor objects representing the weights and biases of a layer in
+        the model.
+        """
         assert hasattr(self, "model"), ValueError("model must be set before calling")
         W, B = [], []
         self.model.apply(lambda submodule: self._get_layer_params(submodule, W, B))
@@ -211,7 +217,7 @@ class SPICEStrategy(AbstractStrategy):
 
 
 class TorchStrategy(AbstractStrategy):
-    """Calculate Node potentials with Torch."""
+    """Calculate Node potentials with PyTorch."""
 
     def __init__(
         self,
@@ -322,17 +328,19 @@ class NewtonStrategy(TorchStrategy):
             # nonlinearity comes here
             A = self.OTS.a(v[:, : -dims[-1]])
             J = L.clone()
-            J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])
+            J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])  # expensive?
             f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
             f[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
             # or SPOSV
             lo, info = torch.linalg.cholesky_ex(J)
             if any(info):  # singular
+                log.debug(f"J is singular, info={info}")
                 lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
                 dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
             else:
                 dv = torch.cholesky_solve(-f, lo).squeeze(-1)
-            dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)  # voltage limit
+            # limit the voltage change
+            dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
             idx += 1
             v += dv
 

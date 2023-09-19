@@ -116,6 +116,8 @@ class OTS(BaseRectifier):
 
 
 class PolyOTS(BaseRectifier):
+    """Polynomial Taylor expansion of OTS rectifier."""
+
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9, power=2):
         super().__init__(Is, Vth, Vl, Vr)
         self.power = power
@@ -144,6 +146,8 @@ class PolyOTS(BaseRectifier):
 
 
 class P3OTS(BaseRectifier):
+    """3rd order polynomial OTS rectifier."""
+
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
         super().__init__(Is, Vth, Vl, Vr)
 

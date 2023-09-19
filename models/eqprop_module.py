@@ -40,6 +40,8 @@ class EqPropLitModule(LightningModule):
         bias: bool = False,
         clip_weights: bool = False,
         normalize_weights: bool = False,
+        min_w: float = 1e-6,
+        max_w_gain: float = 0.08,
     ):
         super().__init__()
         # this line allows to access init params with 'self.hparams' attribute
@@ -48,7 +50,7 @@ class EqPropLitModule(LightningModule):
 
         self.net: AnalogEP2 = net(hyper_params=self.hparams)
         self.net.model.apply(
-            eqprop_util.init_params(min_w=1e-7, max_w_gain=0.08)
+            eqprop_util.init_params(min_w=min_w, max_w_gain=max_w_gain)
         ) if self.hparams.positive_w else ...
         # if self.hparams.scale_output:
         #     eqprop_util.interleave.on()  # output
@@ -77,7 +79,7 @@ class EqPropLitModule(LightningModule):
         # set param clipper
         if self.hparams.clip_weights or self.hparams.normalize_weights:
             self.adjuster = eqprop_util.AdjustParams(
-                L=1e-7,
+                L=min_w,
                 U=None,
                 normalize=self.hparams.normalize_weights,
                 clamp=self.hparams.clip_weights,

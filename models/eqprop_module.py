@@ -198,7 +198,7 @@ class EqPropLitModule(LightningModule):
 class EqPropMSELitModule(EqPropLitModule):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.criterion = torch.nn.MSELoss()
+        self.criterion = torch.nn.MSELoss(reduction="sum")
 
     def model_forward(self, x: torch.Tensor, y: torch.Tensor):
         logits = self.net.forward(x)

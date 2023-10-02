@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, C
 
 import torch
 import torch.nn as nn
@@ -7,7 +7,7 @@ import torch.nn as nn
 from src.eqprop import eqprop_util
 
 
-class EqProp(ABC):
+class EqPropBase(ABC):
     """EqProp base class.
 
     Args:
@@ -15,10 +15,9 @@ class EqProp(ABC):
         beta (float, optional): numerical approximation scale. Defaults to 0.1.
     """
 
-    def __init__(
-        self, activation: nn.functional.relu | eqprop_util.OTS, beta=0.1, *args: Any, **kwargs: Any
-    ) -> None:
-        self.iseqprop = True
+    IS_CONTAINER: bool = False
+
+    def __init__(self, activation: callable, beta: float = 0.1, *args: Any, **kwargs: Any) -> None:
         self.activation = activation
         self.beta = beta
 
@@ -43,7 +42,7 @@ class EqPropFunc(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, eqprop_layer: EqProp, input):
+    def forward(ctx, eqprop_layer: EqPropBase, input):
         ctx.eqprop_layer = eqprop_layer
         output = eqprop_layer.forward(input)
         # ctx.save_for_backward(input, output) # output is not needed
@@ -57,31 +56,28 @@ class EqPropFunc(torch.autograd.Function):
     def backward(ctx, grad_output):
         # input, output = ctx.saved_tensors
         input = ctx.saved_tensors
-        eqprop_layer: EqProp = ctx.eqprop_layer
+        eqprop_layer: EqPropBase = ctx.eqprop_layer
         eqprop_layer.eqprop((input, grad_output))
         grad_input = None  # dL/dx = g*(dV_nudge -dV_free)/beta
         return grad_input
 
 
-class EqPropLinear(EqProp, nn.Linear):
+class EqPropLinear(EqPropBase, nn.Linear):
     """EqProp wrapper for nn.Linear."""
 
     def __init__(self, *args, **kwargs):
         super(self, nn.Linear).__init__(*args, **kwargs)
-        super(self, EqProp).__init__(*args, **kwargs)
+        super(self, EqPropBase).__init__(*args, **kwargs)
 
     def forward(self, x):
         return super().forward(x)
 
 
-class EqPropSequential(EqProp, nn.Sequential):
+class EqPropSequential(EqPropBase, nn.Sequential):
     """EqProp wrapper for nn.Sequential."""
 
     def __init__(self, *args, **kwargs):
         super(self, nn.Sequential).__init__(*args, **kwargs)
-        for module in self:
-            if module.iseqprop:
-                module = EqPropFunc(module)
 
     def forward(self, x):
         for module in self:

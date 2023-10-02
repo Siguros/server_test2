@@ -189,6 +189,7 @@ def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 class AddNodes:
     # CNN, RNN이면?
     def __init__(self, input_size: torch.Size):
+        raise DeprecationWarning("Use method self.init_nodes instead")
         self.layerinput = torch.zeros(input_size)
 
     def __call__(self, submodule: nn.Module):

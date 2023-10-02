@@ -409,7 +409,6 @@ class AnalogEP2(nn.Module):
     ) -> None:
         super().__init__()
         self.hparams = hyper_params
-        self.iseqprop = True
         self.beta = beta
         self.dims = [input_size, lin1_size, output_size]
         self.model = nn.Sequential(
@@ -428,9 +427,10 @@ class AnalogEP2(nn.Module):
         )
 
         # Add free/nudge nodes per layer as buffers
-        input_shape = (batch_size, input_size)
-        addnode_fn = AddNodes(input_shape)
-        self.model.apply(addnode_fn)
+        # input_shape = (batch_size, input_size)
+        # addnode_fn = AddNodes(input_shape)
+        # self.model.apply(addnode_fn)
+        self.init_nodes(batch_size)
         self.model.register_buffer("ypred", torch.empty(batch_size, output_size))
 
         # set solver
@@ -451,8 +451,8 @@ class AnalogEP2(nn.Module):
         # assert self.training is False
         self.reset_nodes()
         Nodes = self.solver(x)
-        self.set_nodes(Nodes, free_phase=True)
-        logits = self.model.get_buffer("last.free_node")
+        self.set_nodes(Nodes, positive_phase=True)
+        logits = self.model.get_buffer("last.positive_node")
         self.model.ypred = logits.clone().detach().requires_grad_(True)
         return self.model.ypred
 
@@ -461,58 +461,104 @@ class AnalogEP2(nn.Module):
         """Nudge phase & grad calculation."""
         assert self.training
         Nodes = self.solver(x, nudge_phase=True)
-        self.set_nodes(Nodes, free_phase=False)
-        self.prev_free = self.prev_nudge = x
+        self.set_nodes(Nodes, positive_phase=False)
+        self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
 
     def _update(self, submodule: nn.Module):
         """Set gradients of parameters manually.
 
         dL/dw = (nudge_dV^2 - free_dV^2)/beta
-        = [prev_nudge^2 - nudge_n^2
-        + prev_free^2 - free_n^2
-        - 2(prev_nudge.T@nudge_n - prev_free@free_n)]/beta
+        = [prev_negative^2 - n_node^2
+        + prev_positive^2 - p_node^2
+        - 2(prev_negative.T@n_node - prev_positive@p_node)]/beta
 
         Args:
             submodule (nn.Module): submodule of self.model
         """
         if hasattr(submodule, "weight"):
-            free_n = submodule.get_buffer("free_node")
-            nudge_n = submodule.get_buffer("nudge_node")
+            p_node = submodule.get_buffer("positive_node")
+            n_node = submodule.get_buffer("negative_node")
             res = 2 * (
-                torch.bmm(free_n.unsqueeze(2), self.prev_free.unsqueeze(1)).squeeze().mean(dim=0)
-                - torch.bmm(nudge_n.unsqueeze(2), self.prev_nudge.unsqueeze(1))
+                torch.bmm(p_node.unsqueeze(2), self.prev_positive.unsqueeze(1))
+                .squeeze()
+                .mean(dim=0)
+                - torch.bmm(n_node.unsqueeze(2), self.prev_negative.unsqueeze(1))
                 .squeeze()
                 .mean(dim=0)
             )
-            res += self.prev_nudge.pow(2).mean(dim=0) - self.prev_free.pow(2).mean(dim=0)
-            res += (nudge_n.pow(2).mean(dim=0) - free_n.pow(2).mean(dim=0)).unsqueeze(1)
+            res += self.prev_negative.pow(2).mean(dim=0) - self.prev_positive.pow(2).mean(dim=0)
+            res += (n_node.pow(2).mean(dim=0) - p_node.pow(2).mean(dim=0)).unsqueeze(1)
             submodule.weight.grad = res / self.beta
             if submodule.bias is not None:
                 submodule.bias.grad = (
-                    (nudge_n - free_n)
+                    (n_node - p_node)
                     * (
-                        nudge_n + free_n - 2 * torch.ones_like(free_n)
+                        n_node + p_node - 2 * torch.ones_like(p_node)
                     )  # (n-1)^2-(f-1)^2=2(n-f)(n+f-2)
                 ).mean(dim=0) / self.beta
 
-            self.prev_free = free_n
-            self.prev_nudge = nudge_n
+            self.prev_positive = p_node
+            self.prev_negative = n_node
+
+    def init_nodes(self, batch_size) -> None:
+        """Initialize free/nudge nodes."""
+
+        def _init_nodes(submodule: nn.Module):
+            if hasattr(submodule, "weight"):
+                assert submodule._get_name() in ["Linear"], "Only Linear layer is supported"
+                output_size = submodule.bias.shape[-1]
+                positive_node = torch.zeros((batch_size, output_size))
+                negative_node = torch.zeros((batch_size, output_size))
+                submodule.register_buffer("positive_node", positive_node)
+                submodule.register_buffer("negative_node", negative_node)
+
+        self.model.apply(_init_nodes)
 
     def reset_nodes(self):
         for buf in self.model.buffers():
             buf = torch.zeros_like(buf)
 
-    def set_nodes(self, Nodes: list, free_phase: bool) -> None:
+    def set_nodes(self, Nodes: list, positive_phase: bool) -> None:
         """Set free/nudge nodes to each layer."""
 
         def _set_nodes_layer(submodule: nn.Module):
             nonlocal Nodes
-            if hasattr(submodule, "free_node"):
-                if free_phase:
-                    submodule.free_node = Nodes.pop()
+            if hasattr(submodule, "positive_node"):
+                if positive_phase:
+                    submodule.positive_node = Nodes.pop()
                 else:
-                    submodule.nudge_node = Nodes.pop()
+                    submodule.negative_node = Nodes.pop()
 
         self.model.apply(_set_nodes_layer)
         del Nodes
+
+
+class AnalogEPSym(AnalogEP2):
+    """Symmetric version of AnalogEP2.
+
+    Use 3rd nudge phase to compute gradients.
+    """
+
+    @interleave(type="out")
+    @torch.no_grad()
+    def forward(self, x):
+        """Forward propagation."""
+        # assert self.training is False
+        self.reset_nodes()
+        Nodes = self.solver(x)
+        logits = Nodes[0]
+        self.model.ypred = logits.clone().detach().requires_grad_(True)
+        return self.model.ypred
+
+    @torch.no_grad()
+    def eqprop(self, x: torch.Tensor):
+        """Nudge phases & grad calculation."""
+        Nodes = self.solver(x, nudge_phase=True)
+        self.set_nodes(Nodes, positive_phase=False)
+        self.solver.beta = "flip"
+        Nodes = self.solver(x, nudge_phase=True)
+        self.set_nodes(Nodes, positive_phase=True)
+        self.prev_positive = self.prev_negative = x
+        self.model.apply(self._update)
+        self.solver.beta = "flip"

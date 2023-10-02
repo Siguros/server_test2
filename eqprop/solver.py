@@ -15,17 +15,34 @@ log = get_pylogger(__name__)
 
 
 class EqPropSolver:
-    """Solve for the equilibrium point of the network."""
+    """Solve for the equilibrium point of the network.
+
+    Args:
+        strategy (AbstractStrategy|str): strategy to solve for the equilibrium point of the network.
+        activation (Callable): activation function.
+        amp_factor (float, optional): inter-layer potential amplifying factor. Defaults to 1.0.
+    """
 
     def __init__(
-        self, strategy: AbstractStrategy, activation: Callable, amp_factor: float = 1.0
+        self, strategy: AbstractStrategy | str, activation: Callable, amp_factor: float = 1.0
     ) -> None:
-        self.strategy = strategy
+        self.select_strategy(strategy)
         self.activation = activation
         self.amp_factor = amp_factor
         self.dims = None
         self.model = None
         self.beta = None
+
+    @property
+    def beta(self):
+        return self._beta
+
+    @beta.setter
+    def beta(self, value):
+        if type(value) != str:
+            self._beta = value
+        elif value == "flip":
+            self._beta *= -1
 
     def __call__(
         self, x: torch.Tensor, **kwargs: Any
@@ -33,18 +50,18 @@ class EqPropSolver:
         """Call the solver.
 
         Args:
-            x (torch.Tensor): _description_
+            x (torch.Tensor): input of the network.
             nudge_phase (bool, optional): Defaults to False.
             return_energy (bool, optional): Defaults to False.
 
         Returns:
             If `return_energy` is True, return (nodes, E).
-            Else, return nodes.
+            Else, return nodes. Nodes are in reversed order.
         """
         i_ext = 0
         if kwargs.get("nudge_phase", False):
             i_ext = -self.beta * self.model.ypred.grad
-            log.debug(f"i_ext: {i_ext.abs().mean():.5f}")
+            log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
             self.model.zero_grad()
         nodes = self.strategy.solve(x, i_ext, **kwargs)
         if kwargs.get("return_energy", False):
@@ -112,10 +129,23 @@ class EqPropSolver:
             st.model = self.model
             st.beta = self.beta
 
+    def select_strategy(self, strategy: str | AbstractStrategy) -> None:
+        """Select strategy to solve for the equilibrium point of the network."""
+        if isinstance(strategy, AbstractStrategy):
+            self.strategy = strategy
+        else:
+            strategy = strategy.lower()
+            if strategy == "newton":
+                self.strategy = NewtonStrategy()
+            elif strategy == "xyce":
+                self.strategy = XYCEStrategy()
+            else:
+                raise ValueError(f"strategy {strategy} not supported")
+
 
 class AnalogEqPropSolver(EqPropSolver):
     def __init__(
-        self, strategy: AbstractStrategy, activation: eqprop_util.OTS, amp_factor: float = 1.0
+        self, strategy: AbstractStrategy, activation: eqprop_util.P3OTS, amp_factor: float = 1.0
     ) -> None:
         super().__init__(strategy, activation, amp_factor)
 

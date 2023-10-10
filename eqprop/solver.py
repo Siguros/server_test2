@@ -38,7 +38,7 @@ class EqPropSolver:
         return self._beta
 
     @beta.setter
-    def beta(self, value):
+    def beta(self, value: float | str):
         if type(value) != str:
             self._beta = value
         elif value == "flip":
@@ -227,7 +227,7 @@ class AbstractStrategy(ABC):
         assert hasattr(self, "model"), ValueError("model must be set before calling")
         W, B = [], []
         self.model.apply(lambda submodule: self._get_layer_params(submodule, W, B))
-        return W, B
+        return (W, B)
 
 
 class SPICEStrategy(AbstractStrategy):
@@ -263,9 +263,25 @@ class TorchStrategy(AbstractStrategy):
         self.model = None
         self.beta = None
         self.amp_factor = 1.0
+        self.attrchecked: bool = False
         # self.sparse = (
         #     True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
         # )
+
+    def check_and_set_attrs(self, kwargs: dict):
+        """Check if all attributes are set and set them if not."""
+        if self.attrchecked:
+            return
+        else:
+            self.attrchecked = True
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                log.warning(f"key {key} not found in {self.__class__.__name__}")
+        for attr in ["OTS", "dims", "beta"]:
+            if getattr(self, attr) is None:
+                raise ValueError(f"{attr} must be set before calling")
 
 
 class XYCEStrategy(SPICEStrategy):
@@ -298,7 +314,22 @@ class NewtonStrategy(TorchStrategy):
 
     @torch.no_grad()
     def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
-        W, B = self.get_params()
+        """Solve for the equilibrium point of the network.
+
+        Args:
+            x (torch.Tensor): input of the network.
+            i_ext (torch.Tensor): external current.
+        KwArgs:
+            params (tuple[list[torch.Tensor], list[torch.Tensor]]): weights and biases of the model.
+            OTS (eqprop_util.P3OTS): nonlinearity.
+            dims (list): dimensions of the model.
+            beta (float): beta of the model.
+            max_iter (int): maximum number of iterations.
+            atol (float): absolute tolerance.
+            amp_factor (float): inter-layer potential amplifying factor.
+        """
+        self.check_and_set_attrs(kwargs)
+        (W, B) = kwargs.get("params", self.get_params())
         vout = self._densecholsol(x, W, B, i_ext)
         nodes = list(vout.split(self.dims[1:], dim=1))
         nodes.reverse()
@@ -349,10 +380,12 @@ class NewtonStrategy(TorchStrategy):
         D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
         L += D0.diag()
         # initial solution
-        lo, info = torch.linalg.cholesky_ex(L)
-        v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
-        dv = torch.ones(1).type_as(x)
+        # lo, info = torch.linalg.cholesky_ex(L)
+        # v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
         L = L.expand(batchsize, *L.shape)
+        v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
+        dv = torch.ones(1).type_as(x)
+        # L = L.expand(batchsize, *L.shape)
         idx = 1
         while (dv.abs().max() > self.atol) and (idx < self.max_iter):
             # nonlinearity comes here
@@ -362,13 +395,15 @@ class NewtonStrategy(TorchStrategy):
             f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
             f[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
             # or SPOSV
-            lo, info = torch.linalg.cholesky_ex(J)
-            if any(info):  # singular
-                log.debug(f"J is singular, info={info}")
-                lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
-            else:
-                dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+            # lo, info = torch.linalg.cholesky_ex(J)
+            # if any(info):  # singular
+            #     log.debug(f"J is singular, info={info}")
+            #     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+            #     dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+            # else:
+            #     dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+            res = torch.linalg.lstsq(J, -f)
+            dv = res.solution.squeeze()
             # limit the voltage change
             dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
             idx += 1
@@ -451,6 +486,79 @@ class NewtonStrategy(TorchStrategy):
         else:
             log.debug(f"stepsolve converged in {idx} iterations")
         return v
+
+
+class LevenbergMarquardtStrategy(TorchStrategy):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+    @torch.no_grad()
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        """Solve for the equilibrium point of the network.
+
+        Args:
+            x (torch.Tensor): input of the network.
+            i_ext (torch.Tensor): external current.
+        KwArgs:
+            params (tuple[list[torch.Tensor], list[torch.Tensor]]): weights and biases of the model.
+            OTS (eqprop_util.P3OTS): nonlinearity.
+            dims (list): dimensions of the model.
+            beta (float): beta of the model.
+            max_iter (int): maximum number of iterations.
+            atol (float): absolute tolerance.
+            amp_factor (float): inter-layer potential amplifying factor.
+        """
+        self.check_and_set_attrs(kwargs)
+        (W, B) = kwargs.get("params", self.get_params())
+        vout = self._LMdensecholsol(x, W, B, i_ext)
+        nodes = list(vout.split(self.dims[1:], dim=1))
+        nodes.reverse()
+        return nodes
+
+    def _LMdensecholsol(self, x, W, B, i_ext):
+        r"""Solve J\Delta{X}=-f with Levenberg-Marquardt method."""
+
+    def levenberg_marquardt(self, f, J, p0, max_iter=100, lambda_factor=1e-3):
+        """
+        f: function which takes a parameter tensor p and returns the residuals
+        J: function which takes a parameter tensor p and returns the Jacobian matrix
+        p0: initial parameter tensor
+        max_iter: maximum number of iterations
+        self.atol: tolerance for stopping condition
+        lambda_factor: initial damping factor
+        """
+        p = p0.clone()
+        lambda_ = self.lambda_factor
+
+        for _ in range(self.max_iter):
+            residuals = f(p)
+            jacobian = J(p)
+
+            # Check convergence
+            if torch.norm(residuals) < self.atol:
+                break
+
+            # Update rule
+            JTJ = torch.mm(jacobian.T, jacobian)
+            while True:
+                try:
+                    # Try to update parameters
+                    dp = -torch.solve(
+                        torch.mm(jacobian.T, residuals), JTJ + lambda_ * torch.eye(p.size(0))
+                    )[0]
+                    break
+                except RuntimeError:
+                    # In case of singular matrix, increase damping and try again
+                    lambda_ *= 10
+
+            # Update parameters
+            p += dp
+
+            # If update improves the fit, decrease damping for the next iteration
+            if torch.norm(f(p)) < torch.norm(residuals):
+                lambda_ /= 10
+
+        return p
 
 
 def _inv_L(W: torch.Tensor, D0: torch.Tensor, dims: list) -> torch.Tensor:

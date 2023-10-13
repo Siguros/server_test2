@@ -311,6 +311,7 @@ class NewtonStrategy(TorchStrategy):
     def __init__(self, clip_threshold, **kwargs) -> None:
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold
+        self.free_solution = None
 
     @torch.no_grad()
     def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -330,7 +331,11 @@ class NewtonStrategy(TorchStrategy):
         """
         self.check_and_set_attrs(kwargs)
         (W, B) = kwargs.get("params", self.get_params())
+        if i_ext is None:
+            self.free_solution = None
         vout = self._densecholsol(x, W, B, i_ext)
+        if i_ext is None:
+            self.free_solution = vout
         nodes = list(vout.split(self.dims[1:], dim=1))
         nodes.reverse()
         return nodes
@@ -383,7 +388,11 @@ class NewtonStrategy(TorchStrategy):
         # lo, info = torch.linalg.cholesky_ex(L)
         # v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
         L = L.expand(batchsize, *L.shape)
-        v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
+        # initial solution
+        if self.free_solution is not None and i_ext is not None:
+            v = self.free_solution
+        else:
+            v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
         dv = torch.ones(1).type_as(x)
         # L = L.expand(batchsize, *L.shape)
         idx = 1

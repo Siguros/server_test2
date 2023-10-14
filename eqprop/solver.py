@@ -311,7 +311,7 @@ class NewtonStrategy(TorchStrategy):
     def __init__(self, clip_threshold, **kwargs) -> None:
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold
-        self.free_solution = None
+        self._free_solution = None
 
     @torch.no_grad()
     def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -332,10 +332,10 @@ class NewtonStrategy(TorchStrategy):
         self.check_and_set_attrs(kwargs)
         (W, B) = kwargs.get("params", self.get_params())
         if i_ext is None:
-            self.free_solution = None
+            self._free_solution = None
         vout = self._densecholsol(x, W, B, i_ext)
         if i_ext is None:
-            self.free_solution = vout
+            self._free_solution = vout
         nodes = list(vout.split(self.dims[1:], dim=1))
         nodes.reverse()
         return nodes
@@ -389,8 +389,8 @@ class NewtonStrategy(TorchStrategy):
         # v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
         L = L.expand(batchsize, *L.shape)
         # initial solution
-        if self.free_solution is not None and i_ext is not None:
-            v = self.free_solution
+        if self._free_solution is not None and i_ext is not None:
+            v = self._free_solution
         else:
             v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
         dv = torch.ones(1).type_as(x)
@@ -411,7 +411,7 @@ class NewtonStrategy(TorchStrategy):
             #     dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
             # else:
             #     dv = torch.cholesky_solve(-f, lo).squeeze(-1)
-            res = torch.linalg.lstsq(J, -f)
+            res = torch.linalg.lstsq(J, -f, driver="gels")
             dv = res.solution.squeeze()
             # limit the voltage change
             dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
@@ -498,8 +498,11 @@ class NewtonStrategy(TorchStrategy):
 
 
 class LevenbergMarquardtStrategy(TorchStrategy):
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, clip_threshold, lambda_factor, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.clip_threshold = clip_threshold
+        self.lambda_factor = lambda_factor
+        self._free_solution = None
 
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -524,50 +527,118 @@ class LevenbergMarquardtStrategy(TorchStrategy):
         nodes.reverse()
         return nodes
 
-    def _LMdensecholsol(self, x, W, B, i_ext):
-        r"""Solve J\Delta{X}=-f with Levenberg-Marquardt method."""
+    def _LMdensecholsol(
+        self,
+        x: torch.Tensor,
+        W: list,
+        B: list | None = None,
+        i_ext=None,
+    ) -> torch.Tensor:
+        r"""Solve J\Delta{X}=-f with dense cholesky decomposition.
 
-    def levenberg_marquardt(self, f, J, p0, max_iter=100, lambda_factor=1e-3):
+        Args:
+            x (torch.Tensor): Input.
+            W (list): List of weight matrices.
+            dims (list): List of dimensions.
+            B (list, optional): List of bias vectors. Defaults to None.
+            i_ext ([type], optional): External current. Defaults to None.
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
+            self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
+            self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
         """
-        f: function which takes a parameter tensor p and returns the residuals
-        J: function which takes a parameter tensor p and returns the Jacobian matrix
-        p0: initial parameter tensor
-        max_iter: maximum number of iterations
-        self.atol: tolerance for stopping condition
-        lambda_factor: initial damping factor
-        """
-        p = p0.clone()
+        dims = self.dims
+        batchsize = x.size(0)
+        size = sum(dims[1:])
         lambda_ = self.lambda_factor
+        # construct the laplacian
+        paddedG = [torch.zeros(dims[1], size).type_as(x)]
+        [
+            paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
+            for i, g in enumerate(W[1:])
+        ]
+        Ll = torch.cat(paddedG, dim=-2)
+        L = Ll + Ll.mT * self.amp_factor
+        # construct the RHS
+        B = (
+            torch.zeros((x.size(0), size)).type_as(x)
+            if not B
+            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+        )
+        B[:, : dims[1]] += x @ W[0].T
+        B[:, -dims[-1] :] += i_ext
+        B *= self.amp_factor
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
+        L += D0.diag()
+        # initial solution
+        # lo, info = torch.linalg.cholesky_ex(L)
+        # v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        L = L.expand(batchsize, *L.shape)
+        # initial solution
+        if self._free_solution is not None and i_ext is not None:
+            v = self._free_solution
+        else:
+            v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
+        dv = torch.ones(1).type_as(x)
+        # L = L.expand(batchsize, *L.shape)
+        idx = 1
+        residuals = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+        residuals[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+        while idx < self.max_iter:
+            # nonlinearity comes here
+            A = self.OTS.a(v[:, : -dims[-1]])
+            jacobian = L.clone()
+            jacobian[:, : -dims[-1], : -dims[-1]] += torch.stack(
+                [a.diag() for a in A]
+            )  # expensive?
 
-        for _ in range(self.max_iter):
-            residuals = f(p)
-            jacobian = J(p)
-
-            # Check convergence
-            if torch.norm(residuals) < self.atol:
+            if torch.all(torch.norm(residuals, dim=(1, 2)) < self.atol):
                 break
 
             # Update rule
-            JTJ = torch.mm(jacobian.T, jacobian)
+            JTJ = torch.bmm(jacobian.mT, jacobian)
             while True:
                 try:
                     # Try to update parameters
-                    dp = -torch.solve(
-                        torch.mm(jacobian.T, residuals), JTJ + lambda_ * torch.eye(p.size(0))
-                    )[0]
+                    dv = -torch.linalg.solve(
+                        torch.bmm(jacobian.mT, residuals), JTJ + lambda_ * torch.eye(v.size(-1))
+                    )
                     break
                 except RuntimeError:
                     # In case of singular matrix, increase damping and try again
+                    log.debug(f"Jacobian is singular, lambda={lambda_}")
                     lambda_ *= 10
+                    if lambda_ > 1e2:
+                        raise RuntimeError("Jacobian is singular")
+            # or SPOSV
+            # lo, info = torch.linalg.cholesky_ex(J)
+            # if any(info):  # singular
+            #     log.debug(residuals"J is singular, info={info}")
+            #     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+            #     dv = torch.linalg.lu_solve(lo, piv, -residuals).squeeze(-1)
+            # else:
+            #     dv = torch.cholesky_solve(-residuals, lo).squeeze(-1)
 
-            # Update parameters
-            p += dp
-
-            # If update improves the fit, decrease damping for the next iteration
-            if torch.norm(f(p)) < torch.norm(residuals):
+            v += dv
+            new_residuals = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+            new_residuals[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+            if torch.all(
+                torch.norm(new_residuals, dim=(1, 2)) < torch.norm(residuals, dim=(1, 2))
+            ):
                 lambda_ /= 10
 
-        return p
+            idx += 1
+            residuals = new_residuals
+
+        log.debug(f"condition number of J: {torch.linalg.cond(jacobian[0]):.2f}")
+        if idx == self.max_iter:
+            log.warning(
+                f"stepsolve did not converge in {self.max_iter} iterations, dv={dv.abs().max():.3e}"
+            )
+        else:
+            log.debug(f"stepsolve converged in {idx} iterations")
+        return v
 
 
 def _inv_L(W: torch.Tensor, D0: torch.Tensor, dims: list) -> torch.Tensor:

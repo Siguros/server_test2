@@ -477,6 +477,8 @@ class AnalogEP2(nn.Module):
             submodule (nn.Module): submodule of self.model
         """
         if hasattr(submodule, "weight"):
+            if submodule.weight.grad is None:
+                submodule.weight.grad = torch.zeros_like(submodule.weight)
             p_node = submodule.get_buffer("positive_node")
             n_node = submodule.get_buffer("negative_node")
             res = 2 * (
@@ -489,9 +491,11 @@ class AnalogEP2(nn.Module):
             )
             res += self.prev_negative.pow(2).mean(dim=0) - self.prev_positive.pow(2).mean(dim=0)
             res += (n_node.pow(2).mean(dim=0) - p_node.pow(2).mean(dim=0)).unsqueeze(1)
-            submodule.weight.grad = res / self.beta
+            submodule.weight.grad += res / self.beta
             if submodule.bias is not None:
-                submodule.bias.grad = (
+                if submodule.bias.grad is None:
+                    submodule.bias.grad = torch.zeros_like(submodule.bias)
+                submodule.bias.grad += (
                     (n_node - p_node)
                     * (
                         n_node + p_node - 2 * torch.ones_like(p_node)

@@ -42,6 +42,7 @@ class EqPropLitModule(LightningModule):
         normalize_weights: bool = False,
         min_w: float = 1e-6,
         max_w_gain: float = 0.08,
+        accumulate_grad_batches: int = 1,
     ):
         super().__init__()
         # this line allows to access init params with 'self.hparams' attribute
@@ -97,12 +98,17 @@ class EqPropLitModule(LightningModule):
         return loss, preds, y
 
     def model_backward(self, loss: torch.Tensor, x: torch.Tensor):
+        self.grad_acc_idx = getattr(self, "grad_acc_idx", 0)
         # loss.backward(), execute nudge (+ 3rd) phase
         opt = self.optimizers()
-        opt.zero_grad()
         self.manual_backward(loss)
         self.net.eqprop(x)
-        opt.step()
+        if (self.grad_acc_idx + 1) % self.hparams.accumulate_grad_batches == 0:
+            opt.step()
+            opt.zero_grad(set_to_none=False)
+            self.grad_acc_idx = 0
+        else:
+            self.grad_acc_idx += 1
         if self.hparams.clip_weights or self.hparams.normalize_weights:
             self.net.apply(self.adjuster)
 

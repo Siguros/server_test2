@@ -587,7 +587,9 @@ class NewtonStrategy(TorchStrategy):
         return v
 
 
-class LevenbergMarquardtStrategy(TorchStrategy):
+class LMStrategy(TorchStrategy):
+    r"""Solve J\Delta{X}=-f with Levenberg-Marquardt method."""
+
     def __init__(self, clip_threshold, lambda_factor, **kwargs) -> None:
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold

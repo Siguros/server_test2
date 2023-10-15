@@ -348,7 +348,97 @@ class NewtonStrategy(TorchStrategy):
         B: list | None = None,
         i_ext=None,
     ) -> torch.Tensor:
-        r"""Solve J\Delta{X}=-f with dense cholesky decomposition.
+        r"""Solve J\Delta{X}=-f with dense cholesky/LU decomposition.
+
+        Args:
+            x (torch.Tensor): Input.
+            W (list): List of weight matrices.
+            dims (list): List of dimensions.
+            B (list, optional): List of bias vectors. Defaults to None.
+            i_ext ([type], optional): External current. Defaults to None.
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
+            self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
+            self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+        """
+        dims = self.dims
+        batchsize = x.size(0)
+        size = sum(dims[1:])
+        # construct the laplacian
+        paddedG = [torch.zeros(dims[1], size).type_as(x)]
+        [
+            paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
+            for i, g in enumerate(W[1:])
+        ]
+        Ll = torch.cat(paddedG, dim=-2)
+        L = Ll + Ll.mT * self.amp_factor
+        # construct the RHS
+        B = (
+            torch.zeros((x.size(0), size)).type_as(x)
+            if not B
+            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+        )
+        B[:, : dims[1]] += x @ W[0].T
+        B[:, -dims[-1] :] += i_ext
+        B *= self.amp_factor
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
+        L += D0.diag()
+        # initial solution
+        if self._free_solution is not None and i_ext is not None:
+            v = self._free_solution
+        else:
+            lo, info = torch.linalg.cholesky_ex(L)
+            v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        dv = torch.ones(1).type_as(x)
+        L = L.expand(batchsize, *L.shape)
+        idx = 1
+        while (dv.abs().max() > self.atol) and (idx < self.max_iter):
+            # nonlinearity comes here
+            A = self.OTS.a(v[:, : -dims[-1]])
+            J = L.clone()
+            J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])  # expensive?
+            f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+            f[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+            # or SPOSV
+            if self.amp_factor == 1.0:
+                lo, info = torch.linalg.cholesky_ex(J)
+                if any(info):  # singular
+                    log.debug(f"J is singular, info={info}")
+                    lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+                    dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+                else:
+                    dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+            else:
+                lo, piv, info = torch.linalg.lu_factor_ex(J)
+                if any(info):
+                    lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
+                    dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+                else:
+                    dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+            # limit the voltage change
+            dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
+            idx += 1
+            v += dv
+
+        log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
+        if idx == self.max_iter:
+            log.warning(
+                f"stepsolve did not converge in {self.max_iter} iterations, dv={dv.abs().max():.3e}"
+            )
+        else:
+            log.debug(f"stepsolve converged in {idx} iterations")
+        return v
+
+    @torch.no_grad()
+    def _leastsqsol(
+        self,
+        x: torch.Tensor,
+        W: list,
+        B: list | None = None,
+        i_ext=None,
+    ) -> torch.Tensor:
+        r"""Solve J^TJ\Delta{X}=-J^Tf with least square method.
 
         Args:
             x (torch.Tensor): Input.

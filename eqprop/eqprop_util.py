@@ -160,6 +160,21 @@ class P3OTS(BaseRectifier):
         return 2 * self.Is / self.Vth * (3 * x.pow(2))
 
 
+class SymReLU(BaseRectifier):
+    """Symmetric ReLU rectifier."""
+
+    def __init__(self, Is=1, Vth=1, Vl=-0.5, Vr=0.5):
+        super().__init__(Is, Vth, Vl, Vr)
+
+    def i(self, V: torch.Tensor):
+        x = V * self.Is
+        return ((x - self.Vl) / self.Vth).clamp(max=0) + ((x - self.Vr) / self.Vth).clamp(min=0)
+
+    def a(self, V: torch.Tensor):
+        x = V * self.Is
+        return -((x - self.Vl) / self.Vth < 0).float() + ((x - self.Vr) / self.Vth > 0).float()
+
+
 @torch.jit.script
 def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
     """Compute batch-wise deltaV matrix from 2 node voltages.

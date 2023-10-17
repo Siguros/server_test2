@@ -115,6 +115,25 @@ class OTS(BaseRectifier):
         pass
 
 
+class SymOTS(OTS):
+    def __init__(self, Is=1e-8, Vth=0.026, Vl=-0.5, Vr=0.5):
+        assert Vl == -Vr, "Vl must be equal to -Vr"
+        super().__init__(Is, Vth, Vl, Vr)
+
+    def i_div_a(self, V: torch.Tensor):
+        xr = (V - self.Vr) / self.Vth
+        xl = (-V + self.Vl) / self.Vth
+        # xmax = torch.max(xr, xl)
+        return self.Vth * ((torch.exp(xr) - torch.exp(xl)) / (torch.exp(xr) + torch.exp(xl)))
+
+    def inv_a(self, V: torch.Tensor):
+        x = (V - self.Vr) / self.Vth
+        abs_x = torch.abs(x)
+        return (
+            self.Vth / self.Is * torch.exp(abs_x) / (torch.exp(x - abs_x) + torch.exp(-x - abs_x))
+        )
+
+
 class PolyOTS(BaseRectifier):
     """Polynomial Taylor expansion of OTS rectifier."""
 
@@ -243,7 +262,10 @@ class AdjustParams:
 
 
 def _init_params(
-    submodule: nn.Module, param_name: str = "weight", min_w: float = 1e-6, max_w_gain: float = 1
+    submodule: nn.Module,
+    param_name: str = "weight",
+    min_w: float = 1e-6,
+    max_w_gain: float = 1,
 ):
     if hasattr(submodule, param_name):
         param = submodule.get_parameter(param_name)

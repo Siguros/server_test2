@@ -24,7 +24,10 @@ class EqPropSolver:
     """
 
     def __init__(
-        self, strategy: AbstractStrategy | str, activation: Callable, amp_factor: float = 1.0
+        self,
+        strategy: AbstractStrategy | str,
+        activation: Callable,
+        amp_factor: float = 1.0,
     ) -> None:
         self.select_strategy(strategy)
         self.activation = activation
@@ -146,7 +149,10 @@ class EqPropSolver:
 
 class AnalogEqPropSolver(EqPropSolver):
     def __init__(
-        self, strategy: AbstractStrategy, activation: eqprop_util.P3OTS, amp_factor: float = 1.0
+        self,
+        strategy: AbstractStrategy,
+        activation: eqprop_util.P3OTS,
+        amp_factor: float = 1.0,
     ) -> None:
         super().__init__(strategy, activation, amp_factor)
 
@@ -334,7 +340,11 @@ class NewtonStrategy(TorchStrategy):
         (W, B) = kwargs.get("params", self.get_params())
         if i_ext is None:
             self._free_solution = None
-        vout = self._densecholsol(x, W, B, i_ext)
+
+        if type(self.OTS) == eqprop_util.SymOTS:
+            vout = self._densecholsol2(x, W, B, i_ext)
+        else:
+            vout = self._densecholsol(x, W, B, i_ext)
         if i_ext is None:
             self._free_solution = vout.detach().clone()
         nodes = list(vout.split(self.dims[1:], dim=1))
@@ -427,6 +437,91 @@ class NewtonStrategy(TorchStrategy):
         if idx == self.max_iter:
             log.warning(
                 f"stepsolve did not converge in {self.max_iter} iterations, dv={dv.abs().max():.3e}"
+            )
+        else:
+            log.debug(f"stepsolve converged in {idx} iterations")
+        return v
+
+    @torch.no_grad()
+    def _densecholsol2(
+        self,
+        x: torch.Tensor,
+        W: list,
+        B: list | None = None,
+        i_ext=None,
+    ) -> torch.Tensor:
+        r"""Solve J\Delta{X}=-f with robust dense cholesky/LU decomposition.
+
+        Args:
+            x (torch.Tensor): Input.
+            W (list): List of weight matrices.
+            dims (list): List of dimensions.
+            B (list, optional): List of bias vectors. Defaults to None.
+            i_ext ([type], optional): External current. Defaults to None.
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
+            self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
+            self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+        """
+        dims = self.dims
+        batchsize = x.size(0)
+        size = sum(dims[1:])
+        # construct the laplacian
+        paddedG = [torch.zeros(dims[1], size).type_as(x)]
+        [
+            paddedG.append(F.pad(-g, (sum(dims[1 : i + 1]), sum(dims[2 + i :]))))
+            for i, g in enumerate(W[1:])
+        ]
+        Ll = torch.cat(paddedG, dim=-2)
+        L = Ll + Ll.mT * self.amp_factor
+        # construct the RHS
+        B = (
+            torch.zeros((x.size(0), size)).type_as(x)
+            if not B
+            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+        )
+        B[:, : dims[1]] += x @ W[0].T
+        if i_ext is not None:
+            B[:, -dims[-1] :] += i_ext
+        B *= self.amp_factor
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
+        L += D0.diag()
+        # initial solution
+        if self._free_solution is not None and i_ext is not None:
+            v = self._free_solution.detach().clone()
+        else:
+            lo, info = torch.linalg.cholesky_ex(L)
+            v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        residual = torch.ones(1).type_as(x)
+        L = L.expand(batchsize, *L.shape)
+        idx = 1
+        while (residual.abs().max() > self.atol) and (idx < self.max_iter):
+            # nonlinearity comes here
+            # log.debug(f"vmax: {v.max():.3e}, vmin: {v.min():.3e}")
+            a_inv = (1 / self.OTS.a(v)).unsqueeze(-1)
+            J = a_inv.mT * (L.clone()) + torch.eye(L.size(-1))  # L shape, a_inv shape?
+            residual = a_inv * (torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1))
+            residual2 = residual
+            residual2[:, :, 0] += self.OTS.i_div_a(v)
+            log.debug(f"residual: {residual2.abs().max():.3e}")
+            # or SPOSV
+            lo, info = torch.linalg.cholesky_ex(J)
+            if any(info):  # singular
+                log.debug(f"J is singular, info={info}")
+                dv = torch.linalg.lstsq(J, -residual2, driver="gels").solution.squeeze()
+            else:
+                dv = torch.cholesky_solve(-residual2, lo).squeeze(-1)
+
+            # limit the voltage change
+            dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
+            idx += 1
+            v += dv
+
+        log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
+        if idx == self.max_iter:
+            log.warning(
+                f"stepsolve did not converge in {self.max_iter} iterations, dv={dv.abs().max():.3e}, residual={residual.abs().max():.3e}"
             )
         else:
             log.debug(f"stepsolve converged in {idx} iterations")
@@ -701,7 +796,8 @@ class LMStrategy(TorchStrategy):
                 try:
                     # Try to update parameters
                     dv = -torch.linalg.solve(
-                        torch.bmm(jacobian.mT, residuals), JTJ + lambda_ * torch.eye(v.size(-1))
+                        torch.bmm(jacobian.mT, residuals),
+                        JTJ + lambda_ * torch.eye(v.size(-1)),
                     )
                     break
                 except RuntimeError:

@@ -100,17 +100,19 @@ class EqPropLitModule(LightningModule):
     def model_backward(self, loss: torch.Tensor, x: torch.Tensor):
         self.grad_acc_idx = getattr(self, "grad_acc_idx", 0)
         # loss.backward(), execute nudge (+ 3rd) phase
-        opt = self.optimizers()
+        # calculate i_ext
+        # self.criterion.zero_grad()
         self.manual_backward(loss)
         self.net.eqprop(x)
         if (self.grad_acc_idx + 1) % self.hparams.accumulate_grad_batches == 0:
+            opt = self.optimizers()
             opt.step()
-            opt.zero_grad(set_to_none=False)
+            opt.zero_grad()
+            if self.hparams.clip_weights or self.hparams.normalize_weights:
+                self.net.apply(self.adjuster)
             self.grad_acc_idx = 0
         else:
             self.grad_acc_idx += 1
-        if self.hparams.clip_weights or self.hparams.normalize_weights:
-            self.net.apply(self.adjuster)
 
     def training_step(self, batch: Any, batch_idx: int):
         x, y = batch

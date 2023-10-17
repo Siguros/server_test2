@@ -58,11 +58,12 @@ class EqPropSolver:
             If `return_energy` is True, return (nodes, E).
             Else, return nodes. Nodes are in reversed order.
         """
-        i_ext = 0
+        i_ext = None
         if kwargs.get("nudge_phase", False):
             i_ext = -self.beta * self.model.ypred.grad
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
-            self.model.zero_grad()
+        else:
+            del self.model.ypred
         nodes = self.strategy.solve(x, i_ext, **kwargs)
         if kwargs.get("return_energy", False):
             E = self.energy(nodes, x)
@@ -335,7 +336,7 @@ class NewtonStrategy(TorchStrategy):
             self._free_solution = None
         vout = self._densecholsol(x, W, B, i_ext)
         if i_ext is None:
-            self._free_solution = vout
+            self._free_solution = vout.detach().clone()
         nodes = list(vout.split(self.dims[1:], dim=1))
         nodes.reverse()
         return nodes
@@ -379,14 +380,15 @@ class NewtonStrategy(TorchStrategy):
             else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
         )
         B[:, : dims[1]] += x @ W[0].T
-        B[:, -dims[-1] :] += i_ext
+        if i_ext is not None:
+            B[:, -dims[-1] :] += i_ext
         B *= self.amp_factor
         # construct the diagonal
         D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
         L += D0.diag()
         # initial solution
         if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution
+            v = self._free_solution.detach().clone()
         else:
             lo, info = torch.linalg.cholesky_ex(L)
             v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
@@ -469,7 +471,8 @@ class NewtonStrategy(TorchStrategy):
             else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
         )
         B[:, : dims[1]] += x @ W[0].T
-        B[:, -dims[-1] :] += i_ext
+        if i_ext is not None:
+            B[:, -dims[-1] :] += i_ext
         B *= self.amp_factor
         # construct the diagonal
         D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
@@ -480,7 +483,7 @@ class NewtonStrategy(TorchStrategy):
         L = L.expand(batchsize, *L.shape)
         # initial solution
         if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution
+            v = self._free_solution.detach().clone()
         else:
             v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
         dv = torch.ones(1).type_as(x)
@@ -614,7 +617,11 @@ class LMStrategy(TorchStrategy):
         """
         self.check_and_set_attrs(kwargs)
         (W, B) = kwargs.get("params", self.get_params())
+        if i_ext is None:
+            self._free_solution = None
         vout = self._LMdensecholsol(x, W, B, i_ext)
+        if i_ext is None:
+            self._free_solution = vout.detach().clone()
         nodes = list(vout.split(self.dims[1:], dim=1))
         nodes.reverse()
         return nodes
@@ -669,7 +676,7 @@ class LMStrategy(TorchStrategy):
         L = L.expand(batchsize, *L.shape)
         # initial solution
         if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution
+            v = self._free_solution.detach().clone()
         else:
             v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
         dv = torch.ones(1).type_as(x)

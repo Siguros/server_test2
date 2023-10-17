@@ -24,7 +24,7 @@ class EP(nn.Module):
         L: Sequence = None,
         U: Sequence = None,
         *args,
-        **kwargs
+        **kwargs,
     ):
         """Equilibrium Propagation (EP) model.
 
@@ -294,7 +294,7 @@ class AnalogEP(EP):
         epsilon: float = 0.2,
         criterion=nn.MSELoss(reduction="none"),
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
             batch_size, beta, dims, (1, 1), activation, epsilon, criterion, *args, **kwargs
@@ -401,37 +401,26 @@ class AnalogEP2(nn.Module):
         self,
         batch_size: int,
         solver: AnalogEqPropSolver,
-        input_size: int = 784,
-        lin1_size: int = 256,
-        output_size: int = 10,
+        dims: list = [784, 200, 10],
         beta=0.1,
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()
         self.hparams = hyper_params
         self.beta = beta
-        self.dims = [input_size, lin1_size, output_size]
-        self.model = nn.Sequential(
-            OrderedDict(
-                [
-                    (
-                        "lin1",
-                        nn.Linear(input_size, lin1_size, bias=self.hparams["bias"]),
-                    ),
-                    (
-                        "last",
-                        nn.Linear(lin1_size, output_size, bias=self.hparams["bias"]),
-                    ),
-                ]
-            )
-        )
+        self.dims = dims
+        odic = OrderedDict()
+        for idx in range(1, len(dims) - 1):
+            odic[f"lin{idx}"] = nn.Linear(dims[idx - 1], dims[idx], bias=self.hparams["bias"])
+        odic["last"] = nn.Linear(dims[-2], dims[-1], bias=self.hparams["bias"])
+        self.model = nn.Sequential(odic)
 
         # Add free/nudge nodes per layer as buffers
-        # input_shape = (batch_size, input_size)
+        # input_shape = (batch_size, dims[0])
         # addnode_fn = AddNodes(input_shape)
         # self.model.apply(addnode_fn)
         self.init_nodes(batch_size)
-        self.model.register_buffer("ypred", torch.empty(batch_size, output_size))
+        self.model.register_buffer("ypred", torch.empty(batch_size, dims[-1]))
 
         # set solver
         solver.set_params_from_net(self)
@@ -453,7 +442,7 @@ class AnalogEP2(nn.Module):
         Nodes = self.solver(x)
         self.set_nodes(Nodes, positive_phase=True)
         logits = self.model.get_buffer("last.positive_node")
-        self.model.ypred = logits.clone().detach().requires_grad_(True)
+        self.model.ypred = logits.detach().clone().requires_grad_(True)
         return self.model.ypred
 
     @torch.no_grad()
@@ -491,16 +480,20 @@ class AnalogEP2(nn.Module):
             )
             res += self.prev_negative.pow(2).mean(dim=0) - self.prev_positive.pow(2).mean(dim=0)
             res += (n_node.pow(2).mean(dim=0) - p_node.pow(2).mean(dim=0)).unsqueeze(1)
-            submodule.weight.grad += res / self.beta
+            submodule.weight.grad += res / self.solver.beta
             if submodule.bias is not None:
                 if submodule.bias.grad is None:
                     submodule.bias.grad = torch.zeros_like(submodule.bias)
                 submodule.bias.grad += (
-                    (n_node - p_node)
-                    * (
-                        n_node + p_node - 2 * torch.ones_like(p_node)
-                    )  # (n-1)^2-(f-1)^2=2(n-f)(n+f-2)
-                ).mean(dim=0) / self.beta
+                    (
+                        (n_node - p_node)
+                        * (
+                            n_node + p_node - 2 * torch.ones_like(p_node)
+                        )  # (n-1)^2-(f-1)^2=2(n-f)(n+f-2)
+                    ).mean(dim=0)
+                    * 2
+                    / self.solver.beta
+                )
 
             self.prev_positive = p_node
             self.prev_negative = n_node

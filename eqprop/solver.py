@@ -402,32 +402,35 @@ class NewtonStrategy(TorchStrategy):
         else:
             lo, info = torch.linalg.cholesky_ex(L)
             v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
-        dv = torch.ones(1).type_as(x)
+        residual = torch.ones(1).type_as(x)
         L = L.expand(batchsize, *L.shape)
         idx = 1
-        while (dv.abs().max() > self.atol) and (idx < self.max_iter):
+        while (residual.abs().max() > self.atol) and (idx < self.max_iter):
             # nonlinearity comes here
-            A = self.OTS.a(v[:, : -dims[-1]])
+            # A = self.OTS.a(v[:, : -dims[-1]])
+            A = self.OTS.a(v)
             J = L.clone()
-            J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])  # expensive?
-            f = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-            f[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+            # J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])  # expensive?
+            J += torch.stack([a.diag() for a in A])  # expensive?
+            residual = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+            # residual[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+            residual[:, :, 0] += self.OTS.i(v)
             # or SPOSV
             if self.amp_factor == 1.0:
                 lo, info = torch.linalg.cholesky_ex(J)
                 if any(info):  # singular
                     log.debug(f"J is singular, info={info}")
                     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual).squeeze(-1)
                 else:
-                    dv = torch.cholesky_solve(-f, lo).squeeze(-1)
+                    dv = torch.cholesky_solve(-residual, lo).squeeze(-1)
             else:
                 lo, piv, info = torch.linalg.lu_factor_ex(J)
                 if any(info):
                     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual).squeeze(-1)
                 else:
-                    dv = torch.linalg.lu_solve(lo, piv, -f).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual).squeeze(-1)
             # limit the voltage change
             dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
             idx += 1
@@ -436,7 +439,7 @@ class NewtonStrategy(TorchStrategy):
         log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
         if idx == self.max_iter:
             log.warning(
-                f"stepsolve did not converge in {self.max_iter} iterations, dv={dv.abs().max():.3e}"
+                f"stepsolve did not converge in {self.max_iter} iterations, residual={residual.abs().max():.3e}"
             )
         else:
             log.debug(f"stepsolve converged in {idx} iterations")
@@ -498,13 +501,13 @@ class NewtonStrategy(TorchStrategy):
         idx = 1
         while (residual.abs().max() > self.atol) and (idx < self.max_iter):
             # nonlinearity comes here
-            # log.debug(f"vmax: {v.max():.3e}, vmin: {v.min():.3e}")
+            # log.debug(f"absvmax: {v.abs().max():.3e}, absvmin: {v.abs().min():.3e}")
             a_inv = (1 / self.OTS.a(v)).unsqueeze(-1)
-            J = a_inv.mT * (L.clone()) + torch.eye(L.size(-1))  # L shape, a_inv shape?
-            residual = a_inv * (torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1))
-            residual2 = residual
+            J = a_inv * (L.clone()) + torch.eye(L.size(-1))  # L shape, a_inv shape?
+            residual = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+            residual2 = a_inv * residual
             residual2[:, :, 0] += self.OTS.i_div_a(v)
-            log.debug(f"residual: {residual2.abs().max():.3e}")
+            log.debug(f"residual: {residual.abs().max():.3e}")
             # or SPOSV
             lo, info = torch.linalg.cholesky_ex(J)
             if any(info):  # singular
@@ -760,7 +763,8 @@ class LMStrategy(TorchStrategy):
             else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
         )
         B[:, : dims[1]] += x @ W[0].T
-        B[:, -dims[-1] :] += i_ext
+        if i_ext is not None:
+            B[:, -dims[-1] :] += i_ext
         B *= self.amp_factor
         # construct the diagonal
         D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
@@ -778,14 +782,12 @@ class LMStrategy(TorchStrategy):
         # L = L.expand(batchsize, *L.shape)
         idx = 1
         residuals = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-        residuals[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
+        residuals[:, :, 0] += self.OTS.i(v)
         while idx < self.max_iter:
             # nonlinearity comes here
-            A = self.OTS.a(v[:, : -dims[-1]])
+            A = self.OTS.a(v)
             jacobian = L.clone()
-            jacobian[:, : -dims[-1], : -dims[-1]] += torch.stack(
-                [a.diag() for a in A]
-            )  # expensive?
+            jacobian += torch.stack([a.diag() for a in A])  # expensive?
 
             if torch.all(torch.norm(residuals, dim=(1, 2)) < self.atol):
                 break

@@ -9,7 +9,8 @@ import torch.nn.functional as F
 
 from src.eqprop import eqprop_util
 from src.utils import get_pylogger
-from tests.helpers.package_available import _XYCE_AVAILABLE
+
+# from tests.helpers.package_available import _XYCE_AVAILABLE
 
 log = get_pylogger(__name__)
 
@@ -47,19 +48,13 @@ class EqPropSolver:
         elif value == "flip":
             self._beta *= -1
 
-    def __call__(
-        self, x: torch.Tensor, **kwargs: Any
-    ) -> list[torch.Tensor] | tuple[list[torch.Tensor], torch.Tensor]:
+    def __call__(self, x: torch.Tensor, **kwargs: Any) -> tuple[list[torch.Tensor], torch.Tensor]:
         """Call the solver.
 
         Args:
             x (torch.Tensor): input of the network.
             nudge_phase (bool, optional): Defaults to False.
             return_energy (bool, optional): Defaults to False.
-
-        Returns:
-            If `return_energy` is True, return (nodes, E).
-            Else, return nodes. Nodes are in reversed order.
         """
         i_ext = None
         if kwargs.get("nudge_phase", False):
@@ -67,12 +62,13 @@ class EqPropSolver:
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
         else:
             del self.model.ypred
-        nodes = self.strategy.solve(x, i_ext, **kwargs)
+        reversed_nodes = self.strategy.solve(x, i_ext, **kwargs)
+        reversed_nodes.reverse()
         if kwargs.get("return_energy", False):
-            E = self.energy(nodes, x)
-            return (nodes, E)
+            E = self.energy(reversed_nodes, x)
+            return (reversed_nodes, E)
         else:
-            return nodes
+            return (reversed_nodes, None)
 
     def energy(self, Nodes, x) -> torch.Tensor:
         """Energy function."""
@@ -150,7 +146,7 @@ class EqPropSolver:
 class AnalogEqPropSolver(EqPropSolver):
     def __init__(
         self,
-        strategy: AbstractStrategy,
+        strategy: AbstractStrategy | str,
         activation: eqprop_util.P3OTS,
         amp_factor: float = 1.0,
     ) -> None:
@@ -297,10 +293,11 @@ class XYCEStrategy(SPICEStrategy):
     # TODO: check if xyce is installed
     @classmethod
     def _check_spice(cls):
-        if _XYCE_AVAILABLE:
-            pass
-        else:
-            raise ImportError("Xyce is not installed.")
+        ...
+        # if _XYCE_AVAILABLE:
+        #     pass
+        # else:
+        #     raise ImportError("Xyce is not installed.")
 
     # TODO: set up xyce, generate netlist
     def __init__(self, **kwargs) -> None:
@@ -348,7 +345,6 @@ class NewtonStrategy(TorchStrategy):
         if i_ext is None:
             self._free_solution = vout.detach().clone()
         nodes = list(vout.split(self.dims[1:], dim=1))
-        nodes.reverse()
         return nodes
 
     @torch.no_grad()
@@ -382,7 +378,7 @@ class NewtonStrategy(TorchStrategy):
             for i, g in enumerate(W[1:])
         ]
         Ll = torch.cat(paddedG, dim=-2)
-        L = Ll + Ll.mT * self.amp_factor
+        mG = Ll + Ll.mT * self.amp_factor
         # construct the RHS
         B = (
             torch.zeros((x.size(0), size)).type_as(x)
@@ -395,15 +391,17 @@ class NewtonStrategy(TorchStrategy):
         B *= self.amp_factor
         # construct the diagonal
         D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[1]))
-        L += D0.diag()
-        # initial solution
+        D_inv = 1 / D0
+        L = torch.eye(size).type_as(x) + D_inv * mG
+        B *= D_inv
         if self._free_solution is not None and i_ext is not None:
             v = self._free_solution.detach().clone()
         else:
             lo, info = torch.linalg.cholesky_ex(L)
             v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
         residual = torch.ones(1).type_as(x)
-        L = L.expand(batchsize, *L.shape)
+        # L = L.expand(batchsize, *L.shape)
+        mG = mG.expand(batchsize, *mG.shape)
         idx = 1
         while (residual.abs().max() > self.atol) and (idx < self.max_iter):
             # nonlinearity comes here
@@ -439,7 +437,7 @@ class NewtonStrategy(TorchStrategy):
         log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
         if idx == self.max_iter:
             log.warning(
-                f"stepsolve did not converge in {self.max_iter} iterations, residual={residual.abs().max():.3e}"
+                f"stepsolve did not converge in {self.max_iter} iterations, residual={residual.abs().max():.3e}, vmax={v.abs().max():.3e}"
             )
         else:
             log.debug(f"stepsolve converged in {idx} iterations")
@@ -721,7 +719,6 @@ class LMStrategy(TorchStrategy):
         if i_ext is None:
             self._free_solution = vout.detach().clone()
         nodes = list(vout.split(self.dims[1:], dim=1))
-        nodes.reverse()
         return nodes
 
     def _LMdensecholsol(

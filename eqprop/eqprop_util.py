@@ -116,15 +116,12 @@ class OTS(BaseRectifier):
 
 
 class SymOTS(OTS):
-    def __init__(self, Is=1e-8, Vth=0.026, Vl=-0.5, Vr=0.5):
-        assert Vl == -Vr, "Vl must be equal to -Vr"
+    def __init__(self, Is=1e-8, Vth=0.026, Vl=0, Vr=0):
+        assert Vl == Vr == 0, "Vl and Vr must be 0"
         super().__init__(Is, Vth, Vl, Vr)
 
     def i_div_a(self, V: torch.Tensor):
-        xr = (V - self.Vr) / self.Vth
-        xl = (-V + self.Vl) / self.Vth
-        # xmax = torch.max(xr, xl)
-        return self.Vth * ((torch.exp(xr) - torch.exp(xl)) / (torch.exp(xr) + torch.exp(xl)))
+        return self.Vth * torch.tanh(V / self.Vth)
 
     def inv_a(self, V: torch.Tensor):
         x = (V - self.Vr) / self.Vth

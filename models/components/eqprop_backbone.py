@@ -105,7 +105,13 @@ class EP(nn.Module):
     # TODO: implement a better algorithm to find the optimal nodes (e.g. Newton's method)
 
     def minimize(
-        self, x, y=None, Nodes: List[torch.Tensor] = None, beta=0.0, iters=None, **kwargs
+        self,
+        x,
+        y=None,
+        Nodes: List[torch.Tensor] = None,
+        beta=0.0,
+        iters=None,
+        **kwargs,
     ) -> List[torch.Tensor]:
         """Minimize the total energy function using torch.autograd."""
         Nodes = self._Nodes if Nodes is None else Nodes
@@ -297,7 +303,15 @@ class AnalogEP(EP):
         **kwargs,
     ):
         super().__init__(
-            batch_size, beta, dims, (1, 1), activation, epsilon, criterion, *args, **kwargs
+            batch_size,
+            beta,
+            dims,
+            (1, 1),
+            activation,
+            epsilon,
+            criterion,
+            *args,
+            **kwargs,
         )
         DeprecationWarning("AnalogEP is deprecated. Use AnalogEP2 instead.")
 
@@ -422,9 +436,8 @@ class AnalogEP2(nn.Module):
         self.init_nodes(batch_size)
         self.model.register_buffer("ypred", torch.empty(batch_size, dims[-1]))
 
-        # set solver
-        solver.set_params_from_net(self)
-        self.solver = solver
+        # instiantiate solver
+        self.solver = solver(self.model)
 
     @interleave(type="out")
     @torch.no_grad()
@@ -478,7 +491,7 @@ class AnalogEP2(nn.Module):
                 .squeeze()
                 .mean(dim=0)
             )
-            # TODO: broadcast to 2D
+            # broadcast to 2D
             res += self.prev_negative.pow(2).mean(dim=0) - self.prev_positive.pow(2).mean(dim=0)
             res += (n_node.pow(2).mean(dim=0) - p_node.pow(2).mean(dim=0)).unsqueeze(1)
             submodule.weight.grad += res / self.solver.beta

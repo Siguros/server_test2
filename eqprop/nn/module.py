@@ -23,14 +23,11 @@ class EqPropBase(ABC):
 
     @abstractmethod
     def forward(self, x):
-        pass
+        return EqPropFunc.apply(self, x)
 
     @abstractmethod
-    def eqprop(self, x, dy):
-        pass
-
-    @abstractmethod
-    def energy(self, x):
+    def _eqprop(self, x, dy):
+        """Internelly called by EqPropFunc.backward()."""
         pass
 
 
@@ -57,7 +54,7 @@ class EqPropFunc(torch.autograd.Function):
         # input, output = ctx.saved_tensors
         input = ctx.saved_tensors
         eqprop_layer: EqPropBase = ctx.eqprop_layer
-        eqprop_layer.eqprop((input, grad_output))
+        eqprop_layer._eqprop((input, grad_output))
         grad_input = None  # dL/dx = g*(dV_nudge -dV_free)/beta
         return grad_input
 
@@ -66,11 +63,26 @@ class EqPropLinear(EqPropBase, nn.Linear):
     """EqProp wrapper for nn.Linear."""
 
     def __init__(self, *args, **kwargs):
-        super(self, nn.Linear).__init__(*args, **kwargs)
         super(self, EqPropBase).__init__(*args, **kwargs)
+        super(self, nn.Linear).__init__(*args, **kwargs)
 
     def forward(self, x):
-        return super().forward(x)
+        return super(self, EqPropBase).forward(x)
+
+
+class EqPropConv2d(EqPropBase, nn.Conv2d):
+    def __init__(self, activation: callable, beta: float = 0.1, *args: Any, **kwargs: Any) -> None:
+        super(
+            self,
+        ).__init__(*args, **kwargs)
+        super(self, nn.Conv2d).__init__(*args, **kwargs)
+
+    def forward(self, x):
+        x = self.unfold(x).transpose(1, 2)
+        x = super(self, EqPropBase).forward(x)
+        batch, out_channels, _ = x.shape
+        x = x.view(batch, out_channels, *self.output_shape)
+        return x
 
 
 class EqPropSequential(EqPropBase, nn.Sequential):

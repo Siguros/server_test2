@@ -232,7 +232,8 @@ class NewtonStrategy(TorchStrategy):
             A = self.OTS.a(v)
             J = L.clone()
             # J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])  # expensive?
-            J += torch.stack([a.diag() for a in A])  # expensive?
+            # J += torch.stack([a.diag() for a in A])  # expensive?
+            J.diagonal(dim1=1, dim2=2)[:] += A
             residual = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
             # residual[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
             residual[:, :, 0] += self.OTS.i(v)
@@ -325,7 +326,7 @@ class NewtonStrategy(TorchStrategy):
             # nonlinearity comes here
             A = self.OTS.a(v)
             J = L.clone()
-            J += torch.stack([(a * D_inv).diag() for a in A])  # expensive?
+            J.diagonal(dim1=1, dim2=2)[:] += D_inv * A
             residual = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
 
             residual[:, :, 0] += self.OTS.i(v)

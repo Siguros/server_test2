@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Callable
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy.optimize import fsolve
 
 from src.eqprop import eqprop_util
 from src.utils import get_pylogger
@@ -80,8 +82,8 @@ class SPICEStrategy(AbstractStrategy):
         raise NotImplementedError()
 
 
-class TorchStrategy(AbstractStrategy):
-    """Calculate Node potentials with PyTorch."""
+class PythonStrategy(AbstractStrategy):
+    """Calculate Node potentials with Python."""
 
     def __init__(
         self,
@@ -90,7 +92,7 @@ class TorchStrategy(AbstractStrategy):
         super().__init__(**kwargs)
         """Initialize the solver."""
         self.OTS = self.activation
-        self.dims = None
+        self.dims = None  # hidden layer dimensions, set by get_params()
         self.amp_factor = kwargs.get("amp_factor", 1.0)
         self.attrchecked: bool = False
         # self.sparse = (
@@ -111,6 +113,86 @@ class TorchStrategy(AbstractStrategy):
         for attr in ["OTS", "dims"]:
             if getattr(self, attr) is None:
                 raise ValueError(f"{attr} must be set before calling")
+
+
+class ScipyStrategy(PythonStrategy):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._free_solution = None
+
+    def solve(self, x: torch.Tensor, i_ext: torch.Tensor, **kwargs) -> list[torch.Tensor]:
+        if x.device != torch.device("cpu"):
+            raise ValueError("ScipyStrategy only supports cpu.")
+        (W, B) = kwargs.get("params", self.get_params())
+        self.check_and_set_attrs(kwargs)
+        if i_ext is None:
+            self._free_solution = None
+            x0 = x.numpy()
+        else:
+            i_ext = i_ext.numpy()
+            x0 = self._free_solution
+
+        vout_list = []
+        for v0, b in zip(x0, B):
+            vout = fsolve(
+                self._f,
+                x0=v0,
+                args=(i_ext, W, b),
+                fprime=self._jac,
+                xtol=self.atol,
+                maxfev=self.max_iter,
+            )
+            vout_list.append(vout)
+        vout = np.stack(vout_list, axis=0)
+        vout = torch.from_numpy(vout).type_as(x)
+        if i_ext is None:
+            self._free_solution = vout.detach().clone()
+        nodes = list(vout.split(self.dims, dim=1))
+        return nodes
+
+    def _f(self, x: np.ndarray, W, B, i_ext: np.ndarray):
+        """Compute the residual Lx - B + i_r(x)"""
+        dims = self.dims
+        batchsize = x.size(0)
+        size = sum(dims)
+        L = self._lap(x)
+        # construct the RHS
+        B = np.zeros(size) if B is None else B
+        B[: dims[0]] += x @ W[0].T
+        if i_ext is not None:
+            B[:, -dims[-1] :] += i_ext
+        B *= self.amp_factor
+        # initial solution
+        return L @ x - B + self.OTS.i(x).numpy()
+
+    def _jac(self, x: np.ndarray, i_ext: np.ndarray):
+        """Compute the Jacobian of the residual L + a_r(x)"""
+        L = self._lap(x)
+        return L + self.OTS.a(x).numpy()
+
+    def _lap(self, x: np.ndarray):
+        """Compute the Laplacian."""
+        if hasattr(self, "L"):
+            return self.L
+        else:
+            dims = self.dims
+            batchsize = x.size(0)
+            size = sum(dims)
+            paddedG = [np.zeros((dims[0], size))]
+            for i, g in enumerate(self.W[1:]):
+                padding = [(0, 0) for _ in range(g.ndim)]  # g의 차원수 만큼 패딩 설정
+                padding[-2] = (sum(dims[:i]), sum(dims[i + 1 :]))  # 마지막에서 두 번째 차원에 대해 패딩 적용
+                paddedG.append(np.pad(-g, padding))
+            Ll = np.concatenate(paddedG, axis=-2)
+            L = Ll + Ll.swapaxes(-1, -2) * self.amp_factor  # 'mT'는 전치를 의미하므로 swapaxes를 사용
+            D0 = (
+                -Ll.sum(axis=-2)
+                - Ll.sum(axis=-1)
+                + np.pad(self.W[0].sum(axis=-1), (0, size - dims[0]))
+            )
+            L += np.diag(D0)
+            self.L = L
+            return L
 
 
 class XYCEStrategy(SPICEStrategy):
@@ -135,7 +217,7 @@ class XYCEStrategy(SPICEStrategy):
         return nodes
 
 
-class NewtonStrategy(TorchStrategy):
+class NewtonStrategy(PythonStrategy):
     r"""Solve J\Delta{X}=-f with Newton's method."""
 
     def __init__(self, clip_threshold, **kwargs) -> None:
@@ -158,7 +240,9 @@ class NewtonStrategy(TorchStrategy):
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
         """
-        (W, B) = kwargs.get("params", self.get_params())
+        (W, B) = kwargs.get("params", (None, None))
+        if W is None or B is None:
+            (W, B) = self.get_params()
         self.check_and_set_attrs(kwargs)
         if i_ext is None:
             self._free_solution = None
@@ -196,7 +280,7 @@ class NewtonStrategy(TorchStrategy):
         dims = self.dims
         batchsize = x.size(0)
         size = sum(dims)
-        # construct the laplacian
+        # construct the adjacency matrix
         paddedG = [torch.zeros(dims[0], size).type_as(x)]
         [
             paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
@@ -204,6 +288,9 @@ class NewtonStrategy(TorchStrategy):
         ]
         Ll = torch.cat(paddedG, dim=-2)
         L = Ll + Ll.mT * self.amp_factor
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[0]))
+        L += D0.diag()
         # construct the RHS
         B = (
             torch.zeros((x.size(0), size)).type_as(x)
@@ -214,9 +301,6 @@ class NewtonStrategy(TorchStrategy):
         if i_ext is not None:
             B[:, -dims[-1] :] += i_ext
         B *= self.amp_factor
-        # construct the diagonal
-        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[0]))
-        L += D0.diag()
         # initial solution
         if self._free_solution is not None and i_ext is not None:
             v = self._free_solution.detach().clone()
@@ -603,7 +687,7 @@ class NewtonStrategy(TorchStrategy):
         return v
 
 
-class LMStrategy(TorchStrategy):
+class LMStrategy(PythonStrategy):
     r"""Solve J\Delta{X}=-f with Levenberg-Marquardt method."""
 
     def __init__(self, clip_threshold, lambda_factor, **kwargs) -> None:

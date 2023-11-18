@@ -23,7 +23,7 @@ What it does
 
 ```bash
 # clone project
-git clone https://github.com/nmdlkh/ml
+git clone https://github.com/nmdlkg/ml
 cd ml
 
 # [OPTIONAL] create conda environment

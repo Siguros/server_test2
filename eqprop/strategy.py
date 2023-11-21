@@ -217,6 +217,51 @@ class XYCEStrategy(SPICEStrategy):
         return nodes
 
 
+class PinvStrategy(PythonStrategy):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+    @torch.no_grad()
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        (W, B) = kwargs.get("params", (None, None))
+        if W is None or B is None:
+            (W, B) = self.get_params()
+        self.check_and_set_attrs(kwargs)
+        dims = self.dims
+        batchsize = x.size(0)
+        size = sum(dims)
+        # construct the adjacency matrix
+        paddedG = [torch.zeros(dims[0], size).type_as(x)]
+        [
+            paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
+            for i, g in enumerate(W[1:])
+        ]
+        Ll = torch.cat(paddedG, dim=-2)
+        L = Ll + Ll.mT * self.amp_factor
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[0]))
+        L += D0.diag()
+        # construct the RHS
+        B = (
+            torch.zeros((x.size(0), size)).type_as(x)
+            if not B
+            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+        )
+        B[:, : dims[0]] += x @ W[0].T
+        if i_ext is not None:
+            B[:, -dims[-1] :] += i_ext
+        B *= self.amp_factor
+        # initial solution
+        lo, info = torch.linalg.cholesky_ex(L)
+        vout = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        # add contribution from nonlinearity
+        vout -= (
+            torch.pinverse(L).expand(batchsize, -1, -1) @ self.OTS.i(vout).unsqueeze(-1)
+        ).squeeze()
+        nodes = list(vout.split(self.dims, dim=1))
+        return nodes
+
+
 class NewtonStrategy(PythonStrategy):
     r"""Solve J\Delta{X}=-f with Newton's method."""
 
@@ -250,7 +295,7 @@ class NewtonStrategy(PythonStrategy):
         if type(self.OTS) == eqprop_util.SymOTS:
             vout = self._densecholsol2(x, W, B, i_ext)
         else:
-            vout = self._densecholsol1(x, W, B, i_ext)
+            vout = self._densecholsol(x, W, B, i_ext)
         if i_ext is None:
             self._free_solution = vout.detach().clone()
         nodes = list(vout.split(self.dims, dim=1))

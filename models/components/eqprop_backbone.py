@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning.utilities.parsing import AttributeDict
 
-from src.eqprop.eqprop_util import AddNodes, interleave, type_as
+from src.eqprop.eqprop_util import AddNodes, Interleave, type_as
 from src.eqprop.solver import AnalogEqPropSolver
 
 
@@ -47,7 +47,7 @@ class EP(nn.Module):
         self.doubling = kwargs.get("doubling", False)
         self.num_classes = dims[-1]
         if self.doubling:
-            interleave.on()
+            Interleave.on()
             self.num_classes //= 2
         self.eps = epsilon
         self.dims = dims
@@ -207,7 +207,7 @@ class EP(nn.Module):
             L = L.mean().detach()
         return (E, L)
 
-    @interleave(type="in")
+    @Interleave(type="in")
     def loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute loss."""
         if self.criterion.__class__.__name__.find("MSE") != -1:
@@ -439,7 +439,7 @@ class AnalogEP2(nn.Module):
         # instiantiate solver
         self.solver = solver(self.model)
 
-    @interleave(type="out")
+    @Interleave(type="out")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation.
@@ -484,12 +484,8 @@ class AnalogEP2(nn.Module):
             p_node = submodule.get_buffer("positive_node")
             n_node = submodule.get_buffer("negative_node")
             res = 2 * (
-                torch.bmm(p_node.unsqueeze(2), self.prev_positive.unsqueeze(1))
-                .squeeze()
-                .mean(dim=0)
-                - torch.bmm(n_node.unsqueeze(2), self.prev_negative.unsqueeze(1))
-                .squeeze()
-                .mean(dim=0)
+                torch.bmm(p_node.unsqueeze(2), self.prev_positive.unsqueeze(1)).mean(dim=0)
+                - torch.bmm(n_node.unsqueeze(2), self.prev_negative.unsqueeze(1)).mean(dim=0)
             )
             # broadcast to 2D
             res += self.prev_negative.pow(2).mean(dim=0) - self.prev_positive.pow(2).mean(dim=0)
@@ -556,7 +552,7 @@ class AnalogEPSym(AnalogEP2):
     Use 3rd nudge phase to compute gradients.
     """
 
-    @interleave(type="out")
+    @Interleave(type="out")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation."""

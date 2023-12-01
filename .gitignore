@@ -152,3 +152,8 @@ configs/local/default.yaml
 
 # Aim logging
 .aim
+
+# Pants workspace files
+/.pants.*
+/dist/
+/.pids

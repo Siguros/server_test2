@@ -15,7 +15,7 @@ ______________________________________________________________________
 
 ## Description
 
-What it does
+Encapsulates all the boilerplate code for training and evaluating a model.
 
 ## Installation
 
@@ -41,7 +41,7 @@ pip install -r requirements.txt
 
 ```bash
 # clone project
-git clone https://github.com/nmdlkh/ml
+git clone https://github.com/nmdlkg/ml
 cd ml
 
 # create conda environment and install dependencies
@@ -118,4 +118,22 @@ The directory structure of new project looks like this:
 ├── requirements.txt          <- File for installing python dependencies
 ├── setup.py                  <- File for installing project as a package
 └── README.md
+```
+
+## Development
+
+### Pre-commit hooks
+
+This project uses [pre-commit](https://pre-commit.com/) hooks for code formatting. To install them run:
+
+```bash
+pre-commit install
+```
+
+### Pants
+
+This project uses [pants](https://www.pantsbuild.org/) for building and testing. To install it run:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://static.pantsbuild.org/setup/get-pants.sh | bash
 ```

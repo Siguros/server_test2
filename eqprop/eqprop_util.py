@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 
-class interleave:
+class Interleave:
     """Decorator class for interleaving in/out nodes."""
 
     _num_output: int = None
@@ -53,7 +53,7 @@ class interleave:
         raise DeprecationWarning("Use method set_num_output instead")
 
     @classmethod
-    def set_num_output(cls, num_output):
+    def set_num_outputs(cls, num_output):
         assert num_output % 2 == 0, "num_output must be even"
         cls._num_output = num_output
 

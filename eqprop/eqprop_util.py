@@ -44,10 +44,9 @@ class interleave:
         elif self._num_output == 2:
             return t[:, ::2] - t[:, 1::2]
         else:
-            t_reshaped = t.reshape(t.shape[0], t.shape[1] // self._num_output, self._num_output)
-            result = t_reshaped.sum(-1)
-
-            return result
+            raise NotImplementedError
+            # t_reshaped = t.reshape(t.shape[0], t.shape[1] // self._num_output, self._num_output)
+            # result = t_reshaped.sum(-1)
 
     @classmethod
     def on(cls):
@@ -189,6 +188,21 @@ class SymReLU(BaseRectifier):
     def a(self, V: torch.Tensor):
         x = V * self.Is
         return -((x - self.Vl) / self.Vth < 0).float() + ((x - self.Vr) / self.Vth > 0).float()
+
+
+class Symtanh(BaseRectifier):
+    """Symmetric tanh rectifier."""
+
+    def __init__(self, Is=1, Vth=1, Vl=-0.5, Vr=0.5):
+        super().__init__(Is, Vth, Vl, Vr)
+
+    def i(self, V: torch.Tensor):
+        x = V - (self.Vl + self.Vr) / 2
+        return self.Is * torch.tanh(x / self.Vth)
+
+    def a(self, V: torch.Tensor):
+        x = V - (self.Vl + self.Vr) / 2
+        return self.Is / self.Vth * (1 - torch.tanh(x / self.Vth).pow(2))
 
 
 @torch.jit.script

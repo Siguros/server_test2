@@ -35,7 +35,7 @@ class EqPropLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         scale_input: int = True,
-        scale_output: int = 4,
+        scale_output: int = 2,
         positive_w: bool = False,
         bias: bool = False,
         clip_weights: bool = False,
@@ -53,9 +53,8 @@ class EqPropLitModule(LightningModule):
         self.net.model.apply(
             eqprop_util.init_params(min_w=min_w, max_w_gain=max_w_gain)
         ) if self.hparams.positive_w else ...
-        # if self.hparams.scale_output:
-        #     eqprop_util.interleave.on()  # output
-        #     eqprop_util.interleave.set_num_output(self.hparams.scale_output)
+        if self.hparams.scale_output:
+            eqprop_util.interleave.set_num_output(self.hparams.scale_output)
         if not self.hparams.scale_input:
             self.interleave_input = lambda x: x.view(x.shape[0], -1)
 

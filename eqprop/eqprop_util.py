@@ -50,7 +50,7 @@ class interleave:
 
     @classmethod
     def on(cls):
-        cls._on = True
+        raise DeprecationWarning("Use method set_num_output instead")
 
     @classmethod
     def set_num_output(cls, num_output):

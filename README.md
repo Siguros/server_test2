@@ -90,7 +90,7 @@ The directory structure of new project looks like this:
 │
 ├── notebooks              <- Jupyter notebooks. Naming convention is a number (for ordering),
 │                             the creator's initials, and a short `-` delimited description,
-│                             e.g. `1.0-jqp-initial-data-exploration.ipynb`.
+│                             e.g. `1.0-lhr-initial-data-exploration.ipynb`.
 │
 ├── scripts                <- Shell scripts
 │

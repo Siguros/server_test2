@@ -26,13 +26,13 @@ dependencies:
   - torchvision=0.*
   - lightning=2.*
   - torchmetrics=0.*
-  - hydra-core=1.*
+  - hydra-core=1.3.*
   - rich=13.*
   - pre-commit=3.*
   - pytest=7.*
 
   # --------- loggers --------- #
-  # - wandb
+  - wandb
   # - neptune-client
   # - mlflow
   # - comet-ml
@@ -43,3 +43,4 @@ dependencies:
       - hydra-optuna-sweeper
       - hydra-colorlog
       - rootutils
+      # - hydra_zen

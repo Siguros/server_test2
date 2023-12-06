@@ -1,3 +1,4 @@
+import os
 from abc import ABC, abstractmethod
 from typing import Callable
 
@@ -7,7 +8,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import fsolve
 
+import src.eqprop.xyce_util.config
 from src.eqprop import eqprop_util
+from src.eqprop.xyce_util.circuits import _createCircuit, createCircuit
+from src.eqprop.xyce_util.MyCircuit import MyCircuit
+from src.eqprop.xyce_util.NetlistWriter import SPICEParser
+from src.eqprop.xyce_util.util import _XYCE_AVAILABLE
+from src.eqprop.xyce_util.weightClipper import weightClipper
+from src.eqprop.xyce_util.xyce import XyceSim
 from src.utils import get_pylogger
 
 log = get_pylogger(__name__)
@@ -69,10 +77,12 @@ class AbstractStrategy(ABC):
 class SPICEStrategy(AbstractStrategy):
     """Calculate Node potentials with SPICE."""
 
+    """
     def __new__(cls):
         # check if ngspice is installed
         cls._check_spice()
         return super().__new__(cls)
+    """
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -201,19 +211,190 @@ class XYCEStrategy(SPICEStrategy):
     # TODO: check if xyce is installed
     @classmethod
     def _check_spice(cls):
-        ...
-        # if _XYCE_AVAILABLE:
-        #     pass
-        # else:
-        #     raise ImportError("Xyce is not installed.")
+        if _XYCE_AVAILABLE:
+            pass
+        else:
+            raise ImportError("Xyce is not installed.")
 
-    # TODO: set up xyce, generate netlist
+    # TODO: set up xyce configuration, generate netlist
+    def __init__(self, diode_path, diode_name, L, U, beta, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+        """Create pyspice circuit instance using dictionary type parameters.
+
+        spice_params = {
+          "L" : lower limit of weight of each layer<List/float>,
+          "U" : upper limit of weight of each layer<List/float>,
+          "A" : amplitude of bidirectional amplifier<float/int>
+          "Diode" : {
+            "Path" : path to diode spice model file<string>,
+            "ModelName" : name of diode model<string>,
+            "Rectifier" : rectifying subcircuit instance <SubcircuitFactory>
+                }
+          "alpha" : learning rate of each layer <List/float>
+        "beta" : weight for Cost function <Float>
+        }
+        """
+        self.beta = beta
+        self.amp_factor = 1.0
+        self.attrchecked: bool = False
+        self.mpi_commands = ["mpirun", "-use-hwthread-cpus", "-np", "1", "-cpu-set"]
+
+        self.SPICE_params = {
+            "A": self.amp_factor,
+            "beta": self.beta,
+            "L": L,
+            "U": U,
+            "Diode": {
+                "Path": diode_path,
+                "ModelName": diode_name,
+                "Rectifier": "BidRectifier",
+            },
+        }
+
+    def check_and_set_attrs(self, kwargs: dict):
+        """Check if all attributes are set and set them if not."""
+        if self.attrchecked:
+            return
+        else:
+            self.attrchecked = True
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                log.warning(f"key {key} not found in {self.__class__.__name__}")
+        for attr in ["dims"]:
+            if getattr(self, attr) is None:
+                raise ValueError(f"{attr} must be set before calling")
+
+    # TODO: return nodes in equilibrium
+    def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
+        # get params
+        (W, B) = kwargs.get("params", (None, None))
+        if W is None or B is None:
+            (W, B) = self.get_params()
+        self.check_and_set_attrs(kwargs)
+
+        # generate netlist, concat W & B
+
+        weight_list = {}
+        if len(B) != 0:
+            bias = B[0].view(len(W[0]), 1)
+            weight_list[0] = torch.cat((W[0], bias), dim=1)
+            weight_list[1] = W[1]
+
+        else:
+            weight_list[0] = W[0]
+            weight_list[1] = W[1]
+
+        dims = [
+            len(weight_list[0][0]),
+            len(weight_list[0]),
+            len(weight_list[1].transpose(0, 1)[0]),
+        ]
+
+        """
+        lst = [1 for _ in range(len(dims)-1)]
+        lst.append(0)
+        dims = [x + y for x, y in zip(dims, lst)]
+        """
+        self.Pycircuit = _createCircuit(
+            weight_list, dims, **self.SPICE_params
+        )  # create circuit with bias
+        self.circuit = MyCircuit.copyFromCircuit(self.Pycircuit)
+        self.clipper = weightClipper(L=self.SPICE_params["L"], U=None)
+        circuit = self.circuit
+
+        batch_size = x.size(0)
+        nodes = []
+        # set mpi_commands
+        if batch_size == 1:
+            self.mpi_commands.pop()
+            self.mpi_commands.pop()
+            self.mpi_commands.append(str(os.cpu_count() - 2))
+            self.mpi_commands.append("-cpu-set")
+            self.mpi_commands.append("2-" + str(os.cpu_count() - 1))
+
+        for i in range(len(dims) - 1):
+            nodes.append(None)
+            nodes[i] = torch.zeros(batch_size, dims[len(dims) - i - 1])
+        for i in range(batch_size):
+            SPICEParser.clampLayer(circuit, x[i])
+            xyce = XyceSim(mpi_command=None)
+            if i_ext is None:
+                self._free_solution = None
+                raw_file = xyce(spice_input=circuit)
+                vout = SPICEParser.fastRawfileParser(
+                    raw_file, nodenames=circuit.nodes, dimensions=dims
+                )
+
+            if i_ext is not None:
+                self._free_solution = None
+                SPICEParser.releaseLayer(circuit, i_ext[i])
+                raw_file = xyce(spice_input=circuit)
+                vout = SPICEParser.fastRawfileParser(
+                    raw_file, nodenames=circuit.nodes, dimensions=dims
+                )
+            for j in range(len(dims) - 1):
+                Vlist = torch.tensor(vout[1][len(dims) - j - 2])
+                nodes[j][i] = Vlist
+
+        temp = nodes[0]
+        nodes[0] = nodes[1]
+        nodes[1] = temp
+
+        return nodes
+
+    def process_data(i, x, circuit, nodes, j):
+        SPICEParser.clampLayer(circuit, x[i])
+        xyce = XyceSim(mpi_command=None)
+        vout = xyce(x[i])
+        nodes[j][i] = vout
+        return i, vout
+
+
+class PinvStrategy(PythonStrategy):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-    # TODO: return nodes in equilibrium
-    def solve(self, **kwargs) -> list[torch.Tensor]:
-        nodes = 0
+    @torch.no_grad()
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        (W, B) = kwargs.get("params", (None, None))
+        if W is None or B is None:
+            (W, B) = self.get_params()
+        self.check_and_set_attrs(kwargs)
+        dims = self.dims
+        batchsize = x.size(0)
+        size = sum(dims)
+        # construct the adjacency matrix
+        paddedG = [torch.zeros(dims[0], size).type_as(x)]
+        [
+            paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
+            for i, g in enumerate(W[1:])
+        ]
+        Ll = torch.cat(paddedG, dim=-2)
+        L = Ll + Ll.mT * self.amp_factor
+        # construct the diagonal
+        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[0]))
+        L += D0.diag()
+        # construct the RHS
+        B = (
+            torch.zeros((x.size(0), size)).type_as(x)
+            if not B
+            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
+        )
+        B[:, : dims[0]] += x @ W[0].T
+        if i_ext is not None:
+            B[:, -dims[-1] :] += i_ext
+        B *= self.amp_factor
+        # initial solution
+        lo, info = torch.linalg.cholesky_ex(L)
+        vout = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        # add contribution from nonlinearity
+        vout -= (
+            torch.pinverse(L).expand(batchsize, -1, -1) @ self.OTS.i(vout).unsqueeze(-1)
+        ).squeeze()
+        nodes = list(vout.split(self.dims, dim=1))
         return nodes
 
 
@@ -250,7 +431,7 @@ class NewtonStrategy(PythonStrategy):
         if type(self.OTS) == eqprop_util.SymOTS:
             vout = self._densecholsol2(x, W, B, i_ext)
         else:
-            vout = self._densecholsol1(x, W, B, i_ext)
+            vout = self._densecholsol(x, W, B, i_ext)
         if i_ext is None:
             self._free_solution = vout.detach().clone()
         nodes = list(vout.split(self.dims, dim=1))

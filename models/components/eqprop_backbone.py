@@ -458,10 +458,37 @@ class AnalogEP2(nn.Module):
         self.model.ypred = logits.detach().clone().requires_grad_(True)
         return self.model.ypred
 
+    @interleave(type="out")
+    @torch.no_grad()
+    def get_forward(self, x):
+        """Forward propagation.
+
+        Args:
+            x (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        # assert self.training is False
+        self.reset_nodes()
+        reversed_nodes, _ = self.solver(x)
+        self.set_nodes(reversed_nodes, positive_phase=True)
+        logits = self.model.get_buffer("last.positive_node")
+        self.model._buffers["ypred"] = logits.detach().clone().requires_grad_(True)
+        return self.model._buffers["ypred"]
+
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
         assert self.training
+        reversed_nodes, _ = self.solver(x, nudge_phase=True)
+        self.set_nodes(reversed_nodes, positive_phase=False)
+        self.prev_positive = self.prev_negative = x
+        self.model.apply(self._update)
+
+    @torch.no_grad()
+    def _eqprop(self, x: torch.Tensor):
+        """Nudge phase & grad calculation."""
         reversed_nodes, _ = self.solver(x, nudge_phase=True)
         self.set_nodes(reversed_nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
@@ -518,7 +545,8 @@ class AnalogEP2(nn.Module):
         def _init_nodes(submodule: nn.Module):
             if hasattr(submodule, "weight"):
                 assert submodule._get_name() in ["Linear"], "Only Linear layer is supported"
-                output_size = submodule.bias.shape[-1]
+                # output_size = submodule.bias.shape[-1]
+                output_size = submodule.weight.shape[0]
                 positive_node = torch.zeros((batch_size, output_size))
                 negative_node = torch.zeros((batch_size, output_size))
                 submodule.register_buffer("positive_node", positive_node)

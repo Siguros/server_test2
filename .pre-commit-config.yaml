@@ -16,6 +16,7 @@ repos:
       - id: check-toml
       - id: check-case-conflict
       - id: check-added-large-files
+      - id: no-commit-to-branch
 
   # python code formatting
   - repo: https://github.com/psf/black
@@ -145,3 +146,4 @@ repos:
             "--extend-ignore=E203,E402,E501,F401,F841",
             "--exclude=logs/*,data/*",
           ]
+

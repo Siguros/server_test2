@@ -1,4 +1,5 @@
 import os
+import shutil
 from abc import ABC, abstractmethod
 from typing import Callable
 
@@ -8,15 +9,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import fsolve
 
-import src.eqprop.xyce_util.config
 from src.eqprop import eqprop_util
-from src.eqprop.xyce_util.circuits import _createCircuit, createCircuit
-from src.eqprop.xyce_util.MyCircuit import MyCircuit
-from src.eqprop.xyce_util.NetlistWriter import SPICEParser
-from src.eqprop.xyce_util.util import _XYCE_AVAILABLE
-from src.eqprop.xyce_util.weightClipper import weightClipper
-from src.eqprop.xyce_util.xyce import XyceSim
 from src.utils import get_pylogger
+
+if _XYCE_AVAILABLE := shutil.which("Xyce"):
+    from src.eqprop.xyce_util.circuits import _createCircuit
+    from src.eqprop.xyce_util.MyCircuit import MyCircuit
+    from src.eqprop.xyce_util.NetlistWriter import SPICEParser
+    from src.eqprop.xyce_util.weightClipper import weightClipper
+    from src.eqprop.xyce_util.xyce import XyceSim
 
 log = get_pylogger(__name__)
 

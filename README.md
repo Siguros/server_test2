@@ -95,8 +95,11 @@ The directory structure of new project looks like this:
 ├── scripts                <- Shell scripts
 │
 ├── src                    <- Source code
-│   ├── eqprop                   <- <subtree> EqProp implementation
-│   ├── aihwkit                  <- <subtree> AIHWKit implementation
+│   ├── core                     <- Core code
+|   │   ├── eqprop                   <- EqProp implementation
+|   │   ├── aihwkit                  <- AIHWKit implementation
+|   │   ├── ...
+|   ├── project-A               <- Project A code
 │   ├── ...
 │   │
 │   ├── data                     <- Data scripts

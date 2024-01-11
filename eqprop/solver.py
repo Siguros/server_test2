@@ -9,8 +9,6 @@ import torch.nn.functional as F
 from src.eqprop.strategy import AbstractStrategy
 from src.utils import get_pylogger
 
-# from tests.helpers.package_available import _XYCE_AVAILABLE
-
 log = get_pylogger(__name__)
 
 
@@ -39,8 +37,8 @@ class EqPropSolver:
         self.amp_factor = amp_factor
         self.model = model
         self.beta = beta
-        strategy.set_model(model)
         self.strategy = strategy
+        self.set_strategy_params()
 
     @property
     def beta(self):
@@ -67,6 +65,7 @@ class EqPropSolver:
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
         else:
             del self.model.ypred
+            self.strategy.reset()
         reversed_nodes = self.strategy.solve(x, i_ext, **kwargs)
         reversed_nodes.reverse()
         if kwargs.get("return_energy", False):
@@ -74,6 +73,17 @@ class EqPropSolver:
             return (reversed_nodes, E)
         else:
             return (reversed_nodes, None)
+
+    def set_strategy_params(self) -> None:
+        """Set strategy parameters."""
+        st = self.strategy
+        if not st.W and not st.B:
+            for name, param in self.model.named_parameters():
+                if name.endswith("weight"):
+                    st.W.append(param)
+                    st.dims.append(param.shape[0])
+                elif name.endswith("bias"):
+                    st.B.append(param)
 
     def energy(self, Nodes, x) -> torch.Tensor:
         """Energy function."""
@@ -104,7 +114,7 @@ class EqPropSolver:
         E += 0.5 * torch.sum(torch.pow(Nodes[-1], 2), dim=1)  # add E_nodes of output layer
         return E
 
-    def Tenergy(self, Nodes, x, y, beta) -> torch.Tensor:
+    def total_energy(self, Nodes, x, y, beta) -> torch.Tensor:
         """Compute Total Free Energy: Wsum rho(u_i)W_{ij}rho(u_j)"""
         E = self.energy(Nodes, x)
         L = None
@@ -124,6 +134,10 @@ class AnalogEqPropSolver(EqPropSolver):
 
     # TODO: Check validity when amp_factor is not 1
     def energy(self, Nodes, x) -> torch.Tensor:
+        if self.amp_factor != 1:
+            raise NotImplementedError(
+                "energy function for analog EqProp is not implemented when amp_factor != 1"
+            )
         num_layers = len(Nodes)
         assert num_layers == len(self.dims) - 1, ValueError(
             "number of nodes must match the number of layers"

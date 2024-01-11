@@ -518,7 +518,7 @@ class AnalogEP2(nn.Module):
         def _init_nodes(submodule: nn.Module):
             if hasattr(submodule, "weight"):
                 assert submodule._get_name() in ["Linear"], "Only Linear layer is supported"
-                output_size = submodule.bias.shape[-1]
+                output_size = submodule.weight.shape[0]
                 positive_node = torch.zeros((batch_size, output_size))
                 negative_node = torch.zeros((batch_size, output_size))
                 submodule.register_buffer("positive_node", positive_node)

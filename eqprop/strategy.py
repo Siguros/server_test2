@@ -21,6 +21,8 @@ if _XYCE_AVAILABLE := shutil.which("Xyce"):
 
 log = get_pylogger(__name__)
 
+NpOrTensor = np.ndarray | torch.Tensor
+
 
 class AbstractStrategy(ABC):
     """Abstract class for different strategies to solve for the equilibrium point of the
@@ -29,15 +31,16 @@ class AbstractStrategy(ABC):
     def __init__(
         self,
         activation: Callable | str,
-        model: nn.Module = None,
         max_iter: int = 30,
         atol: float = 1e-6,
         **kwargs,
     ):
         self.activation = activation
-        self.model = model
         self.max_iter = max_iter
         self.atol = atol
+        self.dims = []  # hidden layer dimensions
+        self.W = None
+        self.B = None
 
     @abstractmethod
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -52,27 +55,10 @@ class AbstractStrategy(ABC):
         """
         ...
 
-    def get_params(self) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
-        """Returns the weights and biases of the model as a tuple of two lists.
-
-        Each list contains torch.Tensor objects representing the weights and biases of a layer in
-        the model.
-        """
-        if hasattr(self, "W"):
-            return (self.W, self.B)
-        else:
-            self.W, self.B, self.dims = [], [], []
-            for name, param in self.model.named_parameters():
-                if name.endswith("weight"):
-                    self.W.append(param)
-                    self.dims.append(param.shape[0])
-                elif name.endswith("bias"):
-                    self.B.append(param)
-            return (self.W, self.B)
-
-    def set_model(self, model: nn.Module) -> None:
-        """Set the model."""
-        self.model = model
+    @abstractmethod
+    def reset(self):
+        """Reset the internal states after 1 iteration."""
+        ...
 
 
 class SPICEStrategy(AbstractStrategy):
@@ -103,7 +89,6 @@ class PythonStrategy(AbstractStrategy):
         super().__init__(**kwargs)
         """Initialize the solver."""
         self.OTS = self.activation
-        self.dims = None  # hidden layer dimensions, set by get_params()
         self.amp_factor = kwargs.get("amp_factor", 1.0)
         self.attrchecked: bool = False
         # self.sparse = (
@@ -126,7 +111,99 @@ class PythonStrategy(AbstractStrategy):
                 raise ValueError(f"{attr} must be set before calling")
 
 
-class ScipyStrategy(PythonStrategy):
+class _SecondOrderMixin:
+    def __init__(self, add_nonlin_last: bool = True) -> None:
+        self._L = None
+        self._R = None
+        self.add_nonlin_last = add_nonlin_last
+
+    @torch.no_grad()
+    def residual(
+        self,
+        v: NpOrTensor,
+        x: torch.Tensor,
+        i_ext: torch.Tensor,
+        W: list[torch.Tensor],
+        B: list[torch.Tensor] | None = None,
+    ):
+        """Compute the residual Lv - R + i_r(v)"""
+        dims = self.dims
+        size = sum(dims)
+        L = self.laplacian()
+        # construct the RHS
+        if self._R is None:
+            B = torch.zeros(size).type_as(x) if B is None else B
+            B[: dims[0]] += x @ self.W[0].T
+            if i_ext is not None:
+                B[:, -dims[-1] :] += i_ext
+            B *= self.amp_factor
+            self._R = B
+        if type(v) == np.ndarray:
+            v = torch.from_numpy(v).type_as(x)
+        res = torch.einsum("...i, oi->...o", v, L) - self._R
+        if self.add_nonlin_last:
+            res += self.OTS.i(v)
+        else:
+            res[:, : -self.dims[-1]] += self.OTS.i(v[:, : -self.dims[-1]])
+        if type(v) == torch.Tensor:
+            return res
+        elif type(v) == np.ndarray:
+            return res.numpy()
+        else:
+            raise TypeError(f"unsupported type {type(v)} while constructing residual")
+
+    @torch.no_grad()
+    def jacobian(self, v: NpOrTensor):
+        """Compute the Jacobian of the residual L + a_r(v)"""
+        L = self.laplacian()
+        if len(L.shape) == 3:
+            res = L.expand(v.size(0), *L.shape)
+        if self.add_nonlin_last:
+            res.diagonal(dim1=1, dim2=2)[:] += self.OTS.a(v)
+        else:
+            res.diagonal(dim1=1, dim2=2)[: -self.dims[-1]] += self.OTS.a(v[:, : -self.dims[-1]])
+        if type(v) == np.ndarray:
+            return res.numpy()
+        elif type(v) == torch.Tensor:
+            return res
+        else:
+            raise TypeError(f"unsupported type {type(v)} while constructing Jacobian")
+
+    @torch.no_grad()
+    def laplacian(self):
+        """Compute the Laplacian matrix and cache it."""
+        if self._L is None:
+            dims = self.dims
+            size = sum(dims)
+            paddedG = [torch.zeros(dims[0], size).float()]
+            [
+                paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
+                for i, g in enumerate(self.W[1:])
+            ]
+            Ll = torch.cat(paddedG, dim=-2)
+            L = Ll + Ll.mT * self.amp_factor
+            D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(self.W[0].sum(-1), (0, size - dims[0]))
+            L += D0.diag()
+            self._L = L
+        return self.L.detach().clone()
+
+    def reset(self):
+        self._L = None
+        self._R = None
+
+    @torch.no_grad()
+    def rhs(self, x, B):
+        dims = self.dims
+        size = sum(dims)
+        if self._R is None:
+            B = torch.zeros(size).type_as(x) if B is None else B
+            B[: dims[0]] += x @ self.W[0].T
+            B *= self.amp_factor
+            self._R = B
+        return self._R.detach().clone()
+
+
+class ScipyStrategy(_SecondOrderMixin, PythonStrategy):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._free_solution = None
@@ -134,22 +211,21 @@ class ScipyStrategy(PythonStrategy):
     def solve(self, x: torch.Tensor, i_ext: torch.Tensor, **kwargs) -> list[torch.Tensor]:
         if x.device != torch.device("cpu"):
             raise ValueError("ScipyStrategy only supports cpu.")
-        (W, B) = kwargs.get("params", self.get_params())
+        (W, B) = kwargs.get("params", (self.W, self.B))
         self.check_and_set_attrs(kwargs)
         if i_ext is None:
             self._free_solution = None
-            x0 = x.numpy()
+            v_init = np.ones(sum(self.dims))
         else:
-            i_ext = i_ext.numpy()
-            x0 = self._free_solution
+            v_init = self._free_solution
 
         vout_list = []
-        for v0, b in zip(x0, B):
+        for xi, b in zip(x, B):
             vout = fsolve(
-                self._f,
-                x0=v0,
-                args=(i_ext, W, b),
-                fprime=self._jac,
+                self.residual,
+                x0=v_init,
+                args=(xi, i_ext, W, b),
+                fprime=self.jacobian,
                 xtol=self.atol,
                 maxfev=self.max_iter,
             )
@@ -161,55 +237,10 @@ class ScipyStrategy(PythonStrategy):
         nodes = list(vout.split(self.dims, dim=1))
         return nodes
 
-    def _f(self, x: np.ndarray, W, B, i_ext: np.ndarray):
-        """Compute the residual Lx - B + i_r(x)"""
-        dims = self.dims
-        batchsize = x.size(0)
-        size = sum(dims)
-        L = self._lap(x)
-        # construct the RHS
-        B = np.zeros(size) if B is None else B
-        B[: dims[0]] += x @ W[0].T
-        if i_ext is not None:
-            B[:, -dims[-1] :] += i_ext
-        B *= self.amp_factor
-        # initial solution
-        return L @ x - B + self.OTS.i(x).numpy()
-
-    def _jac(self, x: np.ndarray, i_ext: np.ndarray):
-        """Compute the Jacobian of the residual L + a_r(x)"""
-        L = self._lap(x)
-        return L + self.OTS.a(x).numpy()
-
-    def _lap(self, x: np.ndarray):
-        """Compute the Laplacian."""
-        if hasattr(self, "L"):
-            return self.L
-        else:
-            dims = self.dims
-            batchsize = x.size(0)
-            size = sum(dims)
-            paddedG = [np.zeros((dims[0], size))]
-            for i, g in enumerate(self.W[1:]):
-                padding = [(0, 0) for _ in range(g.ndim)]  # g의 차원수 만큼 패딩 설정
-                padding[-2] = (sum(dims[:i]), sum(dims[i + 1 :]))  # 마지막에서 두 번째 차원에 대해 패딩 적용
-                paddedG.append(np.pad(-g, padding))
-            Ll = np.concatenate(paddedG, axis=-2)
-            L = Ll + Ll.swapaxes(-1, -2) * self.amp_factor  # 'mT'는 전치를 의미하므로 swapaxes를 사용
-            D0 = (
-                -Ll.sum(axis=-2)
-                - Ll.sum(axis=-1)
-                + np.pad(self.W[0].sum(axis=-1), (0, size - dims[0]))
-            )
-            L += np.diag(D0)
-            self.L = L
-            return L
-
 
 class XYCEStrategy(SPICEStrategy):
     """Calculate Node potentials with Xyce."""
 
-    # TODO: check if xyce is installed
     @classmethod
     def _check_spice(cls):
         if _XYCE_AVAILABLE:
@@ -271,9 +302,7 @@ class XYCEStrategy(SPICEStrategy):
     # TODO: return nodes in equilibrium
     def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
         # get params
-        (W, B) = kwargs.get("params", (None, None))
-        if W is None or B is None:
-            (W, B) = self.get_params()
+        (W, B) = kwargs.get("params", (self.W, self.B))
         self.check_and_set_attrs(kwargs)
 
         # generate netlist, concat W & B
@@ -399,7 +428,7 @@ class PinvStrategy(PythonStrategy):
         return nodes
 
 
-class NewtonStrategy(PythonStrategy):
+class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
     r"""Solve J\Delta{X}=-f with Newton's method."""
 
     def __init__(self, clip_threshold, **kwargs) -> None:
@@ -422,9 +451,7 @@ class NewtonStrategy(PythonStrategy):
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
         """
-        (W, B) = kwargs.get("params", (None, None))
-        if W is None or B is None:
-            (W, B) = self.get_params()
+        (W, B) = kwargs.get("params", (self.W, self.B))
         self.check_and_set_attrs(kwargs)
         if i_ext is None:
             self._free_solution = None
@@ -450,9 +477,8 @@ class NewtonStrategy(PythonStrategy):
 
         Args:
             x (torch.Tensor): Input.
-            W (list): List of weight matrices.
-            dims (list): List of dimensions.
-            B (list, optional): List of bias vectors. Defaults to None.
+            W (list): List of weight matrices. Each element of the list size (dim, dim).
+            B (list, optional): List of bias vectors. Defaults to None. Each element of the list size (batchsize, dim).
             i_ext ([type], optional): External current. Defaults to None.
             self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
@@ -462,63 +488,35 @@ class NewtonStrategy(PythonStrategy):
         dims = self.dims
         batchsize = x.size(0)
         size = sum(dims)
-        # construct the adjacency matrix
-        paddedG = [torch.zeros(dims[0], size).type_as(x)]
-        [
-            paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
-            for i, g in enumerate(W[1:])
-        ]
-        Ll = torch.cat(paddedG, dim=-2)
-        L = Ll + Ll.mT * self.amp_factor
-        # construct the diagonal
-        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[0]))
-        L += D0.diag()
-        # construct the RHS
-        B = (
-            torch.zeros((x.size(0), size)).type_as(x)
-            if not B
-            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
-        )
-        B[:, : dims[0]] += x @ W[0].T
-        if i_ext is not None:
-            B[:, -dims[-1] :] += i_ext
-        B *= self.amp_factor
-        # initial solution
+        L = self.laplacian(x)
+        R = self.rhs(x)
+
         if self._free_solution is not None and i_ext is not None:
             v = self._free_solution.detach().clone()
         else:
             lo, info = torch.linalg.cholesky_ex(L)
-            v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
-        residual = torch.ones(1).type_as(x)
-        L = L.expand(batchsize, *L.shape)
+            v = torch.cholesky_solve(R.unsqueeze(-1), lo).squeeze(-1)
+        residual_ = torch.ones(1).type_as(x)
         idx = 1
-        while (residual.abs().max() > self.atol) and (idx < self.max_iter):
-            # nonlinearity comes here
-            # A = self.OTS.a(v[:, : -dims[-1]])
-            A = self.OTS.a(v)
-            J = L.clone()
-            # J[:, : -dims[-1], : -dims[-1]] += torch.stack([a.diag() for a in A])  # expensive?
-            # J += torch.stack([a.diag() for a in A])  # expensive?
-            J.diagonal(dim1=1, dim2=2)[:] += A
-            residual = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
-            # residual[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
-            residual[:, :, 0] += self.OTS.i(v)
+        while (residual_.abs().max() > self.atol) and (idx < self.max_iter):
+            residual_ = self.residual(v, x, i_ext, W, B)
+            J = self.jacobian(v)
             # or SPOSV
             if self.amp_factor == 1.0:
                 lo, info = torch.linalg.cholesky_ex(J)
                 if any(info):  # singular
                     log.debug(f"J is singular, info={info}")
                     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -residual).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual_).squeeze(-1)
                 else:
-                    dv = torch.cholesky_solve(-residual, lo).squeeze(-1)
+                    dv = torch.cholesky_solve(-residual_, lo).squeeze(-1)
             else:
                 lo, piv, info = torch.linalg.lu_factor_ex(J)
                 if any(info):
                     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -residual).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual_).squeeze(-1)
                 else:
-                    dv = torch.linalg.lu_solve(lo, piv, -residual).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual_).squeeze(-1)
             # limit the voltage change
             dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
             idx += 1
@@ -527,7 +525,7 @@ class NewtonStrategy(PythonStrategy):
         log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
         if idx == self.max_iter:
             log.warning(
-                f"stepsolve did not converge in {self.max_iter} iterations, residual={residual.abs().max():.3e}"
+                f"stepsolve did not converge in {self.max_iter} iterations, residual={residual_.abs().max():.3e}"
             )
         else:
             log.debug(f"stepsolve converged in {idx} iterations")
@@ -894,7 +892,7 @@ class LMStrategy(PythonStrategy):
             amp_factor (float): inter-layer potential amplifying factor.
         """
         self.check_and_set_attrs(kwargs)
-        (W, B) = kwargs.get("params", self.get_params())
+        (W, B) = kwargs.get("params", (self.W, self.B))
         if i_ext is None:
             self._free_solution = None
         vout = self._LMdensecholsol(x, W, B, i_ext)

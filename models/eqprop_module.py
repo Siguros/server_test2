@@ -43,6 +43,7 @@ class EqPropLitModule(LightningModule):
         min_w: float = 1e-6,
         max_w_gain: float = 0.08,
         accumulate_grad_batches: int = 1,
+        gaussian_std: Optional[float] = None,
     ):
         super().__init__()
         # this line allows to access init params with 'self.hparams' attribute
@@ -163,6 +164,9 @@ class EqPropLitModule(LightningModule):
     def test_step(self, batch: Any, batch_idx: int):
         x, y = batch
         x = self.interleave_input(x)
+        self.net.apply(
+            eqprop_util.gaussian_noise(std=self.hparams.gaussian_std)
+        ) if self.hparams.gaussian_std else ...
         loss, preds, targets = self.model_forward(x, y)
 
         # update and log metrics

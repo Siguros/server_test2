@@ -274,3 +274,12 @@ def _init_params(
 
 def init_params(min_w: float = 1e-6, max_w_gain: float = 0.08):
     return functools.partial(_init_params, param_name="weight", min_w=min_w, max_w_gain=max_w_gain)
+
+
+def _gaussian_noise(submodule, std: float):
+    for _, param in submodule.named_parameters():
+        param.data = torch.normal(param.data, std)
+
+
+def gaussian_noise(std: float):
+    return functools.partial(_gaussian_noise, std=std)

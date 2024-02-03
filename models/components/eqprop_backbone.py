@@ -439,6 +439,8 @@ class AnalogEP2(nn.Module):
         # instiantiate solver
         self.solver = solver(self.model)
 
+        FutureWarning("AnalogEP2 will be replaced by eqprop.nn.EqPropLinear")
+
     @interleave(type="out")
     @torch.no_grad()
     def forward(self, x):

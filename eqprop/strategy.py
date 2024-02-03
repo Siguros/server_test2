@@ -5,7 +5,6 @@ from typing import Callable
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import fsolve
 
@@ -39,8 +38,8 @@ class AbstractStrategy(ABC):
         self.max_iter = max_iter
         self.atol = atol
         self.dims = []  # hidden layer dimensions
-        self.W = None
-        self.B = None
+        self.W = []
+        self.B = []
 
     @abstractmethod
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -59,6 +58,17 @@ class AbstractStrategy(ABC):
     def reset(self):
         """Reset the internal states after 1 iteration."""
         ...
+
+    # TODO: 일부레이어만 bias 있다면? -> eqprop 모듈화
+    def set_strategy_params(self, model: torch.nn.Module) -> None:
+        """Set strategy parameters from nn.Module."""
+        if not self.W and not self.B:
+            for name, param in model.named_parameters():
+                if name.endswith("weight"):
+                    self.W.append(param)
+                    self.dims.append(param.shape[0])
+                elif name.endswith("bias"):
+                    self.B.append(param)
 
 
 class SPICEStrategy(AbstractStrategy):
@@ -84,16 +94,26 @@ class PythonStrategy(AbstractStrategy):
 
     def __init__(
         self,
+        amp_factor: float = 1.0,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         """Initialize the solver."""
         self.OTS = self.activation
-        self.amp_factor = kwargs.get("amp_factor", 1.0)
+        self.amp_factor = amp_factor
         self.attrchecked: bool = False
+        self.free_solution: torch.Tensor | None = None
         # self.sparse = (
         #     True if sum([dim**2 for dim in self.dims]) / sum(self.dims) ** 2 < 0.1 else False
         # )
+
+    @property
+    def free_solution(self):
+        return self._free_solution.detach().clone() if self._free_solution is not None else None
+
+    @free_solution.setter
+    def free_solution(self, value: torch.Tensor | None):
+        self._free_solution = value.detach().clone() if value is not None else None
 
     def check_and_set_attrs(self, kwargs: dict):
         """Check if all attributes are set and set them if not."""
@@ -111,67 +131,17 @@ class PythonStrategy(AbstractStrategy):
                 raise ValueError(f"{attr} must be set before calling")
 
 
-class _SecondOrderMixin:
-    def __init__(self, add_nonlin_last: bool = True) -> None:
+class SecondOrderStrategy(PythonStrategy):
+    def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._L = None
         self._R = None
         self.add_nonlin_last = add_nonlin_last
+        self._set: bool = False
 
     @torch.no_grad()
-    def residual(
-        self,
-        v: NpOrTensor,
-        x: torch.Tensor,
-        i_ext: torch.Tensor,
-        W: list[torch.Tensor],
-        B: list[torch.Tensor] | None = None,
-    ):
-        """Compute the residual Lv - R + i_r(v)"""
-        dims = self.dims
-        size = sum(dims)
-        L = self.laplacian()
-        # construct the RHS
-        if self._R is None:
-            B = torch.zeros(size).type_as(x) if B is None else B
-            B[: dims[0]] += x @ self.W[0].T
-            if i_ext is not None:
-                B[:, -dims[-1] :] += i_ext
-            B *= self.amp_factor
-            self._R = B
-        if type(v) == np.ndarray:
-            v = torch.from_numpy(v).type_as(x)
-        res = torch.einsum("...i, oi->...o", v, L) - self._R
-        if self.add_nonlin_last:
-            res += self.OTS.i(v)
-        else:
-            res[:, : -self.dims[-1]] += self.OTS.i(v[:, : -self.dims[-1]])
-        if type(v) == torch.Tensor:
-            return res
-        elif type(v) == np.ndarray:
-            return res.numpy()
-        else:
-            raise TypeError(f"unsupported type {type(v)} while constructing residual")
-
-    @torch.no_grad()
-    def jacobian(self, v: NpOrTensor):
-        """Compute the Jacobian of the residual L + a_r(v)"""
-        L = self.laplacian()
-        if len(L.shape) == 3:
-            res = L.expand(v.size(0), *L.shape)
-        if self.add_nonlin_last:
-            res.diagonal(dim1=1, dim2=2)[:] += self.OTS.a(v)
-        else:
-            res.diagonal(dim1=1, dim2=2)[: -self.dims[-1]] += self.OTS.a(v[:, : -self.dims[-1]])
-        if type(v) == np.ndarray:
-            return res.numpy()
-        elif type(v) == torch.Tensor:
-            return res
-        else:
-            raise TypeError(f"unsupported type {type(v)} while constructing Jacobian")
-
-    @torch.no_grad()
-    def laplacian(self):
-        """Compute the Laplacian matrix and cache it."""
+    def laplacian(self) -> torch.Tensor:
+        """Compute the 2D Laplacian matrix and cache it."""
         if self._L is None:
             dims = self.dims
             size = sum(dims)
@@ -185,46 +155,103 @@ class _SecondOrderMixin:
             D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(self.W[0].sum(-1), (0, size - dims[0]))
             L += D0.diag()
             self._L = L
-        return self.L.detach().clone()
+            self._set = True
+        elif self._set is False:
+            raise ValueError("Reset the strategy before calling")
+        return self._L.detach().clone()
+
+    @torch.no_grad()
+    def jacobian(self, v: NpOrTensor) -> torch.Tensor:
+        """Compute the 3D Jacobian of the residual L - a_r(v)"""
+        L = self.laplacian()
+        batchsize = v.size(0) if len(v.shape) == 2 else 1
+        J = L.expand(batchsize, *L.shape).clone()
+        if self.add_nonlin_last:
+            J.diagonal(dim1=1, dim2=2)[:] -= self.OTS.a(v)
+        else:
+            J.diagonal(dim1=1, dim2=2)[:, : -self.dims[-1]] -= self.OTS.a(v[:, : -self.dims[-1]])
+        if type(v) == np.ndarray:
+            return J.numpy()
+        elif type(v) == torch.Tensor:
+            return J
+        else:
+            raise TypeError(f"unsupported type {type(v)} while constructing Jacobian")
+
+    @torch.no_grad()
+    def rhs(self, x) -> torch.Tensor:
+        """Compute the 2D RHS vector without i_ext and cache it."""
+        dims = self.dims
+        size = sum(dims)
+        if self._R is None:
+            B = torch.zeros(size).type_as(x) if not self.B else torch.cat(self.B, dim=-1)
+            B = B.expand(x.size(0), *B.shape).clone()
+            B[:, : dims[0]] += x @ self.W[0].T
+            B *= self.amp_factor
+            self._R = B
+        elif self._set is False:
+            raise ValueError("Reset the strategy before calling")
+        return self._R.detach().clone()
+
+    @torch.no_grad()
+    def residual(
+        self,
+        v: NpOrTensor,
+        x: torch.Tensor,
+        i_ext: torch.Tensor | None,
+    ):
+        """Compute the residual Lv - R - i_r(v)"""
+        L = self.laplacian()
+        R = self.rhs(x)
+        if i_ext is not None:
+            R[:, -self.dims[-1] :] += i_ext * self.amp_factor
+        if type(v) == np.ndarray:
+            v = torch.from_numpy(v).type_as(x)
+        f = torch.einsum("...i, oi->...o", v, L) - R
+        if self.add_nonlin_last:
+            f -= self.OTS.i(v)
+        else:
+            f[:, : -self.dims[-1]] -= self.OTS.i(v[:, : -self.dims[-1]])
+        if type(v) == torch.Tensor:
+            return f
+        elif type(v) == np.ndarray:
+            return f.numpy()
+        else:
+            raise TypeError(f"unsupported type {type(v)} while constructing residual")
+
+    @torch.no_grad()
+    def lin_solve(self, x, i_ext) -> torch.Tensor:
+        """Solve the linear system Lv = R + i_ext."""
+        if self._free_solution is not None and i_ext is not None:
+            v = self.free_solution
+        else:
+            lo, info = torch.linalg.cholesky_ex(self.laplacian())
+            R = self.rhs(x)
+            if i_ext is not None:
+                R[-self.dims[-1] :] += i_ext * self.amp_factor
+            v = torch.cholesky_solve(R.unsqueeze(-1), lo).squeeze(-1)
+        return v
 
     def reset(self):
         self._L = None
         self._R = None
-
-    @torch.no_grad()
-    def rhs(self, x, B):
-        dims = self.dims
-        size = sum(dims)
-        if self._R is None:
-            B = torch.zeros(size).type_as(x) if B is None else B
-            B[: dims[0]] += x @ self.W[0].T
-            B *= self.amp_factor
-            self._R = B
-        return self._R.detach().clone()
+        self._set = False
 
 
-class ScipyStrategy(_SecondOrderMixin, PythonStrategy):
+class ScipyStrategy(SecondOrderStrategy):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._free_solution = None
 
     def solve(self, x: torch.Tensor, i_ext: torch.Tensor, **kwargs) -> list[torch.Tensor]:
         if x.device != torch.device("cpu"):
             raise ValueError("ScipyStrategy only supports cpu.")
-        (W, B) = kwargs.get("params", (self.W, self.B))
         self.check_and_set_attrs(kwargs)
-        if i_ext is None:
-            self._free_solution = None
-            v_init = np.ones(sum(self.dims))
-        else:
-            v_init = self._free_solution
-
+        v_init = self.lin_solve(x, i_ext).numpy()
         vout_list = []
-        for xi, b in zip(x, B):
+        for xi in x:
             vout = fsolve(
                 self.residual,
                 x0=v_init,
-                args=(xi, i_ext, W, b),
+                args=(xi, i_ext),
                 fprime=self.jacobian,
                 xtol=self.atol,
                 maxfev=self.max_iter,
@@ -383,43 +410,21 @@ class XYCEStrategy(SPICEStrategy):
         return i, vout
 
 
-class PinvStrategy(PythonStrategy):
+class PinvStrategy(SecondOrderStrategy):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
-        (W, B) = kwargs.get("params", (None, None))
-        if W is None or B is None:
-            (W, B) = self.get_params()
-        self.check_and_set_attrs(kwargs)
-        dims = self.dims
         batchsize = x.size(0)
-        size = sum(dims)
-        # construct the adjacency matrix
-        paddedG = [torch.zeros(dims[0], size).type_as(x)]
-        [
-            paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
-            for i, g in enumerate(W[1:])
-        ]
-        Ll = torch.cat(paddedG, dim=-2)
-        L = Ll + Ll.mT * self.amp_factor
-        # construct the diagonal
-        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[0]))
-        L += D0.diag()
-        # construct the RHS
-        B = (
-            torch.zeros((x.size(0), size)).type_as(x)
-            if not B
-            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
-        )
-        B[:, : dims[0]] += x @ W[0].T
+        self.check_and_set_attrs(kwargs)
+        L = self.laplacian()
+        R = self.rhs(x)
         if i_ext is not None:
-            B[:, -dims[-1] :] += i_ext
-        B *= self.amp_factor
+            R[-self.dims[-1] :] += i_ext * self.amp_factor
         # initial solution
         lo, info = torch.linalg.cholesky_ex(L)
-        vout = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+        vout = torch.cholesky_solve(R.unsqueeze(-1), lo).squeeze(-1)
         # add contribution from nonlinearity
         vout -= (
             torch.pinverse(L).expand(batchsize, -1, -1) @ self.OTS.i(vout).unsqueeze(-1)
@@ -428,13 +433,12 @@ class PinvStrategy(PythonStrategy):
         return nodes
 
 
-class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
+class NewtonStrategy(SecondOrderStrategy):
     r"""Solve J\Delta{X}=-f with Newton's method."""
 
     def __init__(self, clip_threshold, **kwargs) -> None:
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold
-        self._free_solution = None
 
     @torch.no_grad()
     def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -451,17 +455,16 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
         """
-        (W, B) = kwargs.get("params", (self.W, self.B))
         self.check_and_set_attrs(kwargs)
         if i_ext is None:
-            self._free_solution = None
+            self.free_solution = None
 
         if type(self.OTS) == eqprop_util.SymOTS:
-            vout = self._densecholsol2(x, W, B, i_ext)
+            vout = self._densecholsol2(x, i_ext)
         else:
-            vout = self._densecholsol(x, W, B, i_ext)
+            vout = self._densecholsol(x, i_ext)
         if i_ext is None:
-            self._free_solution = vout.detach().clone()
+            self.free_solution = vout
         nodes = list(vout.split(self.dims, dim=1))
         return nodes
 
@@ -469,8 +472,6 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
     def _densecholsol(
         self,
         x: torch.Tensor,
-        W: list,
-        B: list | None = None,
         i_ext=None,
     ) -> torch.Tensor:
         r"""Solve J\Delta{X}=-f with dense cholesky/LU decomposition.
@@ -485,21 +486,11 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
         """
-        dims = self.dims
-        batchsize = x.size(0)
-        size = sum(dims)
-        L = self.laplacian(x)
-        R = self.rhs(x)
-
-        if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution.detach().clone()
-        else:
-            lo, info = torch.linalg.cholesky_ex(L)
-            v = torch.cholesky_solve(R.unsqueeze(-1), lo).squeeze(-1)
-        residual_ = torch.ones(1).type_as(x)
+        v = self.lin_solve(x, i_ext)
+        residual_v = torch.ones(1).type_as(x)
         idx = 1
-        while (residual_.abs().max() > self.atol) and (idx < self.max_iter):
-            residual_ = self.residual(v, x, i_ext, W, B)
+        while (residual_v.abs().max() > self.atol) and (idx < self.max_iter):
+            residual_v = self.residual(v, x, i_ext).unsqueeze(-1)
             J = self.jacobian(v)
             # or SPOSV
             if self.amp_factor == 1.0:
@@ -507,16 +498,16 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
                 if any(info):  # singular
                     log.debug(f"J is singular, info={info}")
                     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -residual_).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
                 else:
-                    dv = torch.cholesky_solve(-residual_, lo).squeeze(-1)
+                    dv = torch.cholesky_solve(-residual_v, lo).squeeze(-1)
             else:
                 lo, piv, info = torch.linalg.lu_factor_ex(J)
                 if any(info):
                     lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -residual_).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
                 else:
-                    dv = torch.linalg.lu_solve(lo, piv, -residual_).squeeze(-1)
+                    dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
             # limit the voltage change
             dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
             idx += 1
@@ -525,7 +516,7 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
         log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
         if idx == self.max_iter:
             log.warning(
-                f"stepsolve did not converge in {self.max_iter} iterations, residual={residual_.abs().max():.3e}"
+                f"stepsolve did not converge in {self.max_iter} iterations, residual={residual_v.abs().max():.3e}"
             )
         else:
             log.debug(f"stepsolve converged in {idx} iterations")
@@ -579,7 +570,7 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
         L = torch.eye(size).type_as(x) + D_inv * mG
         B *= D_inv
         if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution.detach().clone()
+            v = self.free_solution
         else:
             lo, info = torch.linalg.cholesky_ex(L)
             v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
@@ -628,8 +619,6 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
     def _densecholsol2(
         self,
         x: torch.Tensor,
-        W: list,
-        B: list | None = None,
         i_ext=None,
     ) -> torch.Tensor:
         r"""Solve J\Delta{X}=-f with robust dense cholesky/LU decomposition.
@@ -647,34 +636,12 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
         """
         dims = self.dims
         batchsize = x.size(0)
-        size = sum(dims)
-        # construct the laplacian
-        paddedG = [torch.zeros(dims[0], size).type_as(x)]
-        [
-            paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
-            for i, g in enumerate(W[1:])
-        ]
-        Ll = torch.cat(paddedG, dim=-2)
-        L = Ll + Ll.mT * self.amp_factor
-        # construct the RHS
-        B = (
-            torch.zeros((x.size(0), size)).type_as(x)
-            if not B
-            else torch.cat(B, dim=-1).unsqueeze(0).repeat(batchsize, 1)
-        )
-        B[:, : dims[0]] += x @ W[0].T
+        L = self.laplacian()
+        R = self.rhs(x)
         if i_ext is not None:
-            B[:, -dims[-1] :] += i_ext
-        B *= self.amp_factor
-        # construct the diagonal
-        D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(W[0].sum(-1), (0, size - dims[0]))
-        L += D0.diag()
-        # initial solution
-        if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution.detach().clone()
-        else:
-            lo, info = torch.linalg.cholesky_ex(L)
-            v = torch.cholesky_solve(B.unsqueeze(-1), lo).squeeze(-1)
+            R[-dims[-1] :] += i_ext * self.amp_factor
+
+        v = self.lin_solve(x, i_ext)
         residual = torch.ones(1).type_as(x)
         L = L.expand(batchsize, *L.shape)
         idx = 1
@@ -683,7 +650,7 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
             # log.debug(f"absvmax: {v.abs().max():.3e}, absvmin: {v.abs().min():.3e}")
             a_inv = (1 / self.OTS.a(v)).unsqueeze(-1)
             J = a_inv * (L.clone()) + torch.eye(L.size(-1))  # L shape, a_inv shape?
-            residual = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
+            residual = torch.bmm(L, v.unsqueeze(-1)) - R.clone().unsqueeze(-1)
             residual2 = a_inv * residual
             residual2[:, :, 0] += self.OTS.i_div_a(v)
             log.debug(f"residual: {residual.abs().max():.3e}")
@@ -760,7 +727,7 @@ class NewtonStrategy(_SecondOrderMixin, PythonStrategy):
         L = L.expand(batchsize, *L.shape)
         # initial solution
         if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution.detach().clone()
+            v = self.free_solution
         else:
             v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
         dv = torch.ones(1).type_as(x)
@@ -874,7 +841,6 @@ class LMStrategy(PythonStrategy):
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold
         self.lambda_factor = lambda_factor
-        self._free_solution = None
 
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -894,10 +860,10 @@ class LMStrategy(PythonStrategy):
         self.check_and_set_attrs(kwargs)
         (W, B) = kwargs.get("params", (self.W, self.B))
         if i_ext is None:
-            self._free_solution = None
+            self.free_solution = None
         vout = self._LMdensecholsol(x, W, B, i_ext)
         if i_ext is None:
-            self._free_solution = vout.detach().clone()
+            self.free_solution = vout
         nodes = list(vout.split(self.dims, dim=1))
         return nodes
 
@@ -952,7 +918,7 @@ class LMStrategy(PythonStrategy):
         L = L.expand(batchsize, *L.shape)
         # initial solution
         if self._free_solution is not None and i_ext is not None:
-            v = self._free_solution.detach().clone()
+            v = self.free_solution
         else:
             v = torch.linalg.lstsq(L, B.unsqueeze(-1)).solution.squeeze()
         dv = torch.ones(1).type_as(x)

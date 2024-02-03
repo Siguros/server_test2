@@ -37,8 +37,8 @@ class EqPropSolver:
         self.amp_factor = amp_factor
         self.model = model
         self.beta = beta
+        strategy.set_strategy_params(model)
         self.strategy = strategy
-        self.set_strategy_params()
 
     @property
     def beta(self):
@@ -73,17 +73,6 @@ class EqPropSolver:
             return (reversed_nodes, E)
         else:
             return (reversed_nodes, None)
-
-    def set_strategy_params(self) -> None:
-        """Set strategy parameters."""
-        st = self.strategy
-        if not st.W and not st.B:
-            for name, param in self.model.named_parameters():
-                if name.endswith("weight"):
-                    st.W.append(param)
-                    st.dims.append(param.shape[0])
-                elif name.endswith("bias"):
-                    st.B.append(param)
 
     def energy(self, Nodes, x) -> torch.Tensor:
         """Energy function."""

@@ -162,14 +162,14 @@ class SecondOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def jacobian(self, v: NpOrTensor) -> torch.Tensor:
-        """Compute the 3D Jacobian of the residual L - a_r(v)"""
+        """Compute the 3D Jacobian of the residual L + a_r(v)"""
         L = self.laplacian()
         batchsize = v.size(0) if len(v.shape) == 2 else 1
         J = L.expand(batchsize, *L.shape).clone()
         if self.add_nonlin_last:
-            J.diagonal(dim1=1, dim2=2)[:] -= self.OTS.a(v)
+            J.diagonal(dim1=1, dim2=2)[:] += self.OTS.a(v)
         else:
-            J.diagonal(dim1=1, dim2=2)[:, : -self.dims[-1]] -= self.OTS.a(v[:, : -self.dims[-1]])
+            J.diagonal(dim1=1, dim2=2)[:, : -self.dims[-1]] += self.OTS.a(v[:, : -self.dims[-1]])
         if type(v) == np.ndarray:
             return J.numpy()
         elif type(v) == torch.Tensor:
@@ -199,18 +199,18 @@ class SecondOrderStrategy(PythonStrategy):
         x: torch.Tensor,
         i_ext: torch.Tensor | None,
     ):
-        """Compute the residual Lv - R - i_r(v)"""
+        """Compute the residual Lv + R + i_r(v)"""
         L = self.laplacian()
         R = self.rhs(x)
         if i_ext is not None:
             R[:, -self.dims[-1] :] += i_ext * self.amp_factor
         if type(v) == np.ndarray:
             v = torch.from_numpy(v).type_as(x)
-        f = torch.einsum("...i, oi->...o", v, L) - R
+        f = torch.einsum("...i, oi->...o", v, L) + R
         if self.add_nonlin_last:
-            f -= self.OTS.i(v)
+            f += self.OTS.i(v)
         else:
-            f[:, : -self.dims[-1]] -= self.OTS.i(v[:, : -self.dims[-1]])
+            f[:, : -self.dims[-1]] += self.OTS.i(v[:, : -self.dims[-1]])
         if type(v) == torch.Tensor:
             return f
         elif type(v) == np.ndarray:
@@ -220,15 +220,15 @@ class SecondOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def lin_solve(self, x, i_ext) -> torch.Tensor:
-        """Solve the linear system Lv = R + i_ext."""
+        """Solve the linear system Lv = -(R + i_ext)."""
         if self._free_solution is not None and i_ext is not None:
             v = self.free_solution
         else:
-            lo, info = torch.linalg.cholesky_ex(self.laplacian())
+            lo = torch.linalg.cholesky(self.laplacian())
             R = self.rhs(x)
             if i_ext is not None:
                 R[-self.dims[-1] :] += i_ext * self.amp_factor
-            v = torch.cholesky_solve(R.unsqueeze(-1), lo).squeeze(-1)
+            v = torch.cholesky_solve(-R.unsqueeze(-1), lo).squeeze(-1)
         return v
 
     def reset(self):

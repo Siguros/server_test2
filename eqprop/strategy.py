@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 import numpy as np
+import pkg_resources
 import torch
 import torch.nn.functional as F
 from scipy.optimize import fsolve
@@ -11,7 +12,13 @@ from scipy.optimize import fsolve
 from src.eqprop import eqprop_util
 from src.utils import get_pylogger
 
-if _XYCE_AVAILABLE := shutil.which("Xyce"):
+try:
+    pkg_resources.require("pyspice") is not None
+    _PYSPICE_AVAILABLE = True
+except pkg_resources.DistributionNotFound:
+    _PYSPICE_AVAILABLE = False
+
+if _XYCE_AVAILABLE := shutil.which("Xyce") and _PYSPICE_AVAILABLE:
     from src.eqprop.xyce_util.circuits import _createCircuit
     from src.eqprop.xyce_util.MyCircuit import MyCircuit
     from src.eqprop.xyce_util.NetlistWriter import SPICEParser
@@ -184,7 +191,11 @@ class SecondOrderStrategy(PythonStrategy):
         size = sum(dims)
         if self._R is None:
             B = torch.zeros(size).type_as(x) if not self.B else torch.cat(self.B, dim=-1)
-            B = B.expand(x.size(0), *B.shape).clone()
+            B = (
+                B.expand(x.size(0), *B.shape).clone()
+                if len(x.shape) == 2
+                else B.clone().unsqueeze(0)
+            )
             B[:, : dims[0]] += x @ self.W[0].T
             B *= self.amp_factor
             self._R = B

@@ -171,7 +171,13 @@ class SecondOrderStrategy(PythonStrategy):
     def jacobian(self, v: NpOrTensor) -> torch.Tensor:
         """Compute the 3D Jacobian of the residual L + a_r(v)"""
         L = self.laplacian()
-        batchsize = v.size(0) if len(v.shape) == 2 else 1
+        if len(v.shape) == 2:
+            batchsize = v.size(0)
+        elif len(v.shape) == 1:
+            batchsize = 1
+            v = v.unsqueeze(0)
+        else:
+            raise ValueError(f"unsupported shape {v.shape} while constructing Jacobian")
         J = L.expand(batchsize, *L.shape).clone()
         if self.add_nonlin_last:
             J.diagonal(dim1=1, dim2=2)[:] += self.OTS.a(v)
@@ -196,7 +202,7 @@ class SecondOrderStrategy(PythonStrategy):
                 if len(x.shape) == 2
                 else B.clone().unsqueeze(0)
             )
-            B[:, : dims[0]] += x @ self.W[0].T
+            B[:, : dims[0]] -= x @ self.W[0].T
             B *= self.amp_factor
             self._R = B
         elif self._set is False:
@@ -217,6 +223,8 @@ class SecondOrderStrategy(PythonStrategy):
             R[:, -self.dims[-1] :] += i_ext * self.amp_factor
         if type(v) == np.ndarray:
             v = torch.from_numpy(v).type_as(x)
+        if len(v.shape) == 1:
+            v = v.unsqueeze(0)
         f = torch.einsum("...i, oi->...o", v, L) + R
         if self.add_nonlin_last:
             f += self.OTS.i(v)
@@ -522,7 +530,7 @@ class NewtonStrategy(SecondOrderStrategy):
             # limit the voltage change
             dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
             idx += 1
-            v += dv
+            v += 0.5 * dv
 
         log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
         if idx == self.max_iter:

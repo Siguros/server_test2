@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from src.eqprop.strategy import AbstractStrategy
 from src.utils import get_pylogger

@@ -20,8 +20,8 @@ except pkg_resources.DistributionNotFound:
 
 if _XYCE_AVAILABLE := shutil.which("Xyce") and _PYSPICE_AVAILABLE:
     from src.eqprop.xyce_util.circuits import _createCircuit
-    from src.eqprop.xyce_util.MyCircuit import MyCircuit
     from src.eqprop.xyce_util.NetlistWriter import SPICEParser
+    from src.eqprop.xyce_util.shallowcircuit import ShallowCircuit
     from src.eqprop.xyce_util.weightClipper import weightClipper
     from src.eqprop.xyce_util.xyce import XyceSim
 
@@ -377,7 +377,7 @@ class XYCEStrategy(SPICEStrategy):
         self.Pycircuit = _createCircuit(
             weight_list, dims, **self.SPICE_params
         )  # create circuit with bias
-        self.circuit = MyCircuit.copyFromCircuit(self.Pycircuit)
+        self.circuit = ShallowCircuit.copyFromCircuit(self.Pycircuit)
         self.clipper = weightClipper(L=self.SPICE_params["L"], U=None)
         circuit = self.circuit
 

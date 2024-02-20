@@ -24,19 +24,23 @@ def second_order_strategy(toymodel) -> strategy.SecondOrderStrategy:
 
 @pytest.fixture(scope="module")
 def toy_backbone(cfg_train_global) -> AnalogEP2:
-    cfg = cfg_train_global.model.net.copy()
+    cfg = cfg_train_global.copy()
     HydraConfig().set_config(cfg)
     with open_dict(cfg):
-        cfg.batch_size = 1
-        cfg.dims = [2, 1, 1]
-        cfg.beta = 0.1
-        cfg.solver.max_iter = 20
-        cfg.solver.strategy.activation = {
+        # cfg.paths.out
+        cfg.model.net.batch_size = 1
+        cfg.model.net.dims = [2, 1, 1]
+        cfg.model.net.beta = 0.1
+        cfg.model.net.solver.strategy.add_nonlin_last = False
+        cfg.model.net.solver.strategy.clip_threshold = 1
+        cfg.model.net.solver.strategy.max_iter = 20
+        cfg.model.net.solver.strategy.activation = {
             "_target_": "src.eqprop.eqprop_util.SymReLU",
             "Vl": -0.6,
             "Vr": 0.6,
         }
-    backbone: AnalogEP2 = instantiate(cfg)
+    backbone_: AnalogEP2 = instantiate(cfg.model.net)
+    backbone = backbone_(hyper_params={"bias": True})
     backbone.model[0].weight.data = torch.tensor([[1.0, 1.0]])
     backbone.model[0].bias.data = torch.tensor([1.0])
     backbone.model[1].weight.data = torch.tensor([[2.0]])

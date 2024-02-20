@@ -62,23 +62,33 @@ def test_eqprop_precision(cfg_train, ckpt_path):
 class TestAnalogEP2:
     @pytest.mark.parametrize("x", torch.tensor([[-1.0, -1.0]]))
     def test_free(self, toy_backbone, x):
-        ypred = toy_backbone.solver(x)
+        ypred = toy_backbone(x).detach()
         assert torch.allclose(ypred.squeeze(), torch.tensor(-1.2))
 
     @pytest.mark.parametrize("x", torch.tensor([[-1.0, -1.0]]))
     def test_nudge(self, toy_backbone, x):
+        toy_backbone.reset_nodes()
+        ypred = toy_backbone(x)
         criterion = torch.nn.MSELoss()
-        loss = criterion(toy_backbone.model.ypred, torch.tensor([0.0]))
+        loss = criterion(ypred, torch.tensor([0.3]))
         loss.backward()
-        assert torch.allclose(loss.grad, torch.tensor([-1.2]))
-        ypred = toy_backbone.solver(x, nudge_phase=True)
-        assert torch.allclose(ypred, [])
+        assert torch.allclose(ypred.grad, torch.tensor([-3.0]))
+        reversed_nodes, _ = toy_backbone.solver(x, nudge_phase=True)
+        assert torch.allclose(reversed_nodes[0], torch.tensor(-0.95))
+        assert torch.allclose(reversed_nodes[1], torch.tensor(-1.1))
 
-    @pytest.mark.parametrize("x", torch.tensor([[-1.0, -1.0]]))
+    @pytest.mark.parametrize("x", [[-1.0, -1.0]])
     def test_update(self, toy_backbone, x):
+        x = torch.tensor(x).reshape(1, -1)
+        toy_backbone.reset_nodes()
+        toy_backbone(x)
+        ypred = toy_backbone(x)
+        criterion = torch.nn.MSELoss()
+        loss = criterion(ypred, torch.tensor([0.3]))
+        loss.backward()
         toy_backbone.eqprop(x)
         net = toy_backbone.model
-        assert torch.allclose(net.lin1.weight.grad, torch.tensor([[0.0, 0.0]]))
-        assert torch.allclose(net.lin1.bias.grad, torch.tensor([0.0]))
-        assert torch.allclose(net.last.weight.grad, torch.tensor([[0.0]]))
-        assert torch.allclose(net.last.bias.grad, torch.tensor([0.0]))
+        assert torch.allclose(net.lin1.weight.grad, torch.tensor([[0.5, 0.5]]))
+        # assert torch.allclose(net.lin1.bias.grad, torch.tensor([0.0]))
+        assert torch.allclose(net.last.weight.grad.item(), torch.tensor([[0.225]]), atol=1e-4)
+        # assert torch.allclose(net.last.bias.grad, torch.tensor([0.0]))

@@ -60,7 +60,7 @@ class EqPropSolver:
         """
         i_ext = None
         if kwargs.get("nudge_phase", False):
-            i_ext = -self.beta * self.model.ypred.grad
+            i_ext = self.beta * self.model.ypred.grad
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
         else:
             del self.model.ypred

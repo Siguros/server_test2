@@ -487,10 +487,10 @@ class AnalogEP2(nn.Module):
             n_node = submodule.get_buffer("negative_node")
             res = 2 * (
                 torch.bmm(p_node.unsqueeze(2), self.prev_positive.unsqueeze(1))
-                .squeeze()
+                .reshape((p_node.size(0), *submodule.weight.shape))
                 .mean(dim=0)
                 - torch.bmm(n_node.unsqueeze(2), self.prev_negative.unsqueeze(1))
-                .squeeze()
+                .reshape((p_node.size(0), *submodule.weight.shape))
                 .mean(dim=0)
             )
             # broadcast to 2D

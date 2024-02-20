@@ -121,7 +121,7 @@ def register_custom_resolver(resolver: Callable) -> Callable:
         def decorated_main(*args, **kwargs):
             if not OmegaConf.has_resolver(resolver.__name__):
                 OmegaConf.register_new_resolver(resolver.__name__, resolver)
-            task_function(*args, **kwargs)
+            return task_function(*args, **kwargs)
 
         return decorated_main
 

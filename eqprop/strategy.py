@@ -455,9 +455,10 @@ class PinvStrategy(SecondOrderStrategy):
 class NewtonStrategy(SecondOrderStrategy):
     r"""Solve J\Delta{X}=-f with Newton's method."""
 
-    def __init__(self, clip_threshold, **kwargs) -> None:
+    def __init__(self, clip_threshold, attn_factor: float = 1, **kwargs) -> None:
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold
+        self.attn_factor = attn_factor
 
     @torch.no_grad()
     def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
@@ -530,7 +531,7 @@ class NewtonStrategy(SecondOrderStrategy):
             # limit the voltage change
             dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
             idx += 1
-            v += 0.5 * dv
+            v += self.attn_factor * dv
 
         log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
         if idx == self.max_iter:

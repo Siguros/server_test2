@@ -453,7 +453,12 @@ class PinvStrategy(SecondOrderStrategy):
 
 
 class NewtonStrategy(SecondOrderStrategy):
-    r"""Solve J\Delta{X}=-f with Newton's method."""
+    r"""Solve J\Delta{X}=-f with Newton's method.
+
+    Args:
+        clip_threshold (float): threshold for voltage change.
+        attn_factor (float): attenuation factor for voltage change.
+    """
 
     def __init__(self, clip_threshold, attn_factor: float = 1, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -507,10 +512,10 @@ class NewtonStrategy(SecondOrderStrategy):
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
         """
         v = self.lin_solve(x, i_ext)
-        residual_v = torch.ones(1).type_as(x)
+        residual_v = self.residual(v, x, i_ext).unsqueeze(-1)
+        J = None
         idx = 1
         while (residual_v.abs().max() > self.atol) and (idx < self.max_iter):
-            residual_v = self.residual(v, x, i_ext).unsqueeze(-1)
             J = self.jacobian(v)
             # or SPOSV
             if self.amp_factor == 1.0:
@@ -529,11 +534,21 @@ class NewtonStrategy(SecondOrderStrategy):
                 else:
                     dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
             # limit the voltage change
-            dv = dv.clamp(min=-self.clip_threshold, max=self.clip_threshold)
+            dv.clamp_(min=-self.clip_threshold, max=self.clip_threshold)
+            v_new = v + self.attn_factor * dv
+            residual_v_new = self.residual(v_new, x, i_ext).unsqueeze(-1)
+            if torch.any(residual_v_new.norm() > residual_v.norm()):
+                log.debug(f"residual increased, idx={idx}")
+                self.attn_factor *= 0.25
+                v += self.attn_factor * dv
+            else:
+                v = v_new
+                residual_v = residual_v_new
+                self.attn_factor *= 1.25
             idx += 1
-            v += self.attn_factor * dv
-
-        log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
+        log.debug(
+            f"condition number of J: {torch.linalg.cond(J[0]):.2f}"
+        ) if J is not None else None
         if idx == self.max_iter:
             log.warning(
                 f"stepsolve did not converge in {self.max_iter} iterations, residual={residual_v.abs().max():.3e}"

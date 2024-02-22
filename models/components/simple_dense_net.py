@@ -9,20 +9,21 @@ class SimpleDenseNet(nn.Module):
         lin2_size: int = 256,
         lin3_size: int = 256,
         output_size: int = 10,
+        bias: bool = True,
     ):
         super().__init__()
 
         self.model = nn.Sequential(
-            nn.Linear(input_size, lin1_size),
+            nn.Linear(input_size, lin1_size, bias=bias),
             nn.BatchNorm1d(lin1_size),
             nn.ReLU(),
-            nn.Linear(lin1_size, lin2_size),
+            nn.Linear(lin1_size, lin2_size, bias=bias),
             nn.BatchNorm1d(lin2_size),
             nn.ReLU(),
-            nn.Linear(lin2_size, lin3_size),
+            nn.Linear(lin2_size, lin3_size, bias=bias),
             nn.BatchNorm1d(lin3_size),
             nn.ReLU(),
-            nn.Linear(lin3_size, output_size),
+            nn.Linear(lin3_size, output_size, bias=bias),
         )
 
     def forward(self, x):

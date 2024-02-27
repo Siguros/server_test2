@@ -5,7 +5,7 @@ import torch
 from PySpice.Spice.Xyce.RawFile import RawFile
 from torch.nn.modules.container import ModuleList
 
-from src.eqprop.xyce_util.MyCircuit import MyCircuit
+from src.eqprop.xyce_util.shallowcircuit import MyCircuit
 from src.eqprop.xyce_util.subcircuits import Rarray
 from src.eqprop.xyce_util.util import partition, startswith
 

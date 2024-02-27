@@ -19,7 +19,7 @@ class SimpleElement:
         return self.nodes + " " + str(self.value)
 
 
-class MyCircuit:
+class ShallowCircuit:
     """_summary_
     components:
         subcircuits: string

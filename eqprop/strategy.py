@@ -139,8 +139,9 @@ class PythonStrategy(AbstractStrategy):
 
 
 class SecondOrderStrategy(PythonStrategy):
-    def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
+    def __init__(self, add_nonlin_last: bool = True, eps: float = 1e-8, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.eps = eps
         self._L = None
         self._R = None
         self.add_nonlin_last = add_nonlin_last
@@ -152,7 +153,7 @@ class SecondOrderStrategy(PythonStrategy):
         if self._L is None:
             dims = self.dims
             size = sum(dims)
-            paddedG = [torch.zeros(dims[0], size).float()]
+            paddedG = [torch.zeros(dims[0], size).type_as(self.W[0])]
             [
                 paddedG.append(F.pad(-g, (sum(dims[:i]), sum(dims[1 + i :]))))
                 for i, g in enumerate(self.W[1:])
@@ -170,7 +171,7 @@ class SecondOrderStrategy(PythonStrategy):
     @torch.no_grad()
     def jacobian(self, v: NpOrTensor) -> torch.Tensor:
         """Compute the 3D Jacobian of the residual L + a_r(v)"""
-        L = self.laplacian()
+        L = self.laplacian() + self.eps * torch.eye(v.size(-1)).type_as(v)
         if len(v.shape) == 2:
             batchsize = v.size(0)
         elif len(v.shape) == 1:
@@ -520,19 +521,10 @@ class NewtonStrategy(SecondOrderStrategy):
             # or SPOSV
             if self.amp_factor == 1.0:
                 lo, info = torch.linalg.cholesky_ex(J)
-                if any(info):  # singular
-                    log.debug(f"J is singular, info={info}")
-                    lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
-                else:
-                    dv = torch.cholesky_solve(-residual_v, lo).squeeze(-1)
+                dv = torch.cholesky_solve(-residual_v, lo).squeeze(-1)
             else:
                 lo, piv, info = torch.linalg.lu_factor_ex(J)
-                if any(info):
-                    lo, piv, info = torch.linalg.lu_factor_ex(J + 1e-6 * torch.eye(J.size(-1)))
-                    dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
-                else:
-                    dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
+                dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
             # limit the voltage change
             dv.clamp_(min=-self.clip_threshold, max=self.clip_threshold)
             v_new = v + self.attn_factor * dv
@@ -540,7 +532,6 @@ class NewtonStrategy(SecondOrderStrategy):
             if torch.any(residual_v_new.norm() > residual_v.norm()):
                 log.debug(f"residual increased, idx={idx}")
                 self.attn_factor *= 0.25
-                v += self.attn_factor * dv
             else:
                 v = v_new
                 residual_v = residual_v_new

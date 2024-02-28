@@ -34,6 +34,7 @@ class EqPropLitModule(LightningModule):
         net: AnalogEP2,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
+        num_classes: int = 10,
         scale_input: int = True,
         scale_output: int = 4,
         positive_w: bool = False,
@@ -64,9 +65,9 @@ class EqPropLitModule(LightningModule):
         self.criterion = torch.nn.CrossEntropyLoss()
 
         # metric objects for calculating and averaging accuracy across batches
-        self.train_acc = Accuracy(task="multiclass", num_classes=10)
-        self.val_acc = Accuracy(task="multiclass", num_classes=10)
-        self.test_acc = Accuracy(task="multiclass", num_classes=10)
+        self.train_acc = Accuracy(task="multiclass", num_classes=self.hparams.num_classes)
+        self.val_acc = Accuracy(task="multiclass", num_classes=self.hparams.num_classes)
+        self.test_acc = Accuracy(task="multiclass", num_classes=self.hparams.num_classes)
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -216,7 +217,7 @@ class EqPropMSELitModule(EqPropLitModule):
         logits = self.net.forward(x)
         yhat = F.softmax(logits, dim=1)
         # make y onehot
-        y_onehot = F.one_hot(y, num_classes=10).float()
+        y_onehot = F.one_hot(y, num_classes=self.hparams.num_classes).float()
         loss = self.criterion(yhat, y_onehot)
         preds = torch.argmax(yhat, dim=1)
         return loss, preds, y

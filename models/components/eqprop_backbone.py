@@ -573,10 +573,10 @@ class AnalogEPSym(AnalogEP2):
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
         reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=False)
+        self.set_nodes(reversed_nodes, positive_phase=True)
         self.solver.beta = "flip"
         reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=True)
+        self.set_nodes(reversed_nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
         self.solver.beta = "flip"

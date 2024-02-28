@@ -59,7 +59,7 @@ def test_eqprop_precision(cfg_train, ckpt_path):
     ), "Values do not match. check eqprop solver."
 
 
-class TestAnalogEP2:
+class TestAnalogEP2XOR:
     @pytest.mark.parametrize("x", torch.tensor([[-1.0, -1.0]]))
     def test_free(self, toy_backbone, x):
         ypred = toy_backbone(x).detach()
@@ -92,3 +92,19 @@ class TestAnalogEP2:
         # assert torch.allclose(net.lin1.bias.grad, torch.tensor([0.0]))
         assert torch.allclose(net.last.weight.grad.item(), torch.tensor([[0.225]]), atol=1e-4)
         # assert torch.allclose(net.last.bias.grad, torch.tensor([0.0]))
+
+    @pytest.mark.slow
+    def test_train_XOR(self, toy_backbone, XOR):
+        optimizer = torch.optim.SGD(toy_backbone.parameters(), lr=0.1)
+        criterion = torch.nn.MSELoss(reduction="sum")
+        for epoch in range(10):
+            for x, y in XOR:
+                toy_backbone.reset_nodes()
+                x = torch.tensor(x).reshape(1, -1)
+                y = torch.tensor(y).reshape(1, -1)
+                y_hat = toy_backbone(x)
+                loss = criterion(y_hat, y)
+                optimizer.zero_grad()
+                loss.backward()
+                toy_backbone.eqprop(x, y)
+                optimizer.step()

@@ -1,0 +1,27 @@
+_target_: src.models.mnist_vae_module.MNISTVAELitModule
+
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.01
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.1
+  patience: 10
+
+net:
+  _target_: src.models.components.simple_vae.SimpleVAE
+  Encoder:
+    _target_: src.models.components.simple_vae.Encoder
+    input_size: 784
+    hidden_size: 400
+    latent_size: 200
+  Decoder:
+    _target_: src.models.components.simple_vae.Decoder
+    latent_size: 200
+    hidden_size: 400
+    output_size: 784

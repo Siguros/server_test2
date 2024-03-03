@@ -1,0 +1,47 @@
+_target_: src._eqprop.eqprop_module.EqPropLitModule
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 0.01
+  weight_decay: 0.0
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+  _partial_: true
+  mode: min
+  factor: 0.1
+  patience: 10
+
+net:
+  _target_: src._eqprop.eqprop_backbone.AnalogEP2
+  _partial_: true
+  batch_size: ${data.batch_size}
+  dims: ${eval:'[784*${model.scale_input}, 128, 10*${model.scale_output}]'}
+  beta: 0.01
+  solver:
+    _target_: src.core.core.eqprop.solver.AnalogEqPropSolver
+    _partial_: true
+    amp_factor: 1.0
+    beta: ${model.net.beta}
+    strategy:
+      _target_: src.core.core.eqprop.strategy.GradientDescentStrategy
+      alpha: 1
+      amp_factor: ${model.net.solver.amp_factor}
+      max_iter: 50
+      atol: 1e-6
+      activation:
+        _target_: src.core.core.eqprop.eqprop_util.P3OTS
+        Is: 1e-6
+        Vth: 0.02
+        Vl: 0
+        Vr: 0
+
+scale_input: 2
+scale_output: 4
+positive_w: true
+bias: false
+clip_weights: true
+normalize_weights: false
+min_w: 1e-6
+max_w_gain: 0.28

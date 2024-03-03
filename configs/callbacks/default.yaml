@@ -3,6 +3,7 @@ defaults:
   - early_stopping
   - model_summary
   - rich_progress_bar
+  - eqprop_track
   - _self_
 
 model_checkpoint:
@@ -20,3 +21,5 @@ early_stopping:
 
 model_summary:
   max_depth: -1
+
+eqprop_track: null

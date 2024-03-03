@@ -1,5 +1,5 @@
-import warnings
 import functools
+import warnings
 from importlib.util import find_spec
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -118,6 +118,7 @@ def get_metric_value(metric_dict: Dict[str, Any], metric_name: Optional[str]) ->
     log.info(f"Retrieved metric value! <{metric_name}={metric_value}>")
 
     return metric_value
+
 
 def register_custom_resolver(resolver: Callable) -> Callable:
     """Registers custom resolver for hydra config files.."""

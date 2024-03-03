@@ -17,6 +17,7 @@ def _package_available(package_name: str) -> bool:
     except pkg_resources.DistributionNotFound:
         return False
 
+
 def _lib_available(lib_name: str) -> bool:
     """Check if a library is available in your environment."""
     result = shutil.which(lib_name)
@@ -24,6 +25,7 @@ def _lib_available(lib_name: str) -> bool:
         return True
     else:
         return False
+
 
 _TPU_AVAILABLE = TPUAccelerator.is_available()
 

@@ -7,8 +7,8 @@ from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
-from src.core.eqprop import eqprop_util
 from src._eqprop.eqprop_backbone import AnalogEP2
+from src.core.eqprop import eqprop_util
 
 
 class EqPropLitModule(LightningModule):
@@ -88,7 +88,7 @@ class EqPropLitModule(LightningModule):
                 clamp=self.hparams.clip_weights,
             )
 
-    def on_train_start(self):
+    def on_train_start(self):  # noqa
         # by default lightning executes validation step sanity checks before training starts,
         # so we need to make sure val_acc_best doesn't store accuracy from these checks
         self.val_acc_best.reset()

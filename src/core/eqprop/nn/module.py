@@ -4,6 +4,7 @@ from typing import Any, C
 import torch
 import torch.nn as nn
 
+
 class EqPropBase(ABC):
     """EqProp base class.
 
@@ -20,6 +21,7 @@ class EqPropBase(ABC):
 
     @abstractmethod
     def forward(self, x):
+        """Forward pass for EqProp layer."""
         return EqPropFunc.apply(self, x)
 
     @abstractmethod
@@ -37,6 +39,7 @@ class EqPropFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, eqprop_layer: EqPropBase, input):
+        """Forward pass for EqProp."""
         ctx.eqprop_layer = eqprop_layer
         output = eqprop_layer.forward(input)
         # ctx.save_for_backward(input, output) # output is not needed
@@ -48,6 +51,7 @@ class EqPropFunc(torch.autograd.Function):
     @staticmethod
     # @torch.once_differentiable()
     def backward(ctx, grad_output):
+        """Backward pass for EqProp."""
         # input, output = ctx.saved_tensors
         input = ctx.saved_tensors
         eqprop_layer: EqPropBase = ctx.eqprop_layer
@@ -64,6 +68,7 @@ class EqPropLinear(EqPropBase, nn.Linear):
         super(self, nn.Linear).__init__(*args, **kwargs)
 
     def forward(self, x):
+        """Forward pass for EqPropLinear."""
         return super(self, EqPropBase).forward(x)
 
 
@@ -75,6 +80,10 @@ class EqPropConv2d(EqPropBase, nn.Conv2d):
         super(self, nn.Conv2d).__init__(*args, **kwargs)
 
     def forward(self, x):
+        """Forward pass for EqPropConv2d.
+
+        Equivalent to Unfold input tensor and apply to EqPropLinear.
+        """
         x = self.unfold(x).transpose(1, 2)
         x = super(self, EqPropBase).forward(x)
         batch, out_channels, _ = x.shape

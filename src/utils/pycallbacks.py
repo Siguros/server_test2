@@ -7,8 +7,8 @@ from lightning import Callback, Trainer
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from lightning.pytorch.loggers.logger import DummyLogger
 
-from src.core.eqprop.eqprop_util import deltaV
 from src._eqprop.eqprop_backbone import AnalogEP2
+from src.core.eqprop.eqprop_util import deltaV
 
 LOGGER_TYPE = {"tb": TensorBoardLogger, "wandb": WandbLogger}
 
@@ -38,28 +38,25 @@ class AdvLoggerCallback(Callback):
     #     # return super().on_init_start(trainer)
     #     # further setup required if multiple loggers are used
     #     trainer.logger = self.logger
-    @abstractmethod
-    def on_sanity_check_start(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
-        pass
-
-    @abstractmethod
-    def on_train_start(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
-        pass
 
     def on_batch_end(self, trainer: Trainer, pl_module: L.LightningModule):
+        """Log at the batch end."""
         self.log_everything(
             pl_module.net, step=trainer.global_step, key_suffix="_batch"
         ) if self.on_step else None
 
     def on_train_epoch_end(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
+        """Log at the end of the training epoch."""
         self.log_everything(pl_module.net, step=trainer.current_epoch, key_suffix="_epoch")
 
     def on_validation_epoch_end(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
+        """Log at the end of the validation epoch."""
         self.log_weights(pl_module.named_parameters(), step=trainer.current_epoch)
 
     # logging functions for debugging
     @abstractmethod
     def log_histogram(self, key, data, step: int = None, key_suffix: str = "", **kwargs):
+        """Log the histogram of the data."""
         pass
 
     @abstractmethod
@@ -71,14 +68,17 @@ class AdvLoggerCallback(Callback):
         key_suffix: str = "",
         **kwargs,
     ):
+        """Log the scalars."""
         pass
 
     @abstractmethod
     def log_plot(self, key, data, step: int = None, key_suffix: str = "", **kwargs):
+        """Log the plot."""
         pass
 
     @abstractmethod
     def log_image(self, key, data, step: int = None, key_suffix: str = "", **kwargs):
+        """Log the image."""
         pass
 
     # logger independent functions
@@ -91,6 +91,14 @@ class AdvLoggerCallback(Callback):
         key_suffix: str = None,
         **kwargs,
     ):
+        """Log the Voltage drops.
+
+        Args:
+            Vdrops (Iterable): _description_
+            step (int, optional): _description_. Defaults to None.
+            key_prefix (str, optional): _description_. Defaults to "".
+            key_suffix (str, optional): _description_. Defaults to None.
+        """
         if Vdrops is not None:
             for idx, value in enumerate(Vdrops):
                 self.log_histogram(f"Vdrop_{key_prefix}_{idx}", value, step, key_suffix, **kwargs)
@@ -135,10 +143,17 @@ class AdvLoggerCallback(Callback):
             handler.clear()
 
     def log_weights(self, Weights: Iterable[torch.Tensor], step: int = None, **kwargs):
+        """Log the weights of the model.
+
+        Args:
+            Weights (Iterable[torch.Tensor]): _description_
+            step (int, optional): _description_. Defaults to None.
+        """
         for key, value in Weights:
             self.log_histogram(key, value, step, **kwargs)
 
     def log_weights_norm(self, Weights: Iterable[torch.Tensor], step: int = None, **kwargs):
+        """Log the norm of the weights."""
         norms = dict()
         norms.update({key: value.norm() for key, value in Weights})
         # [norms.update({key:value.norm()}) for key, value in Weights]
@@ -146,11 +161,13 @@ class AdvLoggerCallback(Callback):
         self.log_scalars(norms, key, step, **kwargs)
 
     def log_weights_grad(self, Weights: Iterable[torch.Tensor], step: int = None, **kwargs):
+        """Log the gradients of the weights."""
         for key, value in Weights:
             key += ".grad"
             self.log_histogram(key, value.grad, step, **kwargs)
 
     def log_weights_grad_norm(self, Weights: Iterable[torch.Tensor], step: int = None, **kwargs):
+        """Log the norm of the gradients of the weights."""
         norms = dict()
         norms.update({key: value.grad.norm() for key, value in Weights})
         # [norms.update({key:value.grad.norm()}) for key, value in Weights]
@@ -160,6 +177,12 @@ class AdvLoggerCallback(Callback):
     def log_weights_condition_number(
         self, Weights: Iterable[torch.Tensor], step: int = None, **kwargs
     ):
+        """Log the condition number of the weights.
+
+        Args:
+            Weights (Iterable[torch.Tensor]): model weights
+            step (int, optional): _description_. Defaults to None.
+        """
         conds = dict()
         conds.update({key: torch.linalg.cond(value) for key, value in Weights})
         # [conds.update({key:value.grad.norm()}) for key, value in Weights]
@@ -172,18 +195,22 @@ class TBLoggerCallback(AdvLoggerCallback):
         super().__init__(*args, **kwargs)
 
     def on_sanity_check_start(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
+        """Find logger at the start of the sanity check."""
         if type(pl_module.logger) is TensorBoardLogger:
             self.logger = pl_module.logger.experiment
         else:
             raise ValueError("no tensorboard logger found")
 
     def on_train_start(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
-        self.logger = (
-            pl_module.logger.experiment if self.logger is None else self.logger
-        )  # for fast_dev_run
+        """Find logger at the start of the training.
+
+        This method is required for fast_dev_run.
+        """
+        self.logger = pl_module.logger.experiment if self.logger is None else self.logger
         self.log_weights(pl_module.named_parameters(), step=-1)
 
     def log_histogram(self, key, data, step: int = None, key_suffix: str = "", **kwargs):
+        """Log the histogram of the data."""
         key += key_suffix
         self.logger.add_histogram(key, data, step, **kwargs)
 
@@ -195,10 +222,12 @@ class TBLoggerCallback(AdvLoggerCallback):
         key_suffix: str = "",
         **kwargs,
     ):
+        """Log the scalars."""
         for key, value in scalars.items():  # l
             self.logger.add_scalars(layer_name + key_suffix, {key: value}, step, **kwargs)
 
     def log_plot(self, key, data, step: int = None, key_suffix: str = "", **kwargs):
+        """Log the plot."""
         raise NotImplementedError
 
 
@@ -216,17 +245,23 @@ class WandbLoggerCallback(AdvLoggerCallback):
         # wandb.init(project=project)
 
     def on_sanity_check_start(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
+        """Find wandb logger at the start of the sanity check."""
         if type(pl_module.logger) is WandbLogger:
             self.logger = pl_module.logger
         else:
             raise ValueError("W&B logger not found")
 
     def on_train_start(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
+        """Find wandb logger at the start of the training.
+
+        This method is required for fast_dev_run.
+        """
         # assert type(pl_module.logger) is WandbLogger, "W&B logger not found"
-        self.logger = WandbLogger() if self.logger is None else self.logger  # for fast_dev_run
+        self.logger = WandbLogger() if self.logger is None else self.logger
         self.logger.watch(pl_module, log="all", log_graph=False)
 
     def log_histogram(self, key, data, step: int = None, key_suffix: str = "", **kwargs):
+        """Log the histogram of the data."""
         key += key_suffix
         wandb.log({key: wandb.Histogram(data.cpu())}, **kwargs)
 
@@ -238,12 +273,14 @@ class WandbLoggerCallback(AdvLoggerCallback):
         key_suffix: str = "",
         **kwargs,
     ):
+        """Log the scalars."""
         if key_suffix != "":
             stepsize = key_suffix.strip("_")
             scalars[stepsize] = step
         wandb.log(scalars, **kwargs)
 
     def log_image(self, key, data, step: int = None, key_suffix: str = "", **kwargs):
+        """Log the image."""
         key += key_suffix
         wandb.log({key: wandb.Image(data)})
 

@@ -4,12 +4,20 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 from omegaconf import open_dict
 
-from src.eqprop import eqprop_util, strategy
 from src._eqprop.eqprop_backbone import AnalogEP2
+from src.eqprop import eqprop_util, strategy
 
 
 @pytest.fixture(scope="module")
 def second_order_strategy(toymodel) -> strategy.SecondOrderStrategy:
+    """A pytest fixture for instantiating a second order EqProp strategy.
+
+    Args:
+        toymodel (_type_): _description_
+
+    Returns:
+        strategy.SecondOrderStrategy: _description_
+    """
     st = strategy.NewtonStrategy(
         activation=eqprop_util.SymReLU(Vl=-0.6, Vr=0.6),
         amp_factor=1.0,
@@ -24,6 +32,14 @@ def second_order_strategy(toymodel) -> strategy.SecondOrderStrategy:
 
 @pytest.fixture(scope="module")
 def toy_backbone(cfg_train_global) -> AnalogEP2:
+    """A pytest fixture for instantiating a toy EqProp backbone.
+
+    Args:
+        cfg_train_global (_type_): _description_
+
+    Returns:
+        AnalogEP2: _description_
+    """
     cfg = cfg_train_global.copy()
     HydraConfig().set_config(cfg)
     with open_dict(cfg):

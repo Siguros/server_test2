@@ -1,16 +1,17 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-import torch
 import hydra
 import lightning as L
 import rootutils
+import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
-# import local modules, not methods or classes directly 
-from src.utils import utils
 from src.core.eqprop import eqprop_util
+
+# import local modules, not methods or classes directly
+from src.utils import utils
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -89,14 +90,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # set precision for matrix multiplication
     if cfg.trainer.get("accelerator") == "gpu" and torch.cuda.is_available():
         torch.set_float32_matmul_precision("highest")
-    
+
     if num_output := cfg.model.get("scale_output"):
         eqprop_util.interleave.set_num_output(num_output)
-    
+
     if cfg.get("compile"):
         log.info("Compiling model!")
         model = torch.compile(model)
-        
+
     if cfg.get("train"):
         log.info("Starting training!")
         trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
@@ -119,10 +120,12 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     return metric_dict, object_dict
 
+
 @utils.register_custom_resolver(eval)
 @hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
     """Main entry point for training.
+
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Optional[float] with optimized metric value.
     """

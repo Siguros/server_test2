@@ -66,8 +66,9 @@ repos:
             --ignore-init-method,
             --ignore-module,
             --ignore-nested-functions,
-            -vv,
+            -v,
           ]
+        files: ^src/(core|data|models|utils)/.*\.py$|^tests/.*\.py$
 
   # python check (PEP8), programming errors and code complexity
   - repo: https://github.com/PyCQA/flake8
@@ -146,4 +147,3 @@ repos:
             "--extend-ignore=E203,E402,E501,F401,F841",
             "--exclude=logs/*,data/*",
           ]
-

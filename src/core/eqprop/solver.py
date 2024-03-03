@@ -5,10 +5,10 @@ from typing import Any, Sequence
 import torch
 import torch.nn as nn
 
-from src.eqprop.strategy import AbstractStrategy
-from src.utils import get_pylogger
+from src.core.eqprop.strategy import AbstractStrategy
+from src.utils import RankedLogger
 
-log = get_pylogger(__name__)
+log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class EqPropSolver:

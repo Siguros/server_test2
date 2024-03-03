@@ -5,7 +5,7 @@ from hydra.utils import instantiate
 from omegaconf import open_dict
 
 from src.eqprop import eqprop_util, strategy
-from src.models.components.eqprop_backbone import AnalogEP2
+from src._eqprop.eqprop_backbone import AnalogEP2
 
 
 @pytest.fixture(scope="module")
@@ -35,7 +35,7 @@ def toy_backbone(cfg_train_global) -> AnalogEP2:
         cfg.model.net.solver.strategy.clip_threshold = 1
         cfg.model.net.solver.strategy.max_iter = 20
         cfg.model.net.solver.strategy.activation = {
-            "_target_": "src.eqprop.eqprop_util.SymReLU",
+            "_target_": "src.core.eqprop.eqprop_util.SymReLU",
             "Vl": -0.6,
             "Vr": 0.6,
         }

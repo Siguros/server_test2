@@ -1,5 +1,4 @@
 import os
-import shutil
 from abc import ABC, abstractmethod
 from typing import Callable
 
@@ -7,25 +6,15 @@ import numpy as np
 import pkg_resources
 import torch
 import torch.nn.functional as F
-from scipy.optimize import fsolve
+from tests.helpers.package_available import _SCIPY_AVAILABLE
+if _SCIPY_AVAILABLE:
+    from scipy.optimize import fsolve
 
-from src.eqprop import eqprop_util
-from src.utils import get_pylogger
 
-try:
-    pkg_resources.require("pyspice") is not None
-    _PYSPICE_AVAILABLE = True
-except pkg_resources.DistributionNotFound:
-    _PYSPICE_AVAILABLE = False
+from src.core.eqprop import eqprop_util
+from src.utils import RankedLogger
 
-if _XYCE_AVAILABLE := shutil.which("Xyce") and _PYSPICE_AVAILABLE:
-    from src.eqprop.xyce_util.circuits import _createCircuit
-    from src.eqprop.xyce_util.NetlistWriter import SPICEParser
-    from src.eqprop.xyce_util.shallowcircuit import ShallowCircuit
-    from src.eqprop.xyce_util.weightClipper import weightClipper
-    from src.eqprop.xyce_util.xyce import XyceSim
-
-log = get_pylogger(__name__)
+log = RankedLogger(__name__, rank_zero_only=True)
 
 NpOrTensor = np.ndarray | torch.Tensor
 

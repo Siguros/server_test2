@@ -1,4 +1,5 @@
 import platform
+import shutil
 
 import pkg_resources
 from lightning.fabric.accelerators import TPUAccelerator
@@ -16,6 +17,13 @@ def _package_available(package_name: str) -> bool:
     except pkg_resources.DistributionNotFound:
         return False
 
+def _lib_available(lib_name: str) -> bool:
+    """Check if a library is available in your environment."""
+    result = shutil.which(lib_name)
+    if result:
+        return True
+    else:
+        return False
 
 _TPU_AVAILABLE = TPUAccelerator.is_available()
 
@@ -30,3 +38,5 @@ _WANDB_AVAILABLE = _package_available("wandb")
 _NEPTUNE_AVAILABLE = _package_available("neptune")
 _COMET_AVAILABLE = _package_available("comet_ml")
 _MLFLOW_AVAILABLE = _package_available("mlflow")
+_SCIPY_AVAILABLE = _package_available("scipy")
+_XYCE_AVAILABLE = _lib_available("Xyce") and _package_available("pyspice")

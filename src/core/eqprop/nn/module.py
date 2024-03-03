@@ -4,9 +4,6 @@ from typing import Any, C
 import torch
 import torch.nn as nn
 
-from src.eqprop import eqprop_util
-
-
 class EqPropBase(ABC):
     """EqProp base class.
 

@@ -5,10 +5,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pytorch_lightning.utilities.parsing import AttributeDict
 
-from src.eqprop.eqprop_util import AddNodes, interleave, type_as
-from src.eqprop.solver import AnalogEqPropSolver
+from src.core.eqprop.eqprop_util import interleave, type_as
+from src.core.eqprop.solver import AnalogEqPropSolver
 
 
 class EP(nn.Module):

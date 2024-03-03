@@ -7,8 +7,8 @@ from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
-from src.eqprop import eqprop_util
-from src.models.components.eqprop_backbone import AnalogEP2
+from src.core.eqprop import eqprop_util
+from src._eqprop.eqprop_backbone import AnalogEP2
 
 
 class EqPropLitModule(LightningModule):

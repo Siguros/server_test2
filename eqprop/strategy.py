@@ -30,9 +30,27 @@ log = get_pylogger(__name__)
 NpOrTensor = np.ndarray | torch.Tensor
 
 
+def cache_free_solution(func):
+    def wrapper(self, x, i_ext, **kwargs):
+        if i_ext is None:
+            self.free_solution = None
+        vout = func(self, x, i_ext, **kwargs)
+        if i_ext is None:
+            self.free_solution = vout
+        nodes = list(vout.split(self.dims, dim=1))
+        return nodes
+
+    return wrapper
+
+
 class AbstractStrategy(ABC):
-    """Abstract class for different strategies to solve for the equilibrium point of the
-    network."""
+    """Abstract class for different strategies to solve for the equilibrium point of the network.
+
+    Args:
+        activation (Callable | str): activation function of the network.
+        max_iter (int): maximum number of iterations.
+        atol (float): absolute tolerance.
+    """
 
     def __init__(
         self,
@@ -138,10 +156,9 @@ class PythonStrategy(AbstractStrategy):
                 raise ValueError(f"{attr} must be set before calling")
 
 
-class SecondOrderStrategy(PythonStrategy):
-    def __init__(self, add_nonlin_last: bool = True, eps: float = 1e-8, **kwargs) -> None:
+class FirstOrderStrategy(PythonStrategy):
+    def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.eps = eps
         self._L = None
         self._R = None
         self.add_nonlin_last = add_nonlin_last
@@ -167,29 +184,6 @@ class SecondOrderStrategy(PythonStrategy):
         elif self._set is False:
             raise ValueError("Reset the strategy before calling")
         return self._L.detach().clone()
-
-    @torch.no_grad()
-    def jacobian(self, v: NpOrTensor) -> torch.Tensor:
-        """Compute the 3D Jacobian of the residual L + a_r(v)"""
-        L = self.laplacian() + self.eps * torch.eye(v.size(-1)).type_as(v)
-        if len(v.shape) == 2:
-            batchsize = v.size(0)
-        elif len(v.shape) == 1:
-            batchsize = 1
-            v = v.unsqueeze(0)
-        else:
-            raise ValueError(f"unsupported shape {v.shape} while constructing Jacobian")
-        J = L.expand(batchsize, *L.shape).clone()
-        if self.add_nonlin_last:
-            J.diagonal(dim1=1, dim2=2)[:] += self.OTS.a(v)
-        else:
-            J.diagonal(dim1=1, dim2=2)[:, : -self.dims[-1]] += self.OTS.a(v[:, : -self.dims[-1]])
-        if type(v) == np.ndarray:
-            return J.numpy()
-        elif type(v) == torch.Tensor:
-            return J
-        else:
-            raise TypeError(f"unsupported type {type(v)} while constructing Jacobian")
 
     @torch.no_grad()
     def rhs(self, x) -> torch.Tensor:
@@ -255,6 +249,35 @@ class SecondOrderStrategy(PythonStrategy):
         self._L = None
         self._R = None
         self._set = False
+
+
+class SecondOrderStrategy(FirstOrderStrategy):
+    def __init__(self, eps: float = 1e-8, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.eps = eps
+
+    @torch.no_grad()
+    def jacobian(self, v: NpOrTensor) -> torch.Tensor:
+        """Compute the 3D Jacobian of the residual L + a_r(v)"""
+        L = self.laplacian() + self.eps * torch.eye(v.size(-1)).type_as(v)
+        if len(v.shape) == 2:
+            batchsize = v.size(0)
+        elif len(v.shape) == 1:
+            batchsize = 1
+            v = v.unsqueeze(0)
+        else:
+            raise ValueError(f"unsupported shape {v.shape} while constructing Jacobian")
+        J = L.expand(batchsize, *L.shape).clone()
+        if self.add_nonlin_last:
+            J.diagonal(dim1=1, dim2=2)[:] += self.OTS.a(v)
+        else:
+            J.diagonal(dim1=1, dim2=2)[:, : -self.dims[-1]] += self.OTS.a(v[:, : -self.dims[-1]])
+        if type(v) == np.ndarray:
+            return J.numpy()
+        elif type(v) == torch.Tensor:
+            return J
+        else:
+            raise TypeError(f"unsupported type {type(v)} while constructing Jacobian")
 
 
 class ScipyStrategy(SecondOrderStrategy):
@@ -430,6 +453,27 @@ class XYCEStrategy(SPICEStrategy):
         return i, vout
 
 
+class GradientDescentStrategy(FirstOrderStrategy):
+    def __init__(self, alpha: float = 1.0, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.alpha = alpha
+
+    @cache_free_solution
+    @torch.no_grad()
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        self.check_and_set_attrs(kwargs)
+        v = self.lin_solve(x, i_ext)
+        for idx in range(self.max_iter):
+            dv = -self.residual(v, x, i_ext)
+            v += self.alpha * dv
+            if dv.abs().max() < self.atol:
+                log.debug(f"stepsolve converged in {idx} iterations")
+                return
+        log.warning(
+            f"stepsolve did not converge in {self.max_iter} iterations, residual={dv.abs().max():.3e}"
+        )
+
+
 class PinvStrategy(SecondOrderStrategy):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -466,6 +510,7 @@ class NewtonStrategy(SecondOrderStrategy):
         self.clip_threshold = clip_threshold
         self.attn_factor = attn_factor
 
+    @cache_free_solution
     @torch.no_grad()
     def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
         """Solve for the equilibrium point of the network.
@@ -482,17 +527,11 @@ class NewtonStrategy(SecondOrderStrategy):
             amp_factor (float): inter-layer potential amplifying factor.
         """
         self.check_and_set_attrs(kwargs)
-        if i_ext is None:
-            self.free_solution = None
-
         if type(self.OTS) == eqprop_util.SymOTS:
             vout = self._densecholsol2(x, i_ext)
         else:
             vout = self._densecholsol(x, i_ext)
-        if i_ext is None:
-            self.free_solution = vout
-        nodes = list(vout.split(self.dims, dim=1))
-        return nodes
+        return vout
 
     @torch.no_grad()
     def _densecholsol(
@@ -532,6 +571,10 @@ class NewtonStrategy(SecondOrderStrategy):
             if torch.any(residual_v_new.norm() > residual_v.norm()):
                 log.debug(f"residual increased, idx={idx}")
                 self.attn_factor *= 0.25
+            if idx % 10 == 1:
+                eigvals = torch.linalg.eigvals(self.jacobian(v))
+                pd = torch.all(eigvals.real > 0) & torch.all(eigvals.imag == 0)
+                log.debug(f"residual: {dv.abs().max():.3e}, PDness: {pd}")
             else:
                 v = v_new
                 residual_v = residual_v_new

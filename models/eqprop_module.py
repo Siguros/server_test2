@@ -215,7 +215,8 @@ class EqPropMSELitModule(EqPropLitModule):
 
     def model_forward(self, x: torch.Tensor, y: torch.Tensor):
         logits = self.net.forward(x)
-        yhat = F.softmax(logits, dim=1)
+        yhat = logits
+        # yhat = F.softmax(logits, dim=1)
         # make y onehot
         y_onehot = F.one_hot(y, num_classes=self.hparams.num_classes).float()
         loss = self.criterion(yhat, y_onehot)

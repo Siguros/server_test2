@@ -65,6 +65,13 @@ python src/train.py trainer=cpu
 python src/train.py trainer=gpu
 ```
 
+Override config group (optimizer&scheduler)
+
+```bash
+python src/train.py model/optimizer=sgd model/scheduler=steplr
+
+```
+
 Train model with chosen experiment configuration from [configs/experiment/](configs/experiment/)
 
 ```bash
@@ -75,6 +82,13 @@ You can override any parameter from command line like this
 
 ```bash
 python src/train.py trainer.max_epochs=20 data.batch_size=64
+```
+
+You can see default/configurable parameters from command line.
+See [link](https://hydra.cc/docs/1.3/tutorials/basic/running_your_app/debugging/) for more details
+
+```bash
+python src/train.py --cfg job
 ```
 
 ## Project Structure
@@ -119,6 +133,7 @@ The directory structure of new project looks like this:
 ├── .project-root             <- File for inferring the position of project root directory
 ├── environment.yaml          <- File for installing conda environment
 ├── Makefile                  <- Makefile with commands like `make train` or `make test`
+├── pants.toml                <- Pants build system configuration
 ├── pyproject.toml            <- Configuration options for testing and linting
 ├── requirements.txt          <- File for installing python dependencies
 ├── setup.py                  <- File for installing project as a package

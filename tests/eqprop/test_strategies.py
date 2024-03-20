@@ -1,19 +1,23 @@
 import pytest
 import torch
 
-from src.eqprop import eqprop_util, strategy
+from src.core.eqprop import eqprop_util, strategy
 
 
 class TestSecondOrderStrategy:
+    """Test the second order strategy."""
+
     lap = torch.tensor([[4, -2], [-2, 2]]).float()
 
     def test_laplacian(self, second_order_strategy):
+        """Test if the laplacian is computed correctly."""
         st = second_order_strategy
         # Check the laplacian value
         assert torch.allclose(st.laplacian(), self.lap)
 
     @pytest.mark.parametrize("v", [-0.5, 1.0])
     def test_jacobian(self, second_order_strategy, v):
+        """Test if the jacobian is computed correctly."""
         expected_j = 1.0 if v == 1 else 0.0
         v = torch.tensor([[v, v]])
         st = second_order_strategy
@@ -23,6 +27,7 @@ class TestSecondOrderStrategy:
 
     @pytest.mark.parametrize("x", [[1.0, -1.0], [1.0, 1.0]])
     def test_rhs(self, second_order_strategy, x):
+        """Test if the right hand side is computed correctly."""
         if x == [1.0, -1.0]:
             expected_rhs = torch.tensor([[1.0, 0.0]])
         elif x == [1.0, 1.0]:
@@ -36,6 +41,7 @@ class TestSecondOrderStrategy:
 
     @pytest.mark.parametrize("v, x", [(-0.5, [1.0, -1.0]), (0.5, [1.0, 1.0])])
     def test_residual(self, second_order_strategy, v, x):
+        """Test if the residual is computed correctly."""
         st = second_order_strategy
         st.reset()
         assert torch.allclose(
@@ -45,6 +51,7 @@ class TestSecondOrderStrategy:
 
     @pytest.mark.parametrize("v, x", [(-0.5, [1.0, -1.0]), (0.5, [1.0, 1.0])])
     def test_lin_solve(self, second_order_strategy, v, x):
+        """Test if the linear solve without activation is computed correctly."""
         st = second_order_strategy
         st.reset()
         assert torch.allclose(st.lin_solve(torch.tensor([x]), None), torch.tensor([[v, v]]))
@@ -60,6 +67,7 @@ class TestSecondOrderStrategy:
 )
 @pytest.mark.parametrize("strategy_name", ["NewtonStrategy"])
 def test_strategy_solve(toymodel, strategy_name, x, v):
+    """Test if the strategy can solve the system."""
     # Define the input
     st: strategy.AbstractStrategy = getattr(strategy, strategy_name)(
         activation=eqprop_util.SymReLU(Vl=-0.6, Vr=0.6),

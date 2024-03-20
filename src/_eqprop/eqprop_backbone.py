@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Any, Iterator, List, Mapping, Sequence, Tuple, Union, overload
+from typing import Any, Callable, Iterator, List, Mapping, Sequence, Tuple, Union, overload
 
 import numpy as np
 import torch
@@ -80,7 +80,7 @@ class EP(nn.Module):
             if self.pos_W:
                 assert self.L is not None, ValueError("L is required for pos_W")
                 assert self.U is not None, ValueError("U is required for pos_W")
-                if type(self.L) == Union[float, int]:
+                if isinstance(self.L, Union[float, int]):
                     self.L = [self.L] * (len(self.dims) - 1)
                     self.U = [self.U] * (len(self.dims) - 1)
 
@@ -413,15 +413,17 @@ class AnalogEP2(nn.Module):
     def __init__(
         self,
         batch_size: int,
-        solver: AnalogEqPropSolver,
-        dims: list = [784, 200, 10],
+        solver: Callable,
+        input_size: int = 784 * 2,
+        lin1_size: int = 128,
+        output_size: int = 10 * 2,
         beta=0.1,
         hyper_params: dict = {"bias": False},
     ) -> None:
         super().__init__()
         self.hparams = hyper_params
         self.beta = beta
-        self.dims = dims
+        dims = [input_size, lin1_size, output_size]
         odic = OrderedDict()
         for idx in range(1, len(dims) - 1):
             odic[f"lin{idx}"] = nn.Linear(dims[idx - 1], dims[idx], bias=self.hparams["bias"])

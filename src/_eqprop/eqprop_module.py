@@ -52,9 +52,11 @@ class EqPropLitModule(LightningModule):
         self.save_hyperparameters(logger=False, ignore=["net"])
 
         self.net: AnalogEP2 = net(hyper_params=self.hparams)
-        self.net.model.apply(
-            eqprop_util.init_params(min_w=min_w, max_w_gain=max_w_gain)
-        ) if self.hparams.positive_w else ...
+        (
+            self.net.model.apply(eqprop_util.init_params(min_w=min_w, max_w_gain=max_w_gain))
+            if self.hparams.positive_w
+            else ...
+        )
         # if self.hparams.scale_output:
         #     eqprop_util.interleave.on()  # output
         #     eqprop_util.interleave.set_num_output(self.hparams.scale_output)
@@ -165,9 +167,11 @@ class EqPropLitModule(LightningModule):
     def test_step(self, batch: Any, batch_idx: int):
         x, y = batch
         x = self.interleave_input(x)
-        self.net.apply(
-            eqprop_util.gaussian_noise(std=self.hparams.gaussian_std)
-        ) if self.hparams.gaussian_std else ...
+        (
+            self.net.apply(eqprop_util.gaussian_noise(std=self.hparams.gaussian_std))
+            if self.hparams.gaussian_std
+            else ...
+        )
         loss, preds, targets = self.model_forward(x, y)
 
         # update and log metrics

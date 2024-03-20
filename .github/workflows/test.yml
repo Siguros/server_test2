@@ -42,7 +42,6 @@ jobs:
         run: |
           pytest -v
 
-
   # run_tests_windows:
   #   runs-on: ${{ matrix.os }}
 

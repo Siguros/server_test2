@@ -3,6 +3,8 @@ from torch import nn
 
 
 class Encoder(nn.Module):
+    """Encoder."""
+
     def __init__(self, input_size, hidden_size, latent_size):
         super().__init__()
 
@@ -16,6 +18,7 @@ class Encoder(nn.Module):
         self.training = True
 
     def forward(self, x):
+        """Forward method."""
         batch_size, channels, width, height = x.size()
         x = x.view(batch_size, -1)
         h_ = self.LeakyReLU(self.FC_input(x))
@@ -28,6 +31,8 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
+    """Decoder."""
+
     def __init__(self, latent_size, hidden_size, output_size):
         super().__init__()
         self.FC_hidden = nn.Linear(latent_size, hidden_size)
@@ -37,6 +42,7 @@ class Decoder(nn.Module):
         self.LeakyReLU = nn.LeakyReLU(0.2)
 
     def forward(self, x):
+        """Forward method."""
         batch_size, _ = x.size()
         x = x.view(batch_size, -1)
         h = self.LeakyReLU(self.FC_hidden(x))
@@ -46,17 +52,21 @@ class Decoder(nn.Module):
 
 
 class SimpleVAE(nn.Module):
+    """Simple VAE."""
+
     def __init__(self, Encoder, Decoder):
         super().__init__()
         self.Encoder = Encoder
         self.Decoder = Decoder
 
     def reparameterization(self, mean, var):
+        """Reparameterization trick."""
         epsilon = torch.randn_like(var)  # sampling epsilon
         z = mean + var * epsilon  # reparameterization trick
         return z
 
     def forward(self, x):
+        """Forward method."""
         mean, log_var = self.Encoder(x)
         z = self.reparameterization(
             mean, torch.exp(0.5 * log_var)

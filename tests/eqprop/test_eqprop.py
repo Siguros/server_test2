@@ -10,6 +10,7 @@ from tests.helpers.run_if import RunIf
 
 
 def load_batch():
+    """Load a batch of MNIST."""
     data_dir = "data/"
     dm = MNISTDataModule(data_dir=data_dir, batch_size=1)
     dm.prepare_data()
@@ -24,6 +25,7 @@ def load_batch():
 
 @pytest.fixture(scope="function")
 def eqprop_torch(batch, model, beta):
+    """Run eqprop for 1 iter in torch."""
     # run 1 free & nudge phase together
     vout_torch = model(batch)
     return vout_torch
@@ -32,6 +34,7 @@ def eqprop_torch(batch, model, beta):
 @RunIf(xyce=True)
 @pytest.fixture(scope="function")
 def eqprop_xyce(batch, model, beta):
+    """Run eqprop for 1 iter in xyce."""
     # reshape vout to match torch version
     vout_xyce = model(batch)
     return vout_xyce
@@ -60,13 +63,17 @@ def test_eqprop_precision(cfg_train, ckpt_path):
 
 
 class TestAnalogEP2XOR:
+    """Test EqProp on a simple XOR problem."""
+
     @pytest.mark.parametrize("x", torch.tensor([[-1.0, -1.0]]))
     def test_free(self, toy_backbone, x):
+        """Test whether output is computed correctly in free phase."""
         ypred = toy_backbone(x).detach()
         assert torch.allclose(ypred.squeeze(), torch.tensor(-1.2))
 
     @pytest.mark.parametrize("x", torch.tensor([[-1.0, -1.0]]))
     def test_nudge(self, toy_backbone, x):
+        """Test whether output grad and node potentials are computed correctly in nudge phase."""
         toy_backbone.reset_nodes()
         ypred = toy_backbone(x)
         criterion = torch.nn.MSELoss()
@@ -79,6 +86,7 @@ class TestAnalogEP2XOR:
 
     @pytest.mark.parametrize("x", [[-1.0, -1.0]])
     def test_update(self, toy_backbone, x):
+        """Test whether weights are updated correctly."""
         x = torch.tensor(x).reshape(1, -1)
         toy_backbone.reset_nodes()
         toy_backbone(x)
@@ -95,6 +103,7 @@ class TestAnalogEP2XOR:
 
     @pytest.mark.slow
     def test_train_XOR(self, toy_backbone, XOR):
+        """Test whether the network can learn XOR."""
         optimizer = torch.optim.SGD(toy_backbone.parameters(), lr=0.1)
         criterion = torch.nn.MSELoss(reduction="sum")
         for epoch in range(10):

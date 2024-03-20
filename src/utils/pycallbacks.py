@@ -41,9 +41,11 @@ class AdvLoggerCallback(Callback):
 
     def on_batch_end(self, trainer: Trainer, pl_module: L.LightningModule):
         """Log at the batch end."""
-        self.log_everything(
-            pl_module.net, step=trainer.global_step, key_suffix="_batch"
-        ) if self.on_step else None
+        (
+            self.log_everything(pl_module.net, step=trainer.global_step, key_suffix="_batch")
+            if self.on_step
+            else None
+        )
 
     def on_train_epoch_end(self, trainer: Trainer, pl_module: L.LightningModule) -> None:
         """Log at the end of the training epoch."""

@@ -51,9 +51,18 @@ class MNISTVAELitModule(LightningModule):
         self.val_loss_best = MinMetric()
 
     def forward(self, x: torch.Tensor):
+        """Forward pass of the VAE module.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor.
+        """
         return self.net(x)
 
     def on_train_start(self):
+        """Called when the train begins."""
         # by default lightning executes validation step sanity checks before training starts,
         # so it's worth to make sure validation metrics don't store results from these checks
         self.val_loss.reset()
@@ -61,6 +70,7 @@ class MNISTVAELitModule(LightningModule):
         self.val_loss_best.reset()
 
     def model_step(self, batch: Any):
+        """Common step for training, validation, and test steps."""
         x, _ = batch
         x_hat, mean, log_var = self.forward(x)
         loss = self.criterion(x_hat, mean, log_var, x)
@@ -68,6 +78,7 @@ class MNISTVAELitModule(LightningModule):
         return loss
 
     def training_step(self, batch: Any, batch_idx: int):
+        """Training step."""
         loss = self.model_step(batch)
 
         # update and log metrics
@@ -79,10 +90,8 @@ class MNISTVAELitModule(LightningModule):
         # return loss or backpropagation will fail
         return loss
 
-    def on_train_epoch_end(self):
-        pass
-
     def validation_step(self, batch: Any, batch_idx: int):
+        """Validation step."""
         loss = self.model_step(batch)
 
         # update and log metrics

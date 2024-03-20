@@ -1,10 +1,12 @@
 from typing import Any, Dict, List, Tuple
 
-import hydra
 import rootutils
+from hydra_zen import instantiate, store, zen
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
+
+from configs import register_configs
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -30,7 +32,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def evaluate(cfg: DictConfig) -> Dict[str, Any]:
     """Evaluates given checkpoint on a datamodule testset.
 
     This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
@@ -42,16 +44,16 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     assert cfg.ckpt_path
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
+    datamodule: LightningDataModule = instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
+    model: LightningModule = instantiate(cfg.model)
 
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, logger=logger)
+    trainer: Trainer = instantiate(cfg.trainer, logger=logger)
 
     object_dict = {
         "cfg": cfg,
@@ -73,21 +75,23 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     metric_dict = trainer.callback_metrics
 
-    return metric_dict, object_dict
+    return metric_dict
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="eval.yaml")
-def main(cfg: DictConfig) -> None:
+def main(zen_cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 
-    :param cfg: DictConfig configuration composed by Hydra.
+    :param zen_cfg: DictConfig configuration composed by Hydra.
     """
     # apply extra utilities
-    # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
-    extras(cfg)
+    # (e.g. ask for tags if none are provided in zen_cfg, print zen_cfg tree, etc.)
+    extras(zen_cfg)
 
-    evaluate(cfg)
+    evaluate(zen_cfg)
 
 
 if __name__ == "__main__":
-    main()
+    register_configs()
+    store.add_to_hydra_store()
+    OmegaConf.register_new_resolver("eval", eval)
+    zen(main).hydra_main(version_base="1.3", config_path="../configs", config_name="eval.yaml")

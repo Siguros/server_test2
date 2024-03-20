@@ -4,10 +4,13 @@ import hydra
 import lightning as L
 import rootutils
 import torch
+from hydra_zen import instantiate, store, zen
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
+from configs import register_configs
+from configs.model import optimizer
 from src.core.eqprop import eqprop_util
 
 # import local modules, not methods or classes directly
@@ -45,7 +48,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def train(cfg: DictConfig) -> Dict[str, Any]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
     training.
 
@@ -56,14 +59,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :return: A tuple with metrics and dict with all instantiated objects.
     """
     # set seed for random number generators in pytorch, numpy and python.random
-    if cfg.get("seed"):
-        L.seed_everything(cfg.seed, workers=True)
+    # if cfg.get("seed"):
+    #     L.seed_everything(cfg.seed, workers=True)
 
-    log.info(f"Instantiating datamodule <{cfg.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
+    log.info(f"Instantiating datamodule <{cfg.data._zen_target}>")
+    datamodule: LightningDataModule = instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
+    model: LightningModule = instantiate(cfg.model)
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
@@ -72,7 +75,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
+    trainer: Trainer = instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
 
     object_dict = {
         "cfg": cfg,
@@ -96,7 +99,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("compile"):
         log.info("Compiling model!")
-        model = torch.compile(model)
+        model = torch.compile(model)  # type: ignore
 
     if cfg.get("train"):
         log.info("Starting training!")
@@ -106,7 +109,7 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("test"):
         log.info("Starting testing!")
-        ckpt_path = trainer.checkpoint_callback.best_model_path
+        ckpt_path = trainer.checkpoint_callback.best_model_path  # type: ignore
         if ckpt_path == "":
             log.warning("Best ckpt not found! Using current weights for testing...")
             ckpt_path = None
@@ -118,12 +121,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # merge train and test metrics
     metric_dict = {**train_metrics, **test_metrics}
 
-    return metric_dict, object_dict
+    return metric_dict  # , object_dict
 
 
-@utils.register_custom_resolver(eval)
-@hydra.main(version_base="1.3", config_path="../configs", config_name="train.yaml")
-def main(cfg: DictConfig) -> Optional[float]:
+def main(zen_cfg: DictConfig) -> Optional[float]:
     """Main entry point for training.
 
     :param cfg: DictConfig configuration composed by Hydra.
@@ -131,14 +132,14 @@ def main(cfg: DictConfig) -> Optional[float]:
     """
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
-    extras(cfg)
+    extras(zen_cfg)
 
     # train the model
-    metric_dict, _ = train(cfg)
+    metric_dict = train(zen_cfg)
 
     # safely retrieve metric value for hydra-based hyperparameter optimization
     metric_value = get_metric_value(
-        metric_dict=metric_dict, metric_name=cfg.get("optimized_metric")
+        metric_dict=metric_dict, metric_name=zen_cfg.get("optimized_metric")
     )
 
     # return optimized metric
@@ -146,4 +147,10 @@ def main(cfg: DictConfig) -> Optional[float]:
 
 
 if __name__ == "__main__":
-    main()
+    register_configs()
+    store.add_to_hydra_store()
+    pre_seed = zen(lambda seed: L.seed_everything(seed))
+    OmegaConf.register_new_resolver(eval.__name__, eval)
+    zen(main, pre_call=pre_seed).hydra_main(
+        version_base="1.3", config_path="../configs", config_name="train.yaml"
+    )

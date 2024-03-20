@@ -1,6 +1,7 @@
 import functools
 import math
-from typing import Callable, Sequence, Union
+from abc import ABC, abstractmethod
+from typing import Callable, Literal, Sequence, Union
 
 import torch
 import torch.nn as nn
@@ -9,17 +10,19 @@ import torch.nn as nn
 class interleave:
     """Decorator class for interleaving in/out nodes."""
 
-    _num_output: int = None
+    _on = False
 
-    def __init__(self, type: str = None):
+    def __init__(self, type: Literal["in, out"]):
         assert type == "in" or type == "out", 'type must be either "in" or "out"'
         self.type = type
+        # self._num_output = 0
         # self.num_output = interleave._num_output
 
-    def __call__(self, func: Callable[..., Sequence[torch.Tensor]]) -> Callable:
-        # print(f"called. , {self._on}")
+    def __call__(self, func: Callable[..., torch.Tensor]) -> Callable:
+        """Decorator for interleaving in/out nodes."""
+
         @functools.wraps(func)
-        def wrapper(obj, *args, **kwargs) -> Sequence[torch.Tensor]:
+        def wrapper(obj, *args, **kwargs) -> torch.Tensor:
             if self._num_output:
                 if self.type == "in":  # mod y_hat
                     y_hat, *others = args
@@ -30,6 +33,8 @@ class interleave:
                     outs = func(obj, *args, **kwargs)
                     # outs = [self.interleave(out) for out in outs]
                     return self.interleave(outs)
+                else:
+                    raise ValueError("Invalid type")
             else:
                 return func(obj, *args, **kwargs)
 
@@ -51,6 +56,7 @@ class interleave:
 
     @classmethod
     def on(cls):
+        """Turn on interleaving."""
         cls._on = True
 
     @classmethod
@@ -66,8 +72,9 @@ class type_as:
         self.func = func
 
     def __call__(self, obj, *args, **kwargs):
+        """Decorator for matching output tensor type as input tensor type."""
         out = self.func(obj, *args, **kwargs)
-        if type(out) is list:
+        if isinstance(out, list):
             return [t.type_as(args[0]) for t in out]
         else:
             return out.type_as(args[0])
@@ -76,28 +83,39 @@ class type_as:
         return functools.partial(self.__call__, instance)
 
 
-class BaseRectifier:
+class BaseRectifier(ABC):
+    """Base class for rectifiers."""
+
     def __init__(self, Is, Vth, Vl, Vr):
         self.Is = Is
         self.Vth = Vth
         self.Vl = Vl
         self.Vr = Vr
 
+    @abstractmethod
     def i(self, V: torch.Tensor):
         raise NotImplementedError
 
+    @abstractmethod
     def a(self, V: torch.Tensor):
         raise NotImplementedError
 
+    @abstractmethod
     def p(self, V: torch.Tensor):
         raise NotImplementedError
 
 
 class OTS(BaseRectifier):
+    """Ovonic Threshold Switch rectifier."""
+
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
         super().__init__(Is, Vth, Vl, Vr)
 
     def a(self, V: torch.Tensor):
+        """Compute admittance.
+
+        Use exponential approximation.
+        """
         admittance = (
             self.Is
             / self.Vth
@@ -106,24 +124,33 @@ class OTS(BaseRectifier):
         return admittance
 
     def i(self, V: torch.Tensor):
+        """Compute current."""
         return self.Is * (
             torch.exp((V - self.Vr) / self.Vth) - torch.exp((-V + self.Vl) / self.Vth)
         )
 
     @classmethod
     def p(cls, V: torch.Tensor):
+        """Compute power."""
         pass
 
 
 class SymOTS(OTS):
+    """Symmetric OTS rectifier."""
+
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0, Vr=0):
         assert Vl == Vr == 0, "Vl and Vr must be 0"
         super().__init__(Is, Vth, Vl, Vr)
 
     def i_div_a(self, V: torch.Tensor):
+        """Compute current/admittance.
+
+        Use exponential approximation.
+        """
         return self.Vth * torch.tanh(V / self.Vth)
 
     def inv_a(self, V: torch.Tensor):
+        """Compute inverse of admittance."""
         x = (V - self.Vr) / self.Vth
         abs_x = torch.abs(x)
         return (
@@ -142,6 +169,10 @@ class PolyOTS(BaseRectifier):
         self,
         V: torch.Tensor,
     ):
+        """Compute admittance.
+
+        Use polynomial approximation.
+        """
         x1 = (V - self.Vr) / self.Vth
         x2 = (V - self.Vl) / self.Vth
         res = 2
@@ -153,6 +184,10 @@ class PolyOTS(BaseRectifier):
         self,
         V: torch.Tensor,
     ):
+        """Compute current.
+
+        Use polynomial approximation.
+        """
         x1 = (V - self.Vr) / self.Vth
         x2 = (V - self.Vl) / self.Vth
         res = 0
@@ -168,12 +203,18 @@ class P3OTS(BaseRectifier):
         super().__init__(Is, Vth, Vl, Vr)
 
     def i(self, V: torch.Tensor):
+        """Compute current."""
         x = V - (self.Vl + self.Vr) / 2
         return 2 * self.Is / self.Vth * (x.pow(3))
 
     def a(self, V: torch.Tensor):
+        """Compute admittance."""
         x = V - (self.Vl + self.Vr) / 2
         return 2 * self.Is / self.Vth * (3 * x.pow(2))
+
+    def p(self, V: torch.Tensor):
+        """Compute power."""
+        pass
 
 
 class SymReLU(BaseRectifier):
@@ -183,12 +224,18 @@ class SymReLU(BaseRectifier):
         super().__init__(Is, Vth, Vl, Vr)
 
     def i(self, V: torch.Tensor):
+        """Compute current."""
         x = V * self.Is
         return ((x - self.Vl) / self.Vth).clamp(max=0) + ((x - self.Vr) / self.Vth).clamp(min=0)
 
     def a(self, V: torch.Tensor):
+        """Compute admittance."""
         x = V * self.Is
         return -((x - self.Vl) / self.Vth < 0).float() + ((x - self.Vr) / self.Vth > 0).float()
+
+    def p(self, V: torch.Tensor):
+        """Compute power."""
+        pass
 
 
 @torch.jit.script
@@ -217,21 +264,6 @@ def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
 
 # Use .apply() for below classes
-class AddNodes:
-    # CNN, RNN이면?
-    def __init__(self, input_size: torch.Size):
-        raise DeprecationWarning("Use method self.init_nodes instead")
-        self.layerinput = torch.zeros(input_size)
-
-    def __call__(self, submodule: nn.Module):
-        if hasattr(submodule, "weight"):
-            assert submodule._get_name() in ["Linear"], "Only Linear layer is supported"
-            self.layerinput: torch.Tensor = submodule(self.layerinput)
-            shape_node = self.layerinput.shape
-            free_node = torch.zeros(shape_node)
-            nudge_node = torch.zeros(shape_node)
-            submodule.register_buffer("free_node", free_node)
-            submodule.register_buffer("nudge_node", nudge_node)
 
 
 # TODO: bias 추가
@@ -250,6 +282,7 @@ class AdjustParams:
 
     @torch.no_grad()
     def __call__(self, submodule: nn.Module):
+        """Adjust parameters."""
         for name, param in submodule.named_parameters():
             if name == "weight":
                 if self.clamp:
@@ -258,28 +291,30 @@ class AdjustParams:
                     nn.functional.normalize(param, dim=1, p=2)
 
 
-def _init_params(
-    submodule: nn.Module,
-    param_name: str = "weight",
-    min_w: float = 1e-6,
-    max_w_gain: float = 1,
-):
-    if hasattr(submodule, param_name):
-        param = submodule.get_parameter(param_name)
-        # positive xaiver_uniform
-        fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(param)
-        max_w = max_w_gain / math.sqrt(fan_in + fan_out)
-        nn.init.uniform_(param, min_w, max_w)
-
-
 def init_params(min_w: float = 1e-6, max_w_gain: float = 0.08):
+    """Initialize weights."""
+
+    def _init_params(
+        submodule: nn.Module,
+        param_name: str = "weight",
+        min_w: float = 1e-6,
+        max_w_gain: float = 1,
+    ):
+        if hasattr(submodule, param_name):
+            param = submodule.get_parameter(param_name)
+            # positive xaiver_uniform
+            fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(param)
+            max_w = max_w_gain / math.sqrt(fan_in + fan_out)
+            nn.init.uniform_(param, min_w, max_w)
+
     return functools.partial(_init_params, param_name="weight", min_w=min_w, max_w_gain=max_w_gain)
 
 
-def _gaussian_noise(submodule, std: float):
-    for _, param in submodule.named_parameters():
-        param.data = torch.normal(param.data, std)
-
-
 def gaussian_noise(std: float):
+    """Add Gaussian noise to named parameters."""
+
+    def _gaussian_noise(submodule, std: float):
+        for _, param in submodule.named_parameters():
+            param.data = torch.normal(param.data, std)
+
     return functools.partial(_gaussian_noise, std=std)

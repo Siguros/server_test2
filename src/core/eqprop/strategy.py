@@ -206,7 +206,7 @@ class FirstOrderStrategy(PythonStrategy):
         R = self.rhs(x)
         if i_ext is not None:
             R[:, -self.dims[-1] :] += i_ext * self.amp_factor
-        if type(v) == np.ndarray:
+        if isinstance(v, np.ndarray):
             v = torch.from_numpy(v).type_as(x)
         if len(v.shape) == 1:
             v = v.unsqueeze(0)
@@ -215,9 +215,9 @@ class FirstOrderStrategy(PythonStrategy):
             f += self.OTS.i(v)
         else:
             f[:, : -self.dims[-1]] += self.OTS.i(v[:, : -self.dims[-1]])
-        if type(v) == torch.Tensor:
+        if isinstance(v, torch.Tensor):
             return f
-        elif type(v) == np.ndarray:
+        elif isinstance(v, np.ndarray):
             return f.numpy()
         else:
             raise TypeError(f"unsupported type {type(v)} while constructing residual")
@@ -262,9 +262,9 @@ class SecondOrderStrategy(FirstOrderStrategy):
             J.diagonal(dim1=1, dim2=2)[:] += self.OTS.a(v)
         else:
             J.diagonal(dim1=1, dim2=2)[:, : -self.dims[-1]] += self.OTS.a(v[:, : -self.dims[-1]])
-        if type(v) == np.ndarray:
+        if isinstance(v, np.ndarray):
             return J.numpy()
-        elif type(v) == torch.Tensor:
+        elif isinstance(v, torch.Tensor):
             return J
         else:
             raise TypeError(f"unsupported type {type(v)} while constructing Jacobian")
@@ -354,7 +354,7 @@ class NewtonStrategy(SecondOrderStrategy):
             amp_factor (float): inter-layer potential amplifying factor.
         """
         self.check_and_set_attrs(kwargs)
-        if type(self.OTS) == eqprop_util.SymOTS:
+        if isinstance(self.OTS, eqprop_util.SymOTS):
             vout = self._densecholsol2(x, i_ext)
         else:
             vout = self._densecholsol(x, i_ext)
@@ -407,9 +407,11 @@ class NewtonStrategy(SecondOrderStrategy):
                 residual_v = residual_v_new
                 self.attn_factor *= 1.25
             idx += 1
-        log.debug(
-            f"condition number of J: {torch.linalg.cond(J[0]):.2f}"
-        ) if J is not None else None
+        (
+            log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
+            if J is not None
+            else None
+        )
         if idx == self.max_iter:
             log.warning(
                 f"stepsolve did not converge in {self.max_iter} iterations, residual={residual_v.abs().max():.3e}"

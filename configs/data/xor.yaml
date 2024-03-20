@@ -1,4 +1,0 @@
-_target_: src.data.xor_datamodule.XORDataModule
-batch_size: 1
-num_workers: 0
-pin_memory: False

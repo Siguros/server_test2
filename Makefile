@@ -28,3 +28,6 @@ test-full: ## Run all tests
 
 train: ## Train the model
 	python src/train.py
+
+fdr:
+	python src/train.py debug=fdr

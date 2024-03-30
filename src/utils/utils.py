@@ -1,8 +1,9 @@
-import functools
 import warnings
 from importlib.util import find_spec
 from typing import Any, Callable, Dict, Optional, Tuple
 
+import pkg_resources
+from hydra_zen import store, to_yaml
 from omegaconf import DictConfig, OmegaConf
 
 from src.utils import pylogger, rich_utils
@@ -120,16 +121,27 @@ def get_metric_value(metric_dict: Dict[str, Any], metric_name: Optional[str]) ->
     return metric_value
 
 
-def register_custom_resolver(resolver: Callable) -> Callable:
-    """Registers custom resolver for hydra config files.."""
+def get_dictconfig(name: str, group: str | None = None) -> DictConfig:
+    """Creates a DictConfig object from a registered hydra_zen default 'zen_store'.
 
-    def main_decorator(task_function: Callable) -> Callable:
-        @functools.wraps(task_function)
-        def decorated_main(*args, **kwargs):
-            if not OmegaConf.has_resolver(resolver.__name__):
-                OmegaConf.register_new_resolver(resolver.__name__, resolver)
-            return task_function(*args, **kwargs)
+    :param name: The name of the DictConfig object.
+    :param kwargs: The key-value pairs of the dictionary to be converted to DictConfig.
+    :return: A DictConfig object.
+    """
+    hydra_zen_cfg = store.get_entry(group, name)
+    yaml_str = to_yaml(hydra_zen_cfg, resolve=True)
+    return OmegaConf.create(yaml_str)
 
-        return decorated_main
 
-    return main_decorator
+def package_available(package_name: str) -> bool:
+    """Check if a package is available in your environment. Duplicate of
+    `tests/helpers/package_available.py`.
+
+    :param package_name: The name of the package to be checked.
+
+    :return: `True` if the package is available. `False` otherwise.
+    """
+    try:
+        return pkg_resources.require(package_name) is not None
+    except pkg_resources.DistributionNotFound:
+        return False

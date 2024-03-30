@@ -45,7 +45,7 @@ class EqPropSolver:
 
     @beta.setter
     def beta(self, value: float | str):
-        if type(value) != str:
+        if not isinstance(value, str):
             self._beta = value
         elif value == "flip":
             self._beta *= -1
@@ -113,6 +113,8 @@ class EqPropSolver:
 
 
 class AnalogEqPropSolver(EqPropSolver):
+    """Solver for analog resistive network with EqProp."""
+
     def __init__(
         self,
         *args,
@@ -122,6 +124,7 @@ class AnalogEqPropSolver(EqPropSolver):
 
     # TODO: Check validity when amp_factor is not 1
     def energy(self, Nodes, x) -> torch.Tensor:
+        """Energy function."""
         if self.amp_factor != 1:
             raise NotImplementedError(
                 "energy function for analog EqProp is not implemented when amp_factor != 1"

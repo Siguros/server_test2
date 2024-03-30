@@ -1,13 +1,11 @@
 from collections import OrderedDict
 from typing import Any, Callable, Iterator, List, Mapping, Sequence, Tuple, Union, overload
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from src.core.eqprop.eqprop_util import interleave, type_as
-from src.core.eqprop.solver import AnalogEqPropSolver
 
 
 class EP(nn.Module):

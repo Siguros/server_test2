@@ -3,13 +3,12 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 import numpy as np
-import pkg_resources
 import torch
 import torch.nn.functional as F
 
-from tests.helpers.package_available import _SCIPY_AVAILABLE
+from src.utils.utils import package_available
 
-if _SCIPY_AVAILABLE:
+if package_available("scipy"):
     from scipy.optimize import fsolve
 
 from src.core.eqprop import eqprop_util
@@ -21,6 +20,8 @@ NpOrTensor = np.ndarray | torch.Tensor
 
 
 def cache_free_solution(func):
+    """Cache the free-phase solution of the network."""
+
     def wrapper(self, x, i_ext, **kwargs):
         if i_ext is None:
             self.free_solution = None
@@ -101,6 +102,7 @@ class SPICEStrategy(AbstractStrategy):
 
     @classmethod
     def _check_spice(cls):
+        """Check if spice is installed."""
         raise NotImplementedError()
 
 
@@ -147,6 +149,8 @@ class PythonStrategy(AbstractStrategy):
 
 
 class FirstOrderStrategy(PythonStrategy):
+    """Solve for the equilibrium point of the network with first order approximation."""
+
     def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)
         self._L = None
@@ -242,6 +246,8 @@ class FirstOrderStrategy(PythonStrategy):
 
 
 class SecondOrderStrategy(FirstOrderStrategy):
+    """Solve for the equilibrium point of the network with second order approximation."""
+
     def __init__(self, eps: float = 1e-8, **kwargs) -> None:
         super().__init__(**kwargs)
         self.eps = eps

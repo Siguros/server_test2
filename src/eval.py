@@ -6,7 +6,7 @@ from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
 
-from configs import register_configs
+from configs import register_everything
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -91,7 +91,5 @@ def main(zen_cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    register_configs()
-    store.add_to_hydra_store()
-    OmegaConf.register_new_resolver("eval", eval)
+    register_everything()
     zen(main).hydra_main(version_base="1.3", config_path="../configs", config_name="eval.yaml")

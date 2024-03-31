@@ -91,4 +91,5 @@ def register_everything() -> None:
     """Register all configs in hydra-zen and eval resolver to hydra global Configstore."""
     register_configs()
     store.add_to_hydra_store()
-    OmegaConf.register_new_resolver("eval", eval)
+    if not OmegaConf.has_resolver("eval"):
+        OmegaConf.register_new_resolver("eval", eval)

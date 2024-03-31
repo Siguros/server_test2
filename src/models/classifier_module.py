@@ -6,8 +6,8 @@ from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
 
-class MNISTLitModule(LightningModule):
-    """Example of a `LightningModule` for MNIST classification.
+class ClassifierLitModule(LightningModule):
+    """Example of a `LightningModule` for classification.
 
     A `LightningModule` implements 8 key methods:
 
@@ -45,6 +45,7 @@ class MNISTLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         compile: bool,
+        num_classes: int = 10,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -64,9 +65,9 @@ class MNISTLitModule(LightningModule):
         self.criterion = torch.nn.CrossEntropyLoss()
 
         # metric objects for calculating and averaging accuracy across batches
-        self.train_acc = Accuracy(task="multiclass", num_classes=10)
-        self.val_acc = Accuracy(task="multiclass", num_classes=10)
-        self.test_acc = Accuracy(task="multiclass", num_classes=10)
+        self.train_acc = Accuracy(task="multiclass", num_classes=self.hparams.num_classes)
+        self.val_acc = Accuracy(task="multiclass", num_classes=self.hparams.num_classes)
+        self.test_acc = Accuracy(task="multiclass", num_classes=self.hparams.num_classes)
 
         # for averaging loss across batches
         self.train_loss = MeanMetric()
@@ -198,7 +199,7 @@ class MNISTLitModule(LightningModule):
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
-        optimizer = self.hparams.optimizer(params=self.parameters())
+        optimizer = self.hparams.optimizer(params=self.net.parameters())
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
@@ -214,4 +215,4 @@ class MNISTLitModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = MNISTLitModule(None, None, None, None)
+    _ = ClassifierLitModule(None, None, None, None)

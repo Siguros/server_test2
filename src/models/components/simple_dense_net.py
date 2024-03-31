@@ -7,34 +7,33 @@ class SimpleDenseNet(nn.Module):
 
     def __init__(
         self,
-        input_size: int = 784,
-        lin1_size: int = 256,
-        lin2_size: int = 256,
-        lin3_size: int = 256,
-        output_size: int = 10,
+        cfg: list[int] = [784, 128, 128, 10],
+        batch_norm: bool = True,
     ) -> None:
         """Initialize a `SimpleDenseNet` module.
 
-        :param input_size: The number of input features.
-        :param lin1_size: The number of output features of the first linear layer.
-        :param lin2_size: The number of output features of the second linear layer.
-        :param lin3_size: The number of output features of the third linear layer.
-        :param output_size: The number of output features of the final linear layer.
+        :param cfg: A list of integers representing the number of output features of each layer.
+        :param batch_norm: Whether to use batch normalization.
         """
         super().__init__()
 
-        self.model = nn.Sequential(
-            nn.Linear(input_size, lin1_size),
-            nn.BatchNorm1d(lin1_size),
-            nn.ReLU(),
-            nn.Linear(lin1_size, lin2_size),
-            nn.BatchNorm1d(lin2_size),
-            nn.ReLU(),
-            nn.Linear(lin2_size, lin3_size),
-            nn.BatchNorm1d(lin3_size),
-            nn.ReLU(),
-            nn.Linear(lin3_size, output_size),
-        )
+        self.model = self.make_layers(cfg, batch_norm)
+
+    def make_layers(self, cfg: list[int], batch_norm: bool = True) -> nn.Sequential:
+        """Create a sequence of linear layers.
+
+        :param cfg: A list of integers representing the number of output features of each layer.
+        :param batch_norm: Whether to use batch normalization.
+        :return: A sequence of linear layers.
+        """
+        layers = []
+        for i in range(1, len(cfg) - 1):
+            layers.append(nn.Linear(cfg[i - 1], cfg[i]))
+            if batch_norm:
+                layers.append(nn.BatchNorm1d(cfg[i]))
+            layers.append(nn.ReLU())
+        layers.append(nn.Linear(cfg[-2], cfg[-1]))
+        return nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Perform a single forward pass through the network.
@@ -42,7 +41,7 @@ class SimpleDenseNet(nn.Module):
         :param x: The input tensor.
         :return: A tensor of predictions.
         """
-        batch_size, channels, width, height = x.size()
+        batch_size = x.size(0)
 
         # (batch, 1, width, height) -> (batch, 1*width*height)
         x = x.view(batch_size, -1)

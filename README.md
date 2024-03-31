@@ -10,8 +10,8 @@ ______________________________________________________________________
 <a href="https://github.com/ashleve/lightning-hydra-template"><img alt="Template" src="https://img.shields.io/badge/-Lightning--Hydra--Template-017F2F?style=flat&logo=github&labelColor=gray"></a><br>
 
 [![Interrogate](./interrogate_badge.svg)](https://github.com/econchick/interrogate)
+[![codecov](https://codecov.io/gh/nmdlkg/ml/graph/badge.svg?token=PGDGVA7A3J)](https://codecov.io/gh/nmdlkg/ml)
 [![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)](https://www.nature.com/articles/nature14539)
-[![Conference](http://img.shields.io/badge/AnyConference-year-4b44ce.svg)](https://papers.nips.cc/paper/2020)
 
 </div>
 

@@ -1,6 +1,7 @@
 from typing import Any, Dict, Tuple
 
 import torch
+import torch.nn as nn
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
@@ -43,26 +44,31 @@ class ClassifierLitModule(LightningModule):
         self,
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler,
-        compile: bool,
+        criterion: nn.modules.loss._Loss = nn.CrossEntropyLoss,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+        compile: bool = False,
         num_classes: int = 10,
     ) -> None:
-        """Initialize a `MNISTLitModule`.
+        """Initialize a `ClassifierLitModule`.
 
         :param net: The model to train.
         :param optimizer: The optimizer to use for training.
+        :param criterion: The loss function to use for training.
         :param scheduler: The learning rate scheduler to use for training.
+        :param compile: Whether to compile the model before training.
+        :param num_classes: The number of classes in the dataset.
         """
+
         super().__init__()
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(logger=False, ignore=["net"])
+        self.save_hyperparameters(logger=False, ignore=["net", "criterion"])
 
         self.net = net
 
         # loss function
-        self.criterion = torch.nn.CrossEntropyLoss()
+        self.criterion = criterion()
 
         # metric objects for calculating and averaging accuracy across batches
         self.train_acc = Accuracy(task="multiclass", num_classes=self.hparams.num_classes)
@@ -212,6 +218,58 @@ class ClassifierLitModule(LightningModule):
                 },
             }
         return {"optimizer": optimizer}
+
+
+class BinaryClassifierLitModule(ClassifierLitModule):
+
+    def __init__(
+        self,
+        net: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        criterion: nn.modules.loss._Loss = nn.BCEWithLogitsLoss,
+        scheduler: torch.optim.lr_scheduler.LRScheduler = None,
+        compile: bool = False,
+        num_classes: int = 1,
+    ) -> None:
+        super(ClassifierLitModule, self).__init__()
+
+        self.save_hyperparameters(logger=False, ignore=["net, criterion"])
+
+        self.net = net
+
+        # loss function
+        self.criterion = criterion()
+
+        # metric objects for calculating and averaging accuracy across batches
+        self.train_acc = Accuracy(task="binary", num_classes=self.hparams.num_classes)
+        self.val_acc = Accuracy(task="binary", num_classes=self.hparams.num_classes)
+        self.test_acc = Accuracy(task="binary", num_classes=self.hparams.num_classes)
+
+        # for averaging loss across batches
+        self.train_loss = MeanMetric()
+        self.val_loss = MeanMetric()
+        self.test_loss = MeanMetric()
+
+        # for tracking best so far validation accuracy
+        self.val_acc_best = MaxMetric()
+
+    def model_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Perform a single model step on a batch of data.
+
+        :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
+
+        :return: A tuple containing (in order):
+            - A tensor of losses.
+            - A tensor of predictions.
+            - A tensor of target labels.
+        """
+        x, y = batch
+        logits = self.forward(x).squeeze(-1)
+        loss = self.criterion(logits, y.float())
+        preds = (logits > 0).int()
+        return loss, preds, y
 
 
 if __name__ == "__main__":

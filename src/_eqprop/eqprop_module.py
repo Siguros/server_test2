@@ -35,7 +35,7 @@ class EqPropLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         num_classes: int = 10,
-        scale_input: int = True,
+        scale_input: int = 2,
         scale_output: int = 4,
         positive_w: bool = False,
         bias: bool = False,
@@ -60,7 +60,7 @@ class EqPropLitModule(LightningModule):
         # if self.hparams.scale_output:
         #     eqprop_util.interleave.on()  # output
         #     eqprop_util.interleave.set_num_output(self.hparams.scale_output)
-        if not self.hparams.scale_input:
+        if self.hparams.scale_input == 1:
             self.interleave_input = lambda x: x.view(x.shape[0], -1)
 
         # loss function
@@ -102,6 +102,10 @@ class EqPropLitModule(LightningModule):
         return loss, preds, y
 
     def model_backward(self, loss: torch.Tensor, x: torch.Tensor):
+        """Backward pass for EqProp.
+
+        Equivalent to loss.backward() & optimizer.step() in PyTorch.
+        """
         self.grad_acc_idx = getattr(self, "grad_acc_idx", 0)
         # loss.backward(), execute nudge (+ 3rd) phase
         # calculate i_ext
@@ -205,6 +209,7 @@ class EqPropLitModule(LightningModule):
         return {"optimizer": optimizer}
 
     @staticmethod
+    @torch.no_grad()
     def interleave_input(x):
         x = x.view(x.size(0), -1)  # == x.view(-1,x.size(-1)**2)
         x = x.repeat_interleave(2, dim=1)

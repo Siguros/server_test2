@@ -61,7 +61,7 @@ class interleave:
 
     @classmethod
     def set_num_output(cls, num_output):
-        assert num_output % 2 == 0, "num_output must be even"
+        assert num_output % 2 == 0 or num_output == 1, "num_output must be even or 1"
         cls._num_output = num_output
 
 

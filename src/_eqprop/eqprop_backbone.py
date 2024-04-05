@@ -412,28 +412,21 @@ class AnalogEP2(nn.Module):
         self,
         batch_size: int,
         solver: Callable,
-        input_size: int = 784 * 2,
-        lin1_size: int = 128,
-        output_size: int = 10 * 2,
-        beta=0.1,
-        hyper_params: dict = {"bias": False},
+        cfg: list[int] = [784 * 2, 128, 10 * 2],
+        beta: float = 0.1,
+        hyper_params: Mapping = {"bias": False},
     ) -> None:
         super().__init__()
         self.hparams = hyper_params
         self.beta = beta
-        dims = [input_size, lin1_size, output_size]
-        odic = OrderedDict()
-        for idx in range(1, len(dims) - 1):
-            odic[f"lin{idx}"] = nn.Linear(dims[idx - 1], dims[idx], bias=self.hparams["bias"])
-        odic["last"] = nn.Linear(dims[-2], dims[-1], bias=self.hparams["bias"])
-        self.model = nn.Sequential(odic)
+        layers = []
+        for idx in range(len(cfg) - 1):
+            layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=self.hparams["bias"]))
+        self.model = nn.Sequential(*layers)
 
         # Add free/nudge nodes per layer as buffers
-        # input_shape = (batch_size, dims[0])
-        # addnode_fn = AddNodes(input_shape)
-        # self.model.apply(addnode_fn)
         self.init_nodes(batch_size)
-        self.model.register_buffer("ypred", torch.empty(batch_size, dims[-1]))
+        self.model.register_buffer("ypred", torch.empty(batch_size, cfg[-1]))
 
         # instiantiate solver
         self.solver = solver(self.model)
@@ -455,7 +448,7 @@ class AnalogEP2(nn.Module):
         self.reset_nodes()
         reversed_nodes, _ = self.solver(x)
         self.set_nodes(reversed_nodes, positive_phase=True)
-        logits = self.model.get_buffer("last.positive_node")
+        logits = self.model[-1].get_buffer("positive_node")
         self.model.ypred = logits.detach().clone().requires_grad_(True)
         return self.model.ypred
 
@@ -579,3 +572,25 @@ class AnalogEPSym(AnalogEP2):
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
         self.solver.beta = "flip"
+
+
+class DummyAnalogEP2(AnalogEP2):
+    """Dummy AnalogEP2 for testing purposes."""
+
+    def __init__(
+        self,
+        batch_size: int,
+        solver: Callable[..., Any],
+        cfg: list[int] = [784 * 2, 128, 10 * 2],
+        beta: float = 0.1,
+        hyper_params: Mapping = {"bias": False},
+    ) -> None:
+        super().__init__(batch_size, solver, cfg, beta, hyper_params)
+        self.model.insert(1, nn.ReLU())
+
+    @interleave(type="out")
+    def forward(self, x):
+        return self.model(x)
+
+    def eqprop(self, x: torch.Tensor):
+        pass

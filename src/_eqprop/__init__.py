@@ -1,2 +1,2 @@
-from .eqprop_backbone import AnalogEP2, AnalogEPSym
-from .eqprop_module import EqPropLitModule, EqPropMSELitModule
+from src._eqprop.eqprop_backbone import AnalogEP2, AnalogEPSym, DummyAnalogEP2
+from src._eqprop.eqprop_module import EqPropLitModule, EqPropMSELitModule

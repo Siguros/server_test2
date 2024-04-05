@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from hydra_zen import MISSING, builds, make_config, store
 
 from configs import full_builds, partial_builds
-from src._eqprop import AnalogEP2, EqPropLitModule, EqPropMSELitModule
+from src._eqprop import AnalogEP2, DummyAnalogEP2, EqPropLitModule, EqPropMSELitModule
 from src.core.eqprop import eqprop_util, solver, strategy
 
 P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=0, Vr=0)
@@ -18,7 +18,7 @@ GDStrategyConfig = full_builds(
     amp_factor="${model.net.solver.amp_factor}",
     max_iter=50,
     atol=1e-6,
-    activation=P3OTSConfig,
+    activation=MISSING,
 )
 
 NewtonStrategyConfig = full_builds(
@@ -28,7 +28,7 @@ NewtonStrategyConfig = full_builds(
     eps=1e-6,
     max_iter=25,
     atol=1e-6,
-    activation=P3OTSConfig,
+    activation=MISSING,
 )
 
 AnalogEqPropSolverConfig = partial_builds(
@@ -38,26 +38,38 @@ AnalogEqPropSolverConfig = partial_builds(
     strategy=MISSING,
 )
 
-EqPropBackboneConfig = partial_builds(
+EqPropBackboneConfig = builds(
     AnalogEP2,
     batch_size="${data.batch_size}",
-    input_size=MISSING,
-    lin1_size=MISSING,
-    output_size=MISSING,
+    cfg=MISSING,
     beta=0.01,
     solver=AnalogEqPropSolverConfig,
+    zen_partial=True,
+    populate_full_signature=True,
+    hydra_convert="partial",
+)
+
+DummyEqPropBackboneConfig = builds(
+    DummyAnalogEP2,
+    batch_size="${data.batch_size}",
+    cfg=MISSING,
+    beta=0.01,
+    solver=AnalogEqPropSolverConfig,
+    zen_partial=True,
+    populate_full_signature=True,
+    hydra_convert="partial",
 )
 
 eqprop_mnist = EqPropBackboneConfig(
-    input_size="${eval:'784*${model.scale_input}'}",
-    lin1_size=128,
-    output_size="${eval:'10*${model.scale_output}'}",
+    cfg="${eval:'[784*${model.scale_input}, 128, 10*${model.scale_output}]'}",
 )
 
 eqprop_xor = EqPropBackboneConfig(
-    input_size=2,
-    lin1_size=2,
-    output_size=2,
+    cfg="${eval:'[2*${model.scale_input}, 10, 2*${model.scale_output}]'}",
+)
+
+dummy_eqprop_xor = DummyEqPropBackboneConfig(
+    cfg="${eval:'[2*${model.scale_input}, 10, 2*${model.scale_output}]'}",
 )
 
 EqPropModuleConfig = make_config(
@@ -73,7 +85,12 @@ EqPropModuleConfig = make_config(
     min_w=1e-6,
     max_w_gain=0.28,
 )
-ep_defaults = ["_self_", {"optimizer": "sgd"}, {"net/solver/strategy": "newton"}]
+ep_defaults = [
+    "_self_",
+    {"optimizer": "sgd"},
+    {"net/solver/strategy": "newton"},
+    {"net/solver/strategy/activation": "p3ots"},
+]
 
 EqPropXORModuleConfig = builds(
     EqPropLitModule,
@@ -103,6 +120,13 @@ EqPropMNISTMSEModuleConfig = builds(
     builds_bases=(EqPropModuleConfig,),
 )
 
+ep_xor_dummy = builds(
+    EqPropLitModule,
+    net=dummy_eqprop_xor,
+    builds_bases=(EqPropModuleConfig,),
+    hydra_defaults=ep_defaults,
+)
+
 
 def _register_configs():
     activation_store = store(group="model/net/solver/strategy/activation")
@@ -119,3 +143,4 @@ def _register_configs():
     model_store(EqPropMNISTModuleConfig, name="ep-mnist")
     model_store(ep_mnist_adamw, name="ep-mnist-adamw")
     model_store(EqPropMNISTMSEModuleConfig, name="ep-mnist-mse")
+    model_store(ep_xor_dummy, name="ep-xor-dummy")

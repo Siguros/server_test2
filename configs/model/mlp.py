@@ -12,10 +12,10 @@ MLPBackboneConfig = builds(SimpleDenseNet, populate_full_signature=True)
 mnist_narrow_backbone = MLPBackboneConfig(cfg=[784, 128, 64, 10])
 mnist_wide_backbone = MLPBackboneConfig(cfg=[784, 256, 256, 10])
 xor_backbone = MLPBackboneConfig(
-    cfg=[2, 10, 1], batch_norm=False, bias=True
+    cfg=[2, 10, 1], batch_norm=False, bias=False
 )  # , activation=Sigmoid)
 
-xor_onehot_backbone = MLPBackboneConfig(cfg=[2, 2, 2], batch_norm=False, bias=False)
+xor_onehot_backbone = MLPBackboneConfig(cfg=[2, 10, 2], batch_norm=False, bias=False)
 
 ModuleConfig = make_config(net=MISSING, optimizer=MISSING, scheduler=MISSING, compile=False)
 

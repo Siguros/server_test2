@@ -149,7 +149,11 @@ class PythonStrategy(AbstractStrategy):
 
 
 class FirstOrderStrategy(PythonStrategy):
-    """Solve for the equilibrium point of the network with first order approximation."""
+    """Solve for the equilibrium point of the network with first order approximation.
+
+    Args:
+        add_nonlin_last (bool): whether to add nonlinearity at the last layer.
+    """
 
     def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -246,7 +250,11 @@ class FirstOrderStrategy(PythonStrategy):
 
 
 class SecondOrderStrategy(FirstOrderStrategy):
-    """Solve for the equilibrium point of the network with second order approximation."""
+    """Solve for the equilibrium point of the network with second order approximation.
+
+    Args:
+        eps (float): small value to add to the diagonal of the Laplacian matrix.
+    """
 
     def __init__(self, eps: float = 1e-8, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -309,6 +317,12 @@ class ScipyStrategy(SecondOrderStrategy):
 
 
 class GradientDescentStrategy(FirstOrderStrategy):
+    """Solve for the equilibrium point of the network with gradient descent.
+
+    Args:
+        alpha (float): attenuation rate.
+    """
+
     def __init__(self, alpha: float = 1.0, **kwargs) -> None:
         super().__init__(**kwargs)
         self.alpha = alpha
@@ -324,10 +338,11 @@ class GradientDescentStrategy(FirstOrderStrategy):
             v += self.alpha * dv
             if dv.abs().max() < self.atol:
                 log.debug(f"stepsolve converged in {idx} iterations")
-                return
+                return v
         log.warning(
             f"stepsolve did not converge in {self.max_iter} iterations, residual={dv.abs().max():.3e}"
         )
+        return v
 
 
 class NewtonStrategy(SecondOrderStrategy):

@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from src.core.eqprop.eqprop_util import interleave, type_as
+from src.core.eqprop.solver import AnalogEqPropSolver
 
 
 class EP(nn.Module):
@@ -411,7 +412,7 @@ class AnalogEP2(nn.Module):
     def __init__(
         self,
         batch_size: int,
-        solver: Callable,
+        solver: Callable[[nn.Module], AnalogEqPropSolver],
         cfg: list[int] = [784 * 2, 128, 10 * 2],
         beta: float = 0.1,
         hyper_params: Mapping = {"bias": False},

@@ -10,6 +10,9 @@ P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=0, Vr=0)
 p3ots_real = P3OTSConfig(Is=4.352e-6, Vth=0.026, Vl=0, Vr=0)
 symrelu = full_builds(eqprop_util.SymReLU, Vl=-0.6, Vr=0.6)
 
+ParamAdjusterConfig = full_builds(eqprop_util.AdjustParams)
+xor_adjuster = ParamAdjusterConfig(L=1e-7, clamp=True, normalize=False)
+
 AbstractStrategyConfig = full_builds(strategy.AbstractStrategy)
 
 GDStrategyConfig = full_builds(
@@ -41,10 +44,15 @@ AnalogEqPropSolverConfig = partial_builds(
 EqPropBackboneConfig = builds(
     AnalogEP2,
     batch_size="${data.batch_size}",
-    cfg=MISSING,
     beta=0.01,
+    bias=False,
+    positive_w=True,
+    min_w=1e-6,
+    max_w_gain=0.28,
+    scale_input=2,
+    scale_output=2,
+    cfg=MISSING,
     solver=AnalogEqPropSolverConfig,
-    zen_partial=True,
     populate_full_signature=True,
     hydra_convert="partial",
 )
@@ -52,39 +60,30 @@ EqPropBackboneConfig = builds(
 DummyEqPropBackboneConfig = builds(
     DummyAnalogEP2,
     batch_size="${data.batch_size}",
-    cfg=MISSING,
-    beta=0.01,
-    solver=AnalogEqPropSolverConfig,
-    zen_partial=True,
-    populate_full_signature=True,
-    hydra_convert="partial",
+    builds_bases=(EqPropBackboneConfig,),
 )
 
 eqprop_mnist = EqPropBackboneConfig(
-    cfg="${eval:'[784*${model.scale_input}, 128, 10*${model.scale_output}]'}",
+    cfg="${eval:'[784*${.scale_input}, 128, 10*${.scale_output}]'}",
 )
 
 eqprop_xor = EqPropBackboneConfig(
     beta=0.001,
-    cfg="${eval:'[2*${model.scale_input}, 10, 2*${model.scale_output}]'}",
+    scale_input=1,
+    scale_output=2,
+    cfg="${eval:'[2*${.scale_input}, 10, 2*${.scale_output}]'}",
 )
 
 dummy_eqprop_xor = DummyEqPropBackboneConfig(
-    cfg="${eval:'[2*${model.scale_input}, 10, 2*${model.scale_output}]'}",
+    cfg="${eval:'[2*${.scale_input}, 10, 2*${.scale_output}]'}",
 )
 
 EqPropModuleConfig = make_config(
     scheduler=None,
     optimizer=MISSING,
     net=MISSING,
-    scale_input=2,
-    scale_output=2,
-    positive_w=True,
-    bias=False,
-    clip_weights=True,
-    normalize_weights=False,
-    min_w=1e-6,
-    max_w_gain=0.28,
+    compile=False,
+    param_adjuster=MISSING,
 )
 
 
@@ -100,20 +99,14 @@ EqPropXORModuleConfig = builds(
     net=eqprop_xor,
     scheduler=None,
     optimizer=dict(lr=0.001),
-    scale_input=1,
-    scale_output=2,
-    positive_w=True,
-    bias=False,
-    clip_weights=True,
-    normalize_weights=False,
-    min_w=1e-4,
-    max_w=0.1,
+    param_adjuster=xor_adjuster,
     hydra_defaults=ep_defaults,
 )
 
 EqPropMNISTModuleConfig = builds(
     EqPropLitModule,
     net=eqprop_mnist,
+    param_adjuster=ParamAdjusterConfig(),
     builds_bases=(EqPropModuleConfig,),
     hydra_defaults=ep_defaults,
 )

@@ -91,9 +91,6 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     if cfg.trainer.get("accelerator") == "gpu" and torch.cuda.is_available():
         torch.set_float32_matmul_precision("highest")
 
-    if num_output := cfg.model.get("scale_output"):
-        eqprop_util.interleave.set_num_output(num_output)
-
     if cfg.get("compile"):
         log.info("Compiling model!")
         model = torch.compile(model)  # type: ignore

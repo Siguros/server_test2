@@ -1,7 +1,7 @@
 import functools
 import math
 from abc import ABC, abstractmethod
-from typing import Callable, Literal, Sequence, Union
+from typing import Any, Callable, Literal, Sequence, Union
 
 import torch
 import torch.nn as nn
@@ -14,37 +14,30 @@ log = RankedLogger(__name__, rank_zero_only=True)
 class interleave:
     """Decorator class for interleaving in/out nodes."""
 
-    _on = False
-
-    def __init__(self, type: Literal["in, out"]):
-        assert type == "in" or type == "out", 'type must be either "in" or "out"'
+    def __init__(self, type: Literal["in", "out", "both"]):
         self.type = type
         # self._num_output = 0
         # self.num_output = interleave._num_output
 
-    def __call__(self, func: Callable[..., torch.Tensor]) -> Callable:
+    def __call__(self, func: Callable[..., Any]) -> Callable:
         """Decorator for interleaving in/out nodes."""
 
         @functools.wraps(func)
         def wrapper(obj, *args, **kwargs) -> torch.Tensor:
             if self._num_output:
-                if self.type == "in":  # mod y_hat
-                    y_hat, *others = args
-                    new_args = self.interleave(y_hat), *others
-                    outs = func(obj, *new_args, **kwargs)
-                    return outs
-                elif self.type == "out":  # mod all outputs
-                    outs = func(obj, *args, **kwargs)
-                    # outs = [self.interleave(out) for out in outs]
-                    return self.interleave(outs)
-                else:
-                    raise ValueError("Invalid type")
+                if self.type in ["in", "both"]:
+                    ins, *others = args
+                    args = self.interleave_input(ins), *others
+                outs = func(obj, *args, **kwargs)
+                if self.type in ["out", "both"]:
+                    outs = self.interleave_output(outs)
+                return outs
             else:
                 return func(obj, *args, **kwargs)
 
         return wrapper
 
-    def interleave(self, t: torch.Tensor) -> torch.Tensor:
+    def interleave_output(self, t: torch.Tensor) -> torch.Tensor:
         """Interleave 2D tensor."""
         assert t.dim() == 2, "interleave only works on 2D tensors"
         if self._num_output == 1:
@@ -58,10 +51,17 @@ class interleave:
 
             return result
 
+    @torch.no_grad()
+    def interleave_input(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.view(x.size(0), -1)  # == x.view(-1,x.size(-1)**2)
+        x = x.repeat_interleave(2, dim=1)
+        x[:, 1::2] = -x[:, ::2]
+        return x
+
     @classmethod
-    def on(cls):
-        """Turn on interleaving."""
-        cls._on = True
+    def set_num_input(cls, num_input):
+        assert num_input % 2 == 0 or num_input == 1, "num_input must be even or 1"
+        cls._num_input = num_input
 
     @classmethod
     def set_num_output(cls, num_output):
@@ -274,7 +274,7 @@ def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 class AdjustParams:
     def __init__(
         self,
-        L: Union[float, None] = 0.0,
+        L: Union[float, None] = 1e-7,
         U: Union[float, None] = None,
         clamp: bool = True,
         normalize: bool = False,
@@ -300,7 +300,7 @@ class AdjustParams:
                     nn.functional.normalize(param, dim=1, p=2)
 
 
-def init_params(min_w: float = 1e-6, max_w: float = None, max_w_gain: float = 0.08):
+def init_params(min_w: float = 1e-6, max_w: float | None = None, max_w_gain: float = 0.08):
     """Initialize weights."""
     if max_w is None and max_w_gain is None:
         raise ValueError("Either max_w or max_w_gain must be provided")

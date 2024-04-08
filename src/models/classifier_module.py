@@ -3,6 +3,8 @@ from typing import Any, Dict, Tuple
 import torch
 import torch.nn as nn
 from lightning import LightningModule
+from lightning.pytorch.core.optimizer import LightningOptimizer
+from lightning.pytorch.utilities.parsing import AttributeDict
 from torchmetrics import MaxMetric, MeanMetric
 from torchmetrics.classification.accuracy import Accuracy
 
@@ -44,10 +46,10 @@ class ClassifierLitModule(LightningModule):
         self,
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
-        criterion: nn.modules.loss._Loss = nn.CrossEntropyLoss,
         scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
         compile: bool = False,
         num_classes: int = 10,
+        criterion: type[nn.modules.loss._Loss] = nn.CrossEntropyLoss,
     ) -> None:
         """Initialize a `ClassifierLitModule`.
 
@@ -64,6 +66,7 @@ class ClassifierLitModule(LightningModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False, ignore=["net", "criterion"])
+        self.hparams: AttributeDict
 
         self.net = net
 

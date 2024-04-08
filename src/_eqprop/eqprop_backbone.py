@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.core.eqprop.eqprop_util import interleave, type_as
+from src.core.eqprop import eqprop_util
 from src.core.eqprop.solver import AnalogEqPropSolver
 
 
@@ -45,7 +45,7 @@ class EP(nn.Module):
         self.doubling = kwargs.get("doubling", False)
         self.num_classes = dims[-1]
         if self.doubling:
-            interleave.on()
+            # eqprop_util.interleave.on()
             self.num_classes //= 2
         self.eps = epsilon
         self.dims = dims
@@ -90,7 +90,7 @@ class EP(nn.Module):
             else:
                 nn.init.xavier_uniform_(self.W[idx].weight)
 
-    @type_as
+    @eqprop_util.type_as
     def forward(self, x, y=None, beta=0.0) -> List[torch.Tensor]:
         """Relax Nodes till converge."""
         self.W.requires_grad_(False)  # freeze weights
@@ -205,7 +205,7 @@ class EP(nn.Module):
             L = L.mean().detach()
         return (E, L)
 
-    @interleave(type="in")
+    @eqprop_util.interleave(type="in")
     def loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute loss."""
         if self.criterion.__class__.__name__.find("MSE") != -1:
@@ -415,15 +415,30 @@ class AnalogEP2(nn.Module):
         solver: Callable[[nn.Module], AnalogEqPropSolver],
         cfg: list[int] = [784 * 2, 128, 10 * 2],
         beta: float = 0.1,
-        hyper_params: Mapping = {"bias": False},
+        bias: bool = False,
+        positive_w: bool = True,
+        min_w: float = 1e-6,
+        max_w: float | None = None,
+        max_w_gain: float = 0.28,
+        scale_input: int = 2,
+        scale_output: int = 2,
     ) -> None:
         super().__init__()
-        self.hparams = hyper_params
         self.beta = beta
         layers = []
         for idx in range(len(cfg) - 1):
-            layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=self.hparams["bias"]))
+            layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=bias))
         self.model = nn.Sequential(*layers)
+
+        # init weights
+        if positive_w:
+            self.model.apply(
+                eqprop_util.init_params(
+                    min_w=min_w,
+                    max_w=max_w,
+                    max_w_gain=max_w_gain,
+                )
+            )
 
         # Add free/nudge nodes per layer as buffers
         self.init_nodes(batch_size)
@@ -432,9 +447,12 @@ class AnalogEP2(nn.Module):
         # instiantiate solver
         self.solver = solver(self.model)
 
+        eqprop_util.interleave.set_num_output(scale_input)
+        eqprop_util.interleave.set_num_output(scale_output)
+
         FutureWarning("AnalogEP2 will be replaced by eqprop.nn.EqPropLinear")
 
-    @interleave(type="out")
+    @eqprop_util.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation.
@@ -453,6 +471,7 @@ class AnalogEP2(nn.Module):
         self.model.ypred = logits.detach().clone().requires_grad_(True)
         return self.model.ypred
 
+    @eqprop_util.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
@@ -551,7 +570,7 @@ class AnalogEPSym(AnalogEP2):
     Use 3rd nudge phase to compute gradients.
     """
 
-    @interleave(type="out")
+    @eqprop_util.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation."""
@@ -562,6 +581,7 @@ class AnalogEPSym(AnalogEP2):
         self.model.ypred = logits.clone().detach().requires_grad_(True)
         return self.model.ypred
 
+    @eqprop_util.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
@@ -580,16 +600,13 @@ class DummyAnalogEP2(AnalogEP2):
 
     def __init__(
         self,
-        batch_size: int,
-        solver: Callable[..., Any],
-        cfg: list[int] = [784 * 2, 128, 10 * 2],
-        beta: float = 0.1,
-        hyper_params: Mapping = {"bias": False},
+        *args,
+        **kwargs,
     ) -> None:
-        super().__init__(batch_size, solver, cfg, beta, hyper_params)
+        super().__init__(*args, **kwargs)
         self.model.insert(1, nn.ReLU())
 
-    @interleave(type="out")
+    @eqprop_util.interleave(type="both")
     def forward(self, x):
         return self.model(x)
 

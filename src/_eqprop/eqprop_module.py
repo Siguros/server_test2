@@ -42,6 +42,7 @@ class EqPropLitModule(LightningModule):
         clip_weights: bool = False,
         normalize_weights: bool = False,
         min_w: float = 1e-6,
+        max_w: Optional[float] = None,
         max_w_gain: float = 0.08,
         accumulate_grad_batches: int = 1,
         gaussian_std: Optional[float] = None,
@@ -53,7 +54,9 @@ class EqPropLitModule(LightningModule):
 
         self.net: AnalogEP2 = net(hyper_params=self.hparams)
         (
-            self.net.model.apply(eqprop_util.init_params(min_w=min_w, max_w_gain=max_w_gain))
+            self.net.model.apply(
+                eqprop_util.init_params(min_w=min_w, max_w=max_w, max_w_gain=max_w_gain)
+            )
             if self.hparams.positive_w
             else ...
         )

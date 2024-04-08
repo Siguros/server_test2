@@ -6,6 +6,10 @@ from typing import Callable, Literal, Sequence, Union
 import torch
 import torch.nn as nn
 
+from src.utils import RankedLogger
+
+log = RankedLogger(__name__, rank_zero_only=True)
+
 
 class interleave:
     """Decorator class for interleaving in/out nodes."""
@@ -286,28 +290,35 @@ class AdjustParams:
         for name, param in submodule.named_parameters():
             if name == "weight":
                 if self.clamp:
+                    (
+                        log.debug(f"Clamping {submodule._get_name()}...")
+                        if torch.any(param.min() < self.min)
+                        else ...
+                    )
                     param.clamp_(self.min, self.max)
                 if self.normalize:
                     nn.functional.normalize(param, dim=1, p=2)
 
 
-def init_params(min_w: float = 1e-6, max_w_gain: float = 0.08):
+def init_params(min_w: float = 1e-6, max_w: float = None, max_w_gain: float = 0.08):
     """Initialize weights."""
+    if max_w is None and max_w_gain is None:
+        raise ValueError("Either max_w or max_w_gain must be provided")
 
     def _init_params(
         submodule: nn.Module,
         param_name: str = "weight",
-        min_w: float = 1e-6,
-        max_w_gain: float = 1,
     ):
+        nonlocal min_w, max_w, max_w_gain
         if hasattr(submodule, param_name):
             param = submodule.get_parameter(param_name)
             # positive xaiver_uniform
             fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(param)
-            max_w = max_w_gain / math.sqrt(fan_in + fan_out)
-            nn.init.uniform_(param, min_w, max_w)
 
-    return functools.partial(_init_params, param_name="weight", min_w=min_w, max_w_gain=max_w_gain)
+            upper_thres = max_w_gain / math.sqrt(fan_in + fan_out) if max_w is None else max_w
+            nn.init.uniform_(param, min_w, upper_thres)
+
+    return functools.partial(_init_params, param_name="weight")
 
 
 def gaussian_noise(std: float):

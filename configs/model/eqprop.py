@@ -65,6 +65,7 @@ eqprop_mnist = EqPropBackboneConfig(
 )
 
 eqprop_xor = EqPropBackboneConfig(
+    beta=0.001,
     cfg="${eval:'[2*${model.scale_input}, 10, 2*${model.scale_output}]'}",
 )
 
@@ -85,6 +86,8 @@ EqPropModuleConfig = make_config(
     min_w=1e-6,
     max_w_gain=0.28,
 )
+
+
 ep_defaults = [
     "_self_",
     {"optimizer": "sgd"},
@@ -95,7 +98,16 @@ ep_defaults = [
 EqPropXORModuleConfig = builds(
     EqPropLitModule,
     net=eqprop_xor,
-    builds_bases=(EqPropModuleConfig,),
+    scheduler=None,
+    optimizer=dict(lr=0.001),
+    scale_input=1,
+    scale_output=2,
+    positive_w=True,
+    bias=False,
+    clip_weights=True,
+    normalize_weights=False,
+    min_w=1e-4,
+    max_w=0.1,
     hydra_defaults=ep_defaults,
 )
 

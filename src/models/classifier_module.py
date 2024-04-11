@@ -229,10 +229,10 @@ class BinaryClassifierLitModule(ClassifierLitModule):
         self,
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
-        criterion: nn.modules.loss._Loss = nn.BCEWithLogitsLoss,
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         compile: bool = False,
         num_classes: int = 1,
+        criterion: type[nn.modules.loss._Loss] = nn.BCEWithLogitsLoss,
     ) -> None:
         super(ClassifierLitModule, self).__init__()
 

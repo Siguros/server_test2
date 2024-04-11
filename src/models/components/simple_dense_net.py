@@ -7,7 +7,7 @@ class SimpleDenseNet(nn.Module):
 
     def __init__(
         self,
-        activation: nn.Module = nn.ReLU,
+        activation: type[nn.Module] = nn.ReLU,
         cfg: list[int] = [784, 128, 128, 10],
         batch_norm: bool = True,
         bias: bool = True,

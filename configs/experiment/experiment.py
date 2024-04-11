@@ -8,7 +8,7 @@ xor_config = make_config(
     ],
     trainer=dict(detect_anomaly=True, max_epochs=500),
     callbacks=dict(early_stopping=None),
-    model=dict(optimizer=dict(lr=0.02, momentum=0.9)),
+    model=dict(optimizer=dict(lr=0.001, momentum=0.9)),
 )
 
 xor_onehot_config = make_config(
@@ -19,13 +19,22 @@ xor_onehot_config = make_config(
         {"override /model": "xor-onehot"},
     ],
 )
-
-ep_xor_onehot_config = make_config(
-    bases=(xor_onehot_config,),
+ep_xor_config = make_config(
+    bases=(xor_config,),
+    model=dict(optimizer=dict(lr=0.001, momentum=0.0)),
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
         {"override /model": "ep-xor"},
+        {"override /model/net/solver/strategy": "newton"},
+    ],
+)
+ep_xor_onehot_config = make_config(
+    bases=(xor_config,),
+    hydra_defaults=[
+        "_self_",
+        {"override /data": "xor"},
+        {"override /model": "ep-xor-onehot"},
         {"override /model/net/solver/strategy": "newton"},
     ],
 )
@@ -52,6 +61,7 @@ def _register_configs():
     exp_store = store(group="experiment", package="_global_")
     exp_store(xor_config, name="xor")
     exp_store(xor_onehot_config, name="xor-onehot")
+    exp_store(ep_xor_config, name="ep-xor")
     exp_store(ep_xor_onehot_config, name="ep-xor-onehot")
     exp_store(ep_xor_dummy_config, name="ep-xor-dummy")
     exp_store(ep_mnist_config, name="ep-mnist")

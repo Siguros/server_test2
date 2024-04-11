@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from src._eqprop.eqprop_backbone import AnalogEP2
 from src.core.eqprop import eqprop_util
-from src.models.classifier_module import ClassifierLitModule
+from src.models.classifier_module import BinaryClassifierLitModule, ClassifierLitModule
 
 
 class EqPropLitModule(ClassifierLitModule):
@@ -34,10 +34,11 @@ class EqPropLitModule(ClassifierLitModule):
         scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         compile: bool = False,
         num_classes: int = 10,
+        criterion: type[torch.nn.modules.loss._Loss] = torch.nn.CrossEntropyLoss,
         param_adjuster: Optional[eqprop_util.AdjustParams] = eqprop_util.AdjustParams(),
         gaussian_std: Optional[float] = None,
     ):
-        super().__init__(net, optimizer, scheduler, compile, num_classes)
+        super().__init__(net, optimizer, scheduler, compile, num_classes, criterion)
         self.automatic_optimization = False
         self.param_adjuster = param_adjuster
 
@@ -97,6 +98,7 @@ class EqPropLitModule(ClassifierLitModule):
 
 
 class EqPropMSELitModule(EqPropLitModule):
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.criterion = torch.nn.MSELoss(reduction="sum")
@@ -110,3 +112,53 @@ class EqPropMSELitModule(EqPropLitModule):
         loss = self.criterion(yhat, y_onehot)
         preds = torch.argmax(yhat, dim=1)
         return loss, preds, y
+
+
+class EqPropBinaryLitModule(BinaryClassifierLitModule):
+
+    def __init__(
+        self,
+        net: AnalogEP2,
+        optimizer: torch.optim.Optimizer,
+        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+        compile: bool = False,
+        num_classes: int = 10,
+        criterion: type[torch.nn.modules.loss._Loss] = torch.nn.BCEWithLogitsLoss,
+        param_adjuster: Optional[eqprop_util.AdjustParams] = eqprop_util.AdjustParams(),
+        gaussian_std: Optional[float] = None,
+    ):
+        super().__init__(net, optimizer, scheduler, compile, num_classes, criterion)
+        self.automatic_optimization = False
+        self.param_adjuster = param_adjuster
+
+    def model_backward(self, loss: torch.Tensor, x: torch.Tensor):
+        """Backward pass for EqProp.
+
+        Equivalent to loss.backward() & optimizer.step() in PyTorch.
+        """
+        self.manual_backward(loss)
+        self.net.eqprop(x)
+        opt = self.optimizers()
+        opt.step()
+        opt.zero_grad()
+        if self.param_adjuster is not None:
+            self.net.apply(self.param_adjuster)
+
+    def training_step(self, batch: Any, batch_idx: int):
+        loss, preds, targets = self.model_step(batch)
+        self.model_backward(loss, batch[0])
+
+        # update and log metrics
+        self.train_loss(loss)
+        self.train_acc(preds, targets)
+        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
+
+        # we can return here dict with any tensors
+        # and then read it in some callback or in `training_epoch_end()` below
+        # remember to always return loss from `training_step()` or backpropagation will fail!
+        return loss
+
+    def on_training_step_end(self) -> None:
+        gc.collect()
+        torch.cuda.empty_cache()

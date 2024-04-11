@@ -3,7 +3,13 @@ from dataclasses import dataclass
 from hydra_zen import MISSING, builds, make_config, store
 
 from configs import full_builds, partial_builds
-from src._eqprop import AnalogEP2, DummyAnalogEP2, EqPropLitModule, EqPropMSELitModule
+from src._eqprop import (
+    AnalogEP2,
+    DummyAnalogEP2,
+    EqPropBinaryLitModule,
+    EqPropLitModule,
+    EqPropMSELitModule,
+)
 from src.core.eqprop import eqprop_util, solver, strategy
 
 P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=0, Vr=0)
@@ -71,6 +77,19 @@ eqprop_xor = EqPropBackboneConfig(
     beta=0.001,
     scale_input=1,
     scale_output=2,
+    min_w=0.0001,
+    max_w=0.1,
+    max_w_gain=None,
+    cfg="${eval:'[2*${.scale_input}, 10, 1*${.scale_output}]'}",
+)
+
+eqprop_xor_onehot = EqPropBackboneConfig(
+    beta=0.001,
+    scale_input=1,
+    scale_output=2,
+    min_w=0.0001,
+    max_w=0.1,
+    max_w_gain=None,
     cfg="${eval:'[2*${.scale_input}, 10, 2*${.scale_output}]'}",
 )
 
@@ -93,13 +112,22 @@ ep_defaults = [
     {"net/solver/strategy": "newton"},
     {"net/solver/strategy/activation": "p3ots"},
 ]
-
 EqPropXORModuleConfig = builds(
-    EqPropLitModule,
+    EqPropBinaryLitModule,
     net=eqprop_xor,
-    scheduler=None,
-    optimizer=dict(lr=0.001),
+    num_classes=1,
     param_adjuster=xor_adjuster,
+    builds_bases=(EqPropModuleConfig,),
+    hydra_defaults=ep_defaults,
+)
+
+EqPropXOROHModuleConfig = builds(
+    EqPropLitModule,
+    net=eqprop_xor_onehot,
+    num_classes=2,
+    scheduler=None,
+    param_adjuster=xor_adjuster,
+    builds_bases=(EqPropModuleConfig,),
     hydra_defaults=ep_defaults,
 )
 
@@ -117,7 +145,6 @@ ep_mnist_adamw = builds(
     builds_bases=(EqPropModuleConfig,),
     hydra_defaults=["_self_", {"override /optimizer": "adamw"}],
 )
-
 
 EqPropMNISTMSEModuleConfig = builds(
     EqPropMSELitModule,
@@ -145,6 +172,7 @@ def _register_configs():
 
     model_store = store(group="model")
     model_store(EqPropXORModuleConfig, name="ep-xor")
+    model_store(EqPropXOROHModuleConfig, name="ep-xor-onehot")
     model_store(EqPropMNISTModuleConfig, name="ep-mnist")
     model_store(ep_mnist_adamw, name="ep-mnist-adamw")
     model_store(EqPropMNISTMSEModuleConfig, name="ep-mnist-mse")

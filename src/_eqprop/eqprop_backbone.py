@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Any, Callable, Iterator, List, Mapping, Sequence, Tuple, Union, overload
+from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -90,8 +90,8 @@ class EP(nn.Module):
             else:
                 nn.init.xavier_uniform_(self.W[idx].weight)
 
-    @eqprop_util.type_as
-    def forward(self, x, y=None, beta=0.0) -> List[torch.Tensor]:
+    # @eqprop_util.type_as
+    def forward(self, x, y=None, beta=0.0) -> list[torch.Tensor]:
         """Relax Nodes till converge."""
         self.W.requires_grad_(False)  # freeze weights
         if beta == 0.0:
@@ -106,11 +106,11 @@ class EP(nn.Module):
         self,
         x,
         y=None,
-        Nodes: List[torch.Tensor] = None,
+        Nodes: list[torch.Tensor] = None,
         beta=0.0,
         iters=None,
         **kwargs,
-    ) -> List[torch.Tensor]:
+    ) -> list[torch.Tensor]:
         """Minimize the total energy function using torch.autograd."""
         Nodes = self._Nodes if Nodes is None else Nodes
         iters = self.free_iters if iters is None else iters
@@ -121,11 +121,11 @@ class EP(nn.Module):
         relaxedNodes1 = [nodes.clone().detach() for nodes in Nodes]
         return relaxedNodes1
 
-    def step(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
+    def step(self, Nodes: list[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
         """Update Nodes one step.
 
         Args:
-            Nodes (List[torch.Tensor]): _description_
+            Nodes (list[torch.Tensor]): _description_
             x (_type_): _description_
             y (_type_, optional): _description_. Defaults to None.
             beta (float, optional): _description_. Defaults to 0.0.
@@ -141,11 +141,11 @@ class EP(nn.Module):
                 Nodes[idx].requires_grad_(True)
 
     # TODO: make net._Nodes gradient zero after step
-    def step_(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
+    def step_(self, Nodes: list[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
         """Alternative method to step. Use autograd.backward() instead.
 
         Args:
-            Nodes (List[torch.Tensor]): _description_
+            Nodes (list[torch.Tensor]): _description_
             x (_type_): _description_
             y (_type_, optional): _description_. Defaults to None.
             beta (float, optional): _description_. Defaults to 0.0.
@@ -159,7 +159,7 @@ class EP(nn.Module):
                 nodes.requires_grad_(True)
                 nodes.grad = None  # ...?
 
-    def energy(self, Nodes: List[torch.Tensor], x) -> torch.Tensor:
+    def energy(self, Nodes: list[torch.Tensor], x) -> torch.Tensor:
         """Energy function."""
         it = len(Nodes)
         act = self.activation
@@ -193,7 +193,7 @@ class EP(nn.Module):
         return E
 
     def Tenergy(
-        self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0, **kwargs
+        self, Nodes: list[torch.Tensor], x, y=None, beta: float = 0.0, **kwargs
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute Total Free Energy: Wsum rho(u_i)W_{ij}rho(u_j)"""
         E = self.energy(Nodes, x)
@@ -216,7 +216,7 @@ class EP(nn.Module):
         return L
 
     @torch.no_grad()
-    def update(self, free_nodes: List[torch.Tensor], nudge_nodes: List[torch.Tensor], x) -> None:
+    def update(self, free_nodes: list[torch.Tensor], nudge_nodes: list[torch.Tensor], x) -> None:
         """Update weights with hardcoded gradients from theorm.
 
         dw_ij = (rho(un_i)rho(un_j) - rho(uf_i)rho(uf_j))/beta
@@ -225,8 +225,8 @@ class EP(nn.Module):
           uf<>: minimized free_nodes
 
         Args:
-            free_nodes (List[torch.Tensor]): _description_
-            nudge_nodes (List[torch.Tensor]): _description_
+            free_nodes (list[torch.Tensor]): _description_
+            nudge_nodes (list[torch.Tensor]): _description_
             x (_type_): _description_
         """
         # lr = 1e-1
@@ -276,7 +276,7 @@ class EP(nn.Module):
         return (Ef.clone().detach(), En.clone().detach(), loss)
 
     @property
-    def Nodes(self) -> List[torch.Tensor]:
+    def Nodes(self) -> list[torch.Tensor]:
         """Get nodes."""
         Nodes = [nodes.clone().detach().requires_grad_(True) for nodes in self._Nodes]
         return Nodes
@@ -286,7 +286,7 @@ class AnalogEP(EP):
     """Use slightly different energy(pseudopower)
 
     Attrs:
-        _Nodes (List[torch.Tensor]): output node voltages of each layer
+        _Nodes (list[torch.Tensor]): output node voltages of each layer
     """
 
     def __init__(
@@ -384,7 +384,7 @@ class AnalogEP(EP):
         return N - M
 
     @torch.no_grad()
-    def update(self, free_opt_Vout: List[torch.Tensor], nudge_opt_Vout: List[torch.Tensor], x):
+    def update(self, free_opt_Vout: list[torch.Tensor], nudge_opt_Vout: list[torch.Tensor], x):
         """Update weights from optimized Node Voltages (free_opt_Vout & nudge_opt_Vout)"""
         self.W.requires_grad_(True)
         self.W.zero_grad()
@@ -418,8 +418,8 @@ class AnalogEP2(nn.Module):
         bias: bool = False,
         positive_w: bool = True,
         min_w: float = 1e-6,
-        max_w: float | None = None,
-        max_w_gain: float = 0.28,
+        max_w: Optional[float] = None,
+        max_w_gain: Optional[float] = 0.28,
         scale_input: int = 2,
         scale_output: int = 2,
     ) -> None:
@@ -447,7 +447,7 @@ class AnalogEP2(nn.Module):
         # instiantiate solver
         self.solver = solver(self.model)
 
-        eqprop_util.interleave.set_num_output(scale_input)
+        eqprop_util.interleave.set_num_input(scale_input)
         eqprop_util.interleave.set_num_output(scale_output)
 
         FutureWarning("AnalogEP2 will be replaced by eqprop.nn.EqPropLinear")
@@ -542,7 +542,7 @@ class AnalogEP2(nn.Module):
 
     def reset_nodes(self):
         for buf in self.model.buffers():
-            buf = torch.zeros_like(buf)
+            buf.zero_()
 
     def set_nodes(self, reversed_nodes: list, positive_phase: bool) -> None:
         """Set free/nudge nodes to each layer.

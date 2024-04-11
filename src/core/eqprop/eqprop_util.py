@@ -12,33 +12,40 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 class interleave:
-    """Decorator class for interleaving in/out nodes."""
+    """Decorator class for interleaving in/out nodes.
+
+    If type is "in", doubles and flips adjacent element for first input tensor. \\ If type is
+    "out", sum every num_output elems to one for all output tensor. \\ If type is "both", does
+    both.
+    """
 
     def __init__(self, type: Literal["in", "out", "both"]):
         self.type = type
         # self._num_output = 0
         # self.num_output = interleave._num_output
 
-    def __call__(self, func: Callable[..., Any]) -> Callable:
+    def __call__(self, func: Callable[..., torch.Tensor]) -> Callable:
         """Decorator for interleaving in/out nodes."""
 
         @functools.wraps(func)
         def wrapper(obj, *args, **kwargs) -> torch.Tensor:
-            if self._num_output:
-                if self.type in ["in", "both"]:
+            if self.type in ["in", "both"]:
+                if len(args) == 1:
+                    args = (self.interleave_input(*args),)
+                elif len(args) == 2:
                     ins, *others = args
                     args = self.interleave_input(ins), *others
-                outs = func(obj, *args, **kwargs)
-                if self.type in ["out", "both"]:
-                    outs = self.interleave_output(outs)
-                return outs
-            else:
-                return func(obj, *args, **kwargs)
+                else:
+                    raise ValueError("No input argument found")
+            outs = func(obj, *args, **kwargs)
+            if self.type in ["out", "both"]:
+                outs = self.interleave_output(outs)
+            return outs
 
         return wrapper
 
     def interleave_output(self, t: torch.Tensor) -> torch.Tensor:
-        """Interleave 2D tensor."""
+        """Interleave 2D tensor if num output set to even."""
         assert t.dim() == 2, "interleave only works on 2D tensors"
         if self._num_output == 1:
             return t
@@ -53,14 +60,20 @@ class interleave:
 
     @torch.no_grad()
     def interleave_input(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.view(x.size(0), -1)  # == x.view(-1,x.size(-1)**2)
-        x = x.repeat_interleave(2, dim=1)
-        x[:, 1::2] = -x[:, ::2]
-        return x
+        """Interleave input tensor."""
+        if self._num_input == 1:
+            return x.view(x.size(0), -1)
+        elif self._num_input == 2:
+            x = x.view(x.size(0), -1)  # == x.view(-1,x.size(-1)**2)
+            x = x.repeat_interleave(2, dim=1)
+            x[:, 1::2] = -x[:, ::2]
+            return x
+        else:
+            raise ValueError("num_input must be 1 or 2")
 
     @classmethod
     def set_num_input(cls, num_input):
-        assert num_input % 2 == 0 or num_input == 1, "num_input must be even or 1"
+        assert num_input == 2 or num_input == 1, "num_input must be 2 or 1"
         cls._num_input = num_input
 
     @classmethod
@@ -74,6 +87,7 @@ class type_as:
 
     def __init__(self, func: Callable[..., Union[Sequence[torch.Tensor], torch.Tensor]]):
         self.func = func
+        raise DeprecationWarning("Use torch.Tensor.to(self.device) instead.")
 
     def __call__(self, obj, *args, **kwargs):
         """Decorator for matching output tensor type as input tensor type."""
@@ -98,15 +112,15 @@ class BaseRectifier(ABC):
 
     @abstractmethod
     def i(self, V: torch.Tensor):
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def a(self, V: torch.Tensor):
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def p(self, V: torch.Tensor):
-        raise NotImplementedError
+        pass
 
 
 class OTS(BaseRectifier):

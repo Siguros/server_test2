@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 import torch
 import torch.nn as nn
@@ -34,7 +34,6 @@ class EqPropSolver:
         strategy: AbstractStrategy,
     ) -> None:
         self.amp_factor = amp_factor
-        self.model = model
         self.beta = beta
         strategy.set_strategy_params(model)
         self.strategy = strategy
@@ -50,7 +49,13 @@ class EqPropSolver:
         elif value == "flip":
             self._beta *= -1
 
-    def __call__(self, x: torch.Tensor, **kwargs: Any) -> tuple[list[torch.Tensor], torch.Tensor]:
+    def __call__(
+        self,
+        x: torch.Tensor,
+        nudge_phase: bool,
+        grad: torch.Tensor | None = None,
+        **kwargs: Any,
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
         """Call the solver.
 
         Args:
@@ -59,19 +64,18 @@ class EqPropSolver:
             return_energy (bool, optional): Defaults to False.
         """
         i_ext = None
-        if kwargs.get("nudge_phase", False):
-            i_ext = self.beta * self.model.ypred.grad
+        if nudge_phase:
+            i_ext = self.beta * grad
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
         else:
-            del self.model.ypred
             self.strategy.reset()
-        reversed_nodes = self.strategy.solve(x, i_ext, **kwargs)
-        reversed_nodes.reverse()
+        nodes = self.strategy.solve(x, i_ext, **kwargs)
+        # nodes.reverse()
         if kwargs.get("return_energy", False):
-            E = self.energy(reversed_nodes, x)
-            return (reversed_nodes, E)
+            E = self.energy(nodes, x)
+            return (nodes, E)
         else:
-            return (reversed_nodes, None)
+            return (nodes, None)
 
     def energy(self, Nodes, x) -> torch.Tensor:
         """Energy function."""

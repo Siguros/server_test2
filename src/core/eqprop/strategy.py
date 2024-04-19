@@ -45,7 +45,7 @@ class AbstractStrategy(ABC):
 
     def __init__(
         self,
-        activation: Callable | str,
+        activation: Callable,
         max_iter: int = 30,
         atol: float = 1e-6,
         **kwargs,

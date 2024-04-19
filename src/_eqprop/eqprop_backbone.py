@@ -442,7 +442,7 @@ class AnalogEP2(nn.Module):
 
         # Add free/nudge nodes per layer as buffers
         self.init_nodes(batch_size)
-        self.model.register_buffer("ypred", torch.empty(batch_size, cfg[-1]))
+        self.register_buffer("ypred", torch.empty(batch_size, cfg[-1]))
 
         # instiantiate solver
         self.solver = solver(self.model)
@@ -465,19 +465,19 @@ class AnalogEP2(nn.Module):
         """
         # assert self.training is False
         self.reset_nodes()
-        reversed_nodes, _ = self.solver(x)
-        self.set_nodes(reversed_nodes, positive_phase=True)
+        nodes, _ = self.solver(x, nudge_phase=False)
+        self.set_nodes(nodes, positive_phase=True)
         logits = self.model[-1].get_buffer("positive_node")
-        self.model.ypred = logits.detach().clone().requires_grad_(True)
-        return self.model.ypred
+        self.ypred = logits.detach().clone().requires_grad_(True)
+        return self.ypred
 
     @eqprop_util.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
         assert self.training
-        reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=False)
+        nodes, _ = self.solver(x, grad=self.ypred.grad, nudge_phase=True)
+        self.set_nodes(nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
 
@@ -541,27 +541,29 @@ class AnalogEP2(nn.Module):
         self.model.apply(_init_nodes)
 
     def reset_nodes(self):
+        """Reset free/nudge nodes to zero."""
         for buf in self.model.buffers():
             buf.zero_()
 
-    def set_nodes(self, reversed_nodes: list, positive_phase: bool) -> None:
+    def set_nodes(self, nodes: list, positive_phase: bool) -> None:
         """Set free/nudge nodes to each layer.
 
         Args:
-            reversed_nodes (list): reversed list of free/nudge nodes from last layer to first layer
+            nodes (list): list of free/nudge nodes from last layer to first layer
             positive_phase (bool): True if positive phase, False otherwise
         """
 
         def _set_nodes_layer(submodule: nn.Module):
-            nonlocal reversed_nodes
+            nonlocal nodes
             if hasattr(submodule, "positive_node"):
                 if positive_phase:
-                    submodule.positive_node = reversed_nodes.pop()
+                    submodule.positive_node = nodes.pop()
                 else:
-                    submodule.negative_node = reversed_nodes.pop()
+                    submodule.negative_node = nodes.pop()
 
+        nodes.reverse()
         self.model.apply(_set_nodes_layer)
-        del reversed_nodes
+        del nodes
 
 
 class AnalogEPSym(AnalogEP2):
@@ -576,8 +578,8 @@ class AnalogEPSym(AnalogEP2):
         """Forward propagation."""
         # assert self.training is False
         self.reset_nodes()
-        reversed_nodes, _ = self.solver(x)
-        logits = reversed_nodes[0]
+        nodes, _ = self.solver(x)
+        logits = nodes[0]
         self.model.ypred = logits.clone().detach().requires_grad_(True)
         return self.model.ypred
 
@@ -585,11 +587,11 @@ class AnalogEPSym(AnalogEP2):
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
-        reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=True)
+        nodes, _ = self.solver(x, nudge_phase=True)
+        self.set_nodes(nodes, positive_phase=True)
         self.solver.beta = "flip"
-        reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=False)
+        nodes, _ = self.solver(x, nudge_phase=True)
+        self.set_nodes(nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
         self.solver.beta = "flip"

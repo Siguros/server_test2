@@ -12,7 +12,8 @@ from src.models.classifier_module import BinaryClassifierLitModule, ClassifierLi
 class EqPropLitModule(ClassifierLitModule):
     """EqProp Meta class.
 
-    Has control over in/output node manipulation and training procedure
+    Manual optimization enabled due to EqProp algorithm.
+    Has control over training procedure including weight clipping
     It does not know detailed EqProp algorithm
 
     A ClassifierLitModule organizes your PyTorch code into 6 sections:

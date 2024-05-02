@@ -21,7 +21,7 @@ xor_onehot_config = make_config(
 )
 ep_xor_config = make_config(
     bases=(xor_config,),
-    model=dict(optimizer=dict(lr=0.001, momentum=0.0)),
+    model=dict(optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=True)),
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
@@ -54,6 +54,7 @@ ep_mnist_config = make_config(
         {"override /data": "mnist"},
         {"override /model": "ep-mnist"},
     ],
+    model=dict(optimizer=dict(lr=0.1, momentum=0.9)),
 )
 
 

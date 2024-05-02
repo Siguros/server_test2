@@ -30,7 +30,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 #
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
-from src.core.eqprop import eqprop_util
+
 from src.utils import (
     RankedLogger,
     extras,

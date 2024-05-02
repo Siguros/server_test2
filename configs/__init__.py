@@ -76,6 +76,7 @@ EvalConfig = make_config(
 
 
 def register_configs():
+    """Register all configs under config directory to hydra-zen."""
     for root, dirs, files in os.walk(os.path.dirname(__file__)):
         for file in files:
             if file.endswith(".py") and not file.startswith("__"):
@@ -88,7 +89,7 @@ def register_configs():
 
 
 def register_everything() -> None:
-    """Register all configs in hydra-zen and eval resolver to hydra global Configstore."""
+    """Register all configs and eval resolver to hydra global Configstore."""
     register_configs()
     store.add_to_hydra_store()
     if not OmegaConf.has_resolver("eval"):

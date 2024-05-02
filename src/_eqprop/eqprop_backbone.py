@@ -406,7 +406,17 @@ class AnalogEP2(nn.Module):
     """Direct implementation of analog eqprop.
 
     Args:
-        nn (_type_): _description_
+        batch_size (int): batch size
+        solver (Callable[[nn.Module], AnalogEqPropSolver]): solver class
+        cfg (list[int], optional): network architecture. Defaults to [784*2, 128, 10*2].
+        beta (float, optional): loss coupling strength. Defaults to 0.1.
+        bias (bool, optional): use bias. Defaults to False.
+        positive_w (bool, optional): positive weights. Defaults to True.
+        min_w (float, optional): minimum weight. Defaults to 1e-6.
+        max_w (Optional[float], optional): maximum weight. Defaults to None.
+        max_w_gain (Optional[float], optional): maximum weight gain. Defaults to 0.28.
+        scale_input (int, optional): input scaling. Defaults to 2.
+        scale_output (int, optional): output scaling. Defaults to 2.
     """
 
     def __init__(

@@ -72,7 +72,7 @@ class AbstractStrategy(ABC):
 
     @abstractmethod
     def reset(self):
-        """Reset the internal states after 1 iteration."""
+        """Reset the internal states at the beginning of 1 iteration."""
         ...
 
     # TODO: 일부레이어만 bias 있다면? -> eqprop 모듈화
@@ -149,22 +149,29 @@ class PythonStrategy(AbstractStrategy):
 
 
 class FirstOrderStrategy(PythonStrategy):
-    """Solve for the equilibrium point of the network with first order approximation.
-
-    Args:
-        add_nonlin_last (bool): whether to add nonlinearity at the last layer.
-    """
+    """Solve for the equilibrium point of the network with first order approximation."""
 
     def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)
         self._L = None
         self._R = None
+        self._B = None
         self.add_nonlin_last = add_nonlin_last
         self._set: bool = False
 
     @torch.no_grad()
+    def bias(self) -> torch.Tensor:
+        """Compute the 2D Bias matrix and cache it."""
+        if self._B is None:
+            dims = self.dims
+            size = sum(dims)
+            B = torch.zeros(size).type_as(self.W[0]) if not self.B else torch.cat(self.B, dim=-1)
+            self._B = B
+        return self._B.detach().clone()
+
+    @torch.no_grad()
     def laplacian(self) -> torch.Tensor:
-        """Compute the 2D Laplacian matrix and cache it."""
+        """Compute the 2D Laplacian + bias matrix and cache it."""
         if self._L is None:
             dims = self.dims
             size = sum(dims)
@@ -177,6 +184,7 @@ class FirstOrderStrategy(PythonStrategy):
             L = Ll + Ll.mT * self.amp_factor
             D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(self.W[0].sum(-1), (0, size - dims[0]))
             L += D0.diag()
+            L += self.bias().diag()
             self._L = L
             self._set = True
         elif self._set is False:
@@ -185,16 +193,11 @@ class FirstOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def rhs(self, x) -> torch.Tensor:
-        """Compute the 2D RHS vector without i_ext and cache it."""
+        """Compute the 2D RHS vector {-bias +-x@W0} without i_ext and cache it."""
         dims = self.dims
-        size = sum(dims)
         if self._R is None:
-            B = torch.zeros(size).type_as(x) if not self.B else torch.cat(self.B, dim=-1)
-            B = (
-                B.expand(x.size(0), *B.shape).clone()
-                if len(x.shape) == 2
-                else B.clone().unsqueeze(0)
-            )
+            B = -self.bias()
+            B = B.expand(x.size(0), *B.shape).clone() if len(x.shape) == 2 else B.unsqueeze(0)
             B[:, : dims[0]] -= x @ self.W[0].T
             B *= self.amp_factor
             self._R = B
@@ -209,7 +212,7 @@ class FirstOrderStrategy(PythonStrategy):
         x: torch.Tensor,
         i_ext: torch.Tensor | None,
     ):
-        """Compute the residual Lv + R + i_r(v)"""
+        """Compute the residual (L+b)v + R + i_r(v)"""
         L = self.laplacian()
         R = self.rhs(x)
         if i_ext is not None:
@@ -232,7 +235,7 @@ class FirstOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def lin_solve(self, x, i_ext) -> torch.Tensor:
-        """Solve the linear system Lv = -(R + i_ext)."""
+        """Solve the linear system (L+b)v = -(R + i_ext)."""
         if self._free_solution is not None and i_ext is not None:
             v = self.free_solution
         else:
@@ -246,6 +249,7 @@ class FirstOrderStrategy(PythonStrategy):
     def reset(self):
         self._L = None
         self._R = None
+        self._B = None
         self._set = False
 
 
@@ -262,7 +266,7 @@ class SecondOrderStrategy(FirstOrderStrategy):
 
     @torch.no_grad()
     def jacobian(self, v: NpOrTensor) -> torch.Tensor:
-        """Compute the 3D Jacobian of the residual L + a_r(v)"""
+        """Compute the 3D Jacobian of the residual L + b + a_r(v)"""
         L = self.laplacian() + self.eps * torch.eye(v.size(-1)).type_as(v)
         if len(v.shape) == 2:
             batchsize = v.size(0)
@@ -387,7 +391,7 @@ class NewtonStrategy(SecondOrderStrategy):
         x: torch.Tensor,
         i_ext=None,
     ) -> torch.Tensor:
-        r"""Solve J\Delta{X}=-f with dense cholesky/LU decomposition.
+        r"""Solve J\Delta{X}=-f with dense cholesky/LU decomposition. uses adaptive step size.
 
         Args:
             x (torch.Tensor): Input.

@@ -14,8 +14,8 @@ log = RankedLogger(__name__, rank_zero_only=True)
 class interleave:
     """Decorator class for interleaving in/out nodes.
 
-    If type is "in", doubles and flips adjacent element for first input tensor. \\ If type is
-    "out", sum every num_output elems to one for all output tensor. \\ If type is "both", does
+    If type is "in", doubles and flips adjacent element for first input tensor. \n If type is
+    "out", sum every num_output elems to one for all output tensor. \n If type is "both", does
     both.
     """
 
@@ -302,7 +302,7 @@ class AdjustParams:
     def __call__(self, submodule: nn.Module):
         """Adjust parameters."""
         for name, param in submodule.named_parameters():
-            if name == "weight":
+            if name in ["weight", "bias"]:
                 if self.clamp:
                     (
                         log.debug(f"Clamping {submodule._get_name()}...")

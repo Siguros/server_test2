@@ -31,6 +31,22 @@ NewtonStrategyConfig = full_builds(
     activation=P3OTSConfig,
 )
 
+XyceStrategyConfig = full_builds(
+    strategy.XyceStrategy,
+    amp_factor="${model.net.solver.amp_factor}",
+    SPICE_params={
+        "L": [1e-05, 1e-05],
+        "U": [0.11309093484108271, 0.2669695249887658],
+        "A": 4,
+        "alpha": [0.1, 0.05],
+        "beta": 0.01,
+        "Diode": {"Path": "./1N4148.lib", "ModelName": "1N4148", "Rectifier": "BidRectifier"},
+        "noise": 0,
+    },
+    mpi_commands=["mpirun", "-use-hwthread-cpus", "-np", "1", "-cpu-set"],
+    activation=None,
+)
+
 AnalogEqPropSolverConfig = partial_builds(
     solver.AnalogEqPropSolver,
     amp_factor=1.0,
@@ -113,6 +129,7 @@ def _register_configs():
     strategy_store = store(group="model/net/solver/strategy")
     strategy_store(GDStrategyConfig, name="gd")
     strategy_store(NewtonStrategyConfig, name="newton")
+    strategy_store(XyceStrategyConfig, name="Xyce")
 
     model_store = store(group="model")
     model_store(EqPropXORModuleConfig, name="ep-xor")

@@ -21,6 +21,14 @@ MNISTModuleConfig = builds(
     hydra_defaults=[{"optimizer": "adam"}, "_self_"],
 )  # beartype not supported, so we use builds instead of full_builds
 
+MNISTModuleConfigXYCE = builds(
+    MNISTLitModule,
+    net=mnist_narrow_backbone,
+    scheduler=None,
+    builds_bases=(ModuleConfig,),
+    hydra_defaults=[{"optimizer": "adam"}, "_self_"],
+)  # beartype not supported, so we use builds instead of full_builds
+
 mnist_module = MNISTModuleConfig()
 
 
@@ -28,3 +36,4 @@ def _register_configs():
     model_store = store(group="model")
     model_store(mnist_module, name="mnist")
     model_store(MNISTModuleConfig(net=mnist_wide_backbone), name="mnist-wide")
+    model_store(MNISTModuleConfigXYCE(net=mnist_wide_backbone), name="mnist-xyce")

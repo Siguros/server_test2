@@ -1,4 +1,5 @@
 import os
+import ray
 from abc import ABC, abstractmethod
 from typing import Callable
 
@@ -13,6 +14,7 @@ if package_available("scipy"):
 
 from src.core.eqprop import eqprop_util
 from src.utils import RankedLogger
+from src.core.xyce import xyce, circuits, MyCircuit, utils
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -97,14 +99,77 @@ class SPICEStrategy(AbstractStrategy):
         return super().__new__(cls)
     """
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, SPICE_params: dict, mpi_commands:list,
+                **kwargs) -> None:
         super().__init__(**kwargs)
+        self.SPICE_params = SPICE_params
+        self.mpi_commands = mpi_commands
 
     @classmethod
     def _check_spice(cls):
         """Check if spice is installed."""
         raise NotImplementedError()
+    
+    
+    
+class XyceStrategy(SPICEStrategy):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
 
+        if self.mpi_commands[-1] == '-cpu-set':
+            #self.mpi_commands.append(str(id + 1))
+            pass
+        self.sim=xyce.XyceSim(mpi_commands=self.mpi_commands)
+        self.clipper=utils.weightClipper(L = self.SPICE_params["L"], U =None)
+
+               
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        """Solve for the equilibrium point of the network with Xyce."""
+
+        """create netlist & run Xyce"""
+        nodes_list = []
+        ## not multiprocessing yet
+        batch_size = x.size(0)
+        dims = [len(x[0])] + self.dims
+        for i in range(batch_size):
+            if i_ext is None:
+                self.create_netlist(x[i], i_ext)
+            else:
+                self.create_netlist(x[i], i_ext[i])
+
+            
+            raw_file = self.sim(spice_input=self.circuit)
+            voltages = utils.SPICEParser.fastRawfileParser(raw_file, nodenames = self.circuit.nodes, dimensions = dims)
+
+            
+
+            combined_voltages = np.concatenate([voltages[1][0],voltages[1][1]])
+            nodes_list.append(combined_voltages)
+        
+        nodes_array = np.stack(nodes_list, axis=0)
+        nodes = torch.from_numpy(nodes_array).float()
+        nodes.to(x.device)
+        nodes = [node.to(x.device) for node in nodes.split(self.dims, dim=1)]
+        return nodes
+    
+    def create_netlist(self, x, I_ext):
+        """Convert input to netlist."""
+        """self.W, self.B, self.dims / diode model name in self.SPICE_params"""
+
+        self.Pycircuit = circuits.createCircuit(input=x, bias=self.B, W = self.W, dimensions = self.dims, **self.SPICE_params)
+        self.circuit = MyCircuit.MyCircuit.copyFromCircuit(self.Pycircuit)
+
+        if I_ext is None: 
+            utils.SPICEParser.clampLayer(self.circuit, x)
+        else:
+            utils.SPICEParser.releaseLayer(self.circuit, I_ext)
+
+        return 
+
+    
+    def reset(self):
+        """Reset the internal states after 1 iteration."""
+        return NotImplementedError()
 
 class PythonStrategy(AbstractStrategy):
     """Calculate Node potentials with Python."""

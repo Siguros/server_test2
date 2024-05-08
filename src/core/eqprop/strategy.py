@@ -1,9 +1,9 @@
 import os
-import ray
 from abc import ABC, abstractmethod
 from typing import Callable
 
 import numpy as np
+import ray
 import torch
 import torch.nn.functional as F
 
@@ -13,8 +13,8 @@ if package_available("scipy"):
     from scipy.optimize import fsolve
 
 from src.core.eqprop import eqprop_util
+from src.core.xyce import MyCircuit, circuits, utils, xyce
 from src.utils import RankedLogger
-from src.core.xyce import xyce, circuits, MyCircuit, utils
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -99,8 +99,7 @@ class SPICEStrategy(AbstractStrategy):
         return super().__new__(cls)
     """
 
-    def __init__(self, SPICE_params: dict, mpi_commands:list,
-                **kwargs) -> None:
+    def __init__(self, SPICE_params: dict, mpi_commands: list, **kwargs) -> None:
         super().__init__(**kwargs)
         self.SPICE_params = SPICE_params
         self.mpi_commands = mpi_commands
@@ -109,26 +108,24 @@ class SPICEStrategy(AbstractStrategy):
     def _check_spice(cls):
         """Check if spice is installed."""
         raise NotImplementedError()
-    
-    
-    
+
+
 class XyceStrategy(SPICEStrategy):
+    """Get Node potentials with Xyce."""
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        if self.mpi_commands[-1] == '-cpu-set':
-            #self.mpi_commands.append(str(id + 1))
+        if self.mpi_commands[-1] == "-cpu-set":
+            # self.mpi_commands.append(str(id + 1))
             pass
-        self.sim=xyce.XyceSim(mpi_commands=self.mpi_commands)
-        self.clipper=utils.weightClipper(L = self.SPICE_params["L"], U =None)
+        self.sim = xyce.XyceSim(mpi_commands=self.mpi_commands)
 
-               
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
         """Solve for the equilibrium point of the network with Xyce."""
 
-        """create netlist & run Xyce"""
         nodes_list = []
-        ## not multiprocessing yet
+        # not multiprocessing yet
         batch_size = x.size(0)
         dims = [len(x[0])] + self.dims
         for i in range(batch_size):
@@ -137,39 +134,40 @@ class XyceStrategy(SPICEStrategy):
             else:
                 self.create_netlist(x[i], i_ext[i])
 
-            
             raw_file = self.sim(spice_input=self.circuit)
-            voltages = utils.SPICEParser.fastRawfileParser(raw_file, nodenames = self.circuit.nodes, dimensions = dims)
+            voltages = utils.SPICEParser.fastRawfileParser(
+                raw_file, nodenames=self.circuit.nodes, dimensions=dims
+            )
 
-            
-
-            combined_voltages = np.concatenate([voltages[1][0],voltages[1][1]])
+            combined_voltages = np.concatenate([voltages[1][0], voltages[1][1]])
             nodes_list.append(combined_voltages)
-        
+
         nodes_array = np.stack(nodes_list, axis=0)
         nodes = torch.from_numpy(nodes_array).float()
         nodes.to(x.device)
         nodes = [node.to(x.device) for node in nodes.split(self.dims, dim=1)]
         return nodes
-    
+
     def create_netlist(self, x, I_ext):
         """Convert input to netlist."""
-        """self.W, self.B, self.dims / diode model name in self.SPICE_params"""
+        """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
 
-        self.Pycircuit = circuits.createCircuit(input=x, bias=self.B, W = self.W, dimensions = self.dims, **self.SPICE_params)
+        self.Pycircuit = circuits.createCircuit(
+            input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
+        )
         self.circuit = MyCircuit.MyCircuit.copyFromCircuit(self.Pycircuit)
 
-        if I_ext is None: 
+        if I_ext is None:
             utils.SPICEParser.clampLayer(self.circuit, x)
         else:
             utils.SPICEParser.releaseLayer(self.circuit, I_ext)
 
-        return 
+        return
 
-    
     def reset(self):
         """Reset the internal states after 1 iteration."""
         return NotImplementedError()
+
 
 class PythonStrategy(AbstractStrategy):
     """Calculate Node potentials with Python."""
@@ -305,6 +303,7 @@ class FirstOrderStrategy(PythonStrategy):
         return v
 
     def reset(self):
+        """Reset method."""
         self._L = None
         self._R = None
         self._set = False
@@ -342,6 +341,8 @@ class SecondOrderStrategy(FirstOrderStrategy):
 
 
 class ScipyStrategy(SecondOrderStrategy):
+    """Solve for the equilibrium point of the network with Scipy."""
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -374,6 +375,8 @@ class ScipyStrategy(SecondOrderStrategy):
 
 
 class GradientDescentStrategy(FirstOrderStrategy):
+    """Solve for the equilibrium point of the network with gradient descent."""
+
     def __init__(self, alpha: float = 1.0, **kwargs) -> None:
         super().__init__(**kwargs)
         self.alpha = alpha
@@ -951,6 +954,7 @@ class LMStrategy(PythonStrategy):
 
 
 def _inv_L(W: torch.Tensor, D0: torch.Tensor, dims: list) -> torch.Tensor:
+    """Compute the inverse of the Laplacian matrix."""
     hidden_len = dims[0]
     D1 = D0[hidden_len:]
     D2 = D0[:hidden_len]

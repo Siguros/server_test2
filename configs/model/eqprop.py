@@ -12,6 +12,7 @@ from src._eqprop import (
 )
 from src.core.eqprop import eqprop_util, solver, strategy
 
+IdealRectifierConfig = full_builds(eqprop_util.IdealRectifier)
 P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=0, Vr=0)
 p3ots_real = P3OTSConfig(Is=4.352e-6, Vth=0.026, Vl=0, Vr=0)
 symrelu = full_builds(eqprop_util.SymReLU, Vl=-0.6, Vr=0.6)
@@ -30,6 +31,12 @@ GDStrategyConfig = full_builds(
     activation=MISSING,
 )
 
+IdealQPStrategyConfig = full_builds(
+    strategy.IdealQPStrategy,
+    amp_factor="${model.net.solver.amp_factor}",
+    activation=MISSING,
+)
+
 NewtonStrategyConfig = full_builds(
     strategy.NewtonStrategy,
     clip_threshold=0.5,
@@ -38,6 +45,7 @@ NewtonStrategyConfig = full_builds(
     max_iter=25,
     atol=1e-6,
     activation=MISSING,
+    add_nonlin_last=False,
 )
 
 AnalogEqPropSolverConfig = partial_builds(
@@ -119,6 +127,7 @@ EqPropXORModuleConfig = builds(
     param_adjuster=xor_adjuster,
     builds_bases=(EqPropModuleConfig,),
     hydra_defaults=ep_defaults,
+    populate_full_signature=True,
 )
 
 EqPropXOROHModuleConfig = builds(
@@ -149,7 +158,9 @@ ep_mnist_adamw = builds(
 EqPropMNISTMSEModuleConfig = builds(
     EqPropMSELitModule,
     net=eqprop_mnist,
+    param_adjuster=ParamAdjusterConfig(),
     builds_bases=(EqPropModuleConfig,),
+    hydra_defaults=ep_defaults,
 )
 
 ep_xor_dummy = builds(
@@ -162,6 +173,7 @@ ep_xor_dummy = builds(
 
 def _register_configs():
     activation_store = store(group="model/net/solver/strategy/activation")
+    activation_store(IdealRectifierConfig, name="ideal")
     activation_store(P3OTSConfig, name="p3ots")
     activation_store(p3ots_real, name="p3ots-real")
     activation_store(symrelu, name="symrelu")
@@ -169,6 +181,7 @@ def _register_configs():
     strategy_store = store(group="model/net/solver/strategy")
     strategy_store(GDStrategyConfig, name="gd")
     strategy_store(NewtonStrategyConfig, name="newton")
+    strategy_store(IdealQPStrategyConfig, name="ideal-qp")
 
     model_store = store(group="model")
     model_store(EqPropXORModuleConfig, name="ep-xor")

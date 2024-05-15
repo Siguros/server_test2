@@ -1,6 +1,4 @@
-import os
 from abc import ABC, abstractmethod
-from typing import Callable
 
 import numpy as np
 import torch
@@ -19,7 +17,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 NpOrTensor = np.ndarray | torch.Tensor
 
 
-def cache_free_solution(func):
+def cache_free_solution(func: callable):
     """Cache the free-phase solution of the network."""
 
     def wrapper(self, x, i_ext, **kwargs):
@@ -45,7 +43,7 @@ class AbstractStrategy(ABC):
 
     def __init__(
         self,
-        activation: Callable,
+        activation: eqprop_util.AbstractRectifier,
         max_iter: int = 30,
         atol: float = 1e-6,
         **kwargs,
@@ -242,7 +240,7 @@ class FirstOrderStrategy(PythonStrategy):
             lo = torch.linalg.cholesky(self.laplacian())
             R = self.rhs(x)
             if i_ext is not None:
-                R[-self.dims[-1] :] += i_ext * self.amp_factor
+                R[:, -self.dims[-1] :] += i_ext * self.amp_factor
             v = torch.cholesky_solve(-R.unsqueeze(-1), lo).squeeze(-1)
         return v
 
@@ -347,6 +345,20 @@ class GradientDescentStrategy(FirstOrderStrategy):
             f"stepsolve did not converge in {self.max_iter} iterations, residual={dv.abs().max():.3e}"
         )
         return v
+
+
+class IdealQPStrategy(FirstOrderStrategy):
+
+    def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
+        super().__init__(add_nonlin_last, **kwargs)
+
+    @torch.no_grad()
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        self.check_and_set_attrs(kwargs)
+        v = self.lin_solve(x, i_ext)
+        v = v.clamp(min=self.activation.Vl, max=self.activation.Vr)
+        nodes = list(v.split(self.dims, dim=1))
+        return nodes
 
 
 class NewtonStrategy(SecondOrderStrategy):

@@ -101,7 +101,7 @@ class type_as:
         return functools.partial(self.__call__, instance)
 
 
-class BaseRectifier(ABC):
+class AbstractRectifier(ABC):
     """Base class for rectifiers."""
 
     def __init__(self, Is, Vth, Vl, Vr):
@@ -123,7 +123,24 @@ class BaseRectifier(ABC):
         pass
 
 
-class OTS(BaseRectifier):
+class IdealRectifier(AbstractRectifier):
+
+    def __init__(self, Vl=-1, Vr=1):
+        super().__init__(None, None, Vl, Vr)
+
+    def i(self, V: torch.Tensor):
+        return torch.zeros_like(V)
+
+    def a(self, V: torch.Tensor):
+        return torch.zeros_like(V)
+
+    @classmethod
+    def p(cls, V: torch.Tensor):
+        """Compute power."""
+        pass
+
+
+class OTS(AbstractRectifier):
     """Ovonic Threshold Switch rectifier."""
 
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
@@ -176,7 +193,7 @@ class SymOTS(OTS):
         )
 
 
-class PolyOTS(BaseRectifier):
+class PolyOTS(AbstractRectifier):
     """Polynomial Taylor expansion of OTS rectifier."""
 
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9, power=2):
@@ -214,7 +231,7 @@ class PolyOTS(BaseRectifier):
         return self.Is * res
 
 
-class P3OTS(BaseRectifier):
+class P3OTS(AbstractRectifier):
     """3rd order polynomial OTS rectifier."""
 
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
@@ -235,7 +252,7 @@ class P3OTS(BaseRectifier):
         pass
 
 
-class SymReLU(BaseRectifier):
+class SymReLU(AbstractRectifier):
     """Symmetric ReLU rectifier."""
 
     def __init__(self, Is=1, Vth=1, Vl=-0.5, Vr=0.5):
@@ -305,7 +322,7 @@ class AdjustParams:
             if name in ["weight", "bias"]:
                 if self.clamp:
                     (
-                        log.debug(f"Clamping {submodule._get_name()}...")
+                        log.debug(f"Clamping {name}...")
                         if torch.any(param.min() < self.min)
                         else ...
                     )
@@ -314,25 +331,23 @@ class AdjustParams:
                     nn.functional.normalize(param, dim=1, p=2)
 
 
-def init_params(min_w: float = 1e-6, max_w: float | None = None, max_w_gain: float = 0.08):
+def positive_param_init(min_w: float = 1e-6, max_w: float | None = None, max_w_gain: float = 0.08):
     """Initialize weights."""
     if max_w is None and max_w_gain is None:
         raise ValueError("Either max_w or max_w_gain must be provided")
 
-    def _init_params(
-        submodule: nn.Module,
-        param_name: str = "weight",
-    ):
+    def _init_params(submodule: nn.Module):
         nonlocal min_w, max_w, max_w_gain
-        if hasattr(submodule, param_name):
-            param = submodule.get_parameter(param_name)
+        if hasattr(submodule, "weight") and getattr(submodule, "weight") is not None:
+            param = submodule.get_parameter("weight")
             # positive xaiver_uniform
             fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(param)
-
             upper_thres = max_w_gain / math.sqrt(fan_in + fan_out) if max_w is None else max_w
             nn.init.uniform_(param, min_w, upper_thres)
+        if hasattr(submodule, "bias") and getattr(submodule, "bias") is not None:
+            nn.init.zeros_(submodule.get_parameter("bias"))
 
-    return functools.partial(_init_params, param_name="weight")
+    return _init_params
 
 
 def gaussian_noise(std: float):

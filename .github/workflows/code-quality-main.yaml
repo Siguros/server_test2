@@ -26,6 +26,8 @@ jobs:
 
       - name: Run pre-commits
         uses: pre-commit/action@v2.0.3
+        env:
+          SKIP: no-commit-to-branch
   build:
     name: Perform CI Checks
     needs: code-quality

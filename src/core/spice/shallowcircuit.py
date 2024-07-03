@@ -1,11 +1,11 @@
 import os
 from collections import OrderedDict
 
-from PySpice.Spice.Netlist import Circuit, FixedPinElement
+from PySpice.Spice.Netlist import Circuit
 
 
 class SimpleElement:
-    """Simple elements."""
+    """Simple elements that only has node name and dc value."""
 
     @classmethod
     def copyFromElement(cls, element):
@@ -23,8 +23,9 @@ class SimpleElement:
         return self.nodes + " " + str(self.value)
 
 
-class MyCircuit:
-    """_summary_
+class ShallowCircuit:
+    """Contains only top-level elements.
+
     components:
         subcircuits: string
         elements: OrderedDict

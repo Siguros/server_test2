@@ -179,13 +179,6 @@ EqPropMNISTMSEModuleConfig = builds(
     hydra_defaults=ep_defaults,
 )
 
-ep_xor_dummy = builds(
-    EqPropLitModule,
-    net=dummy_eqprop_xor,
-    builds_bases=(EqPropModuleConfig,),
-    hydra_defaults=ep_defaults,
-)
-
 
 def _register_configs():
     activation_store = store(group="model/net/solver/strategy/activation")
@@ -206,4 +199,3 @@ def _register_configs():
     model_store(EqPropMNISTModuleConfig, name="ep-mnist")
     model_store(ep_mnist_adamw, name="ep-mnist-adamw")
     model_store(EqPropMNISTMSEModuleConfig, name="ep-mnist-mse")
-    model_store(ep_xor_dummy, name="ep-xor-dummy")

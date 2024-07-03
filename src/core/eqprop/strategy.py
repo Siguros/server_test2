@@ -1,17 +1,17 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-import ray
 import torch
 import torch.nn.functional as F
 
-from src.utils.utils import package_available
+from src.utils import _SCIPY_AVAILABLE, _SPICE_AVAILABLE
 
-if package_available("scipy"):
+if _SCIPY_AVAILABLE:
     from scipy.optimize import fsolve
+if _SPICE_AVAILABLE:
+    from src.core.spice import circuits, shallowcircuit, utils, xyce
 
 from src.core.eqprop import eqprop_util
-from src.core.xyce import MyCircuit, circuits, utils, xyce
 from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -150,10 +150,10 @@ class XyceStrategy(SPICEStrategy):
         """Convert input to netlist."""
         """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
 
-        self.Pycircuit = circuits.createCircuit(
+        self.Pycircuit = circuits.create_circuit(
             input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
         )
-        self.circuit = MyCircuit.MyCircuit.copyFromCircuit(self.Pycircuit)
+        self.circuit = shallowcircuit.ShallowCircuit.copyFromCircuit(self.Pycircuit)
 
         if I_ext is None:
             utils.SPICEParser.clampLayer(self.circuit, x)

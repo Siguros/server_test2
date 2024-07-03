@@ -12,7 +12,7 @@ class XyceSim:
     def __init__(self, **kwargs):
         self._xyce_command = kwargs.get("xyce_command") or "Xyce"
         self._mpi_command = kwargs.get("mpi_command") or ["mpirun", "-use-hwthread-cpus"]
-        assert type(self._mpi_command) is list, "mpi_command of should be list"
+        assert type(self._mpi_command) is list, ValueError("mpi_command must be a list")
 
     def __call__(self, spice_input):
         """Run Xyce simulation and return RawFile instance."""

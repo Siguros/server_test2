@@ -7,7 +7,7 @@ from torch.nn.modules import ModuleList
 from .subcircuits import BidAmplifier, BidRectifier, Neuron, Rarray, ReluRectifier
 
 
-def createCircuit(
+def create_circuit(
     input: torch.tensor, bias: torch.tensor, W: ModuleList, dimensions: list, **params
 ):
     """Create pyspice circuit instance using dictionary type parameters.

@@ -5,13 +5,13 @@ import torch
 from PySpice.Spice.Xyce.RawFile import RawFile
 from torch.nn.modules import ModuleList
 
-from . import MyCircuit
+from . import shallowcircuit
 
 
 class SPICEParser:
     """Parse data between MyCircuit <-> netlist for Xyce."""
 
-    def updateWeight(netlist: MyCircuit, W: ModuleList):  # resetState
+    def updateWeight(netlist: shallowcircuit, W: ModuleList):  # resetState
         """Append Rarray subcircuit to netlist corresponding to updated weight."""
         Rarrays = [
             key for key in netlist.raw_subcircuits.keys() if key.endswith("_resistor_array")
@@ -20,7 +20,7 @@ class SPICEParser:
             last = True if idx == len(Rarrays) - 1 else False
             netlist.raw_subcircuits[key] = SPICEParser.genRarray(W[idx].weight.data, idx, last)
 
-    def clampLayer(netlist: MyCircuit, x: torch.Tensor):
+    def clampLayer(netlist: shallowcircuit, x: torch.Tensor):
         """_summary_
 
         Args:
@@ -40,7 +40,7 @@ class SPICEParser:
         # v = [key, elem for key, elem in netlist.raw_elements.items()
         # if key.startswith('Vs')]
 
-    def releaseLayer(netlist: MyCircuit, ygrad):
+    def releaseLayer(netlist: shallowcircuit, ygrad):
         """_summary_
 
         Args:

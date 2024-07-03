@@ -443,10 +443,10 @@ class AnalogEP2(nn.Module):
         # init weights
         if positive_w:
             self.model.apply(
-                eqprop_util.init_params(
-                    min_w=min_w,
-                    max_w=max_w,
-                    max_w_gain=max_w_gain,
+                eqprop_util.positive_param_init(
+                    min_w,
+                    max_w,
+                    max_w_gain,
                 )
             )
 

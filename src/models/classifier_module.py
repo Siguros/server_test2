@@ -236,7 +236,7 @@ class BinaryClassifierLitModule(ClassifierLitModule):
     ) -> None:
         super(ClassifierLitModule, self).__init__()
 
-        self.save_hyperparameters(logger=False, ignore=["net, criterion"])
+        self.save_hyperparameters(logger=False, ignore=["net", "criterion"])
 
         self.net = net
 

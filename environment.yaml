@@ -43,4 +43,4 @@ dependencies:
       - hydra-optuna-sweeper
       - hydra-colorlog
       - rootutils
-      # - hydra_zen
+      - hydra_zen

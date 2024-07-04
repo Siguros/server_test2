@@ -271,7 +271,7 @@ class BinaryClassifierLitModule(ClassifierLitModule):
         x, y = batch
         logits = self.forward(x).squeeze(-1)
         loss = self.criterion(logits, y.float())
-        preds = (logits > 0).int()
+        preds = (logits > 0.5).int()
         return loss, preds, y
 
 

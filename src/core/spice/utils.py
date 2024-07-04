@@ -57,7 +57,10 @@ class SPICEParser:
             elem.value = +ygrad[idx].item()
 
     def fastRawfileParser(raw_file: RawFile, nodenames: tuple, dimensions: list):
-        """Fast parser for rawfile."""
+        """Parse rawfile to extract Vin, Vout from Xyce simulation.
+
+        Returns: (Vin, Vout) where Vin, Vout are list of numpy arrays.
+        """
         nodes = [
             (node.name, node.as_ndarray())
             for node in raw_file.nodes()

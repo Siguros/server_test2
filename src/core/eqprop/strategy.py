@@ -9,7 +9,7 @@ from src.utils import _SCIPY_AVAILABLE, _SPICE_AVAILABLE
 if _SCIPY_AVAILABLE:
     from scipy.optimize import fsolve
 if _SPICE_AVAILABLE:
-    from src.core.spice import circuits, shallowcircuit, utils, xyce
+    from src.core.spice import circuits, utils, xyce
 
 from src.core.eqprop import eqprop_util
 from src.utils import RankedLogger
@@ -154,7 +154,7 @@ class XyceStrategy(SPICEStrategy):
             self.Pycircuit = circuits.create_circuit(
                 input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
             )
-            self.circuit = shallowcircuit.ShallowCircuit.copyFromCircuit(self.Pycircuit)
+            self.circuit = circuits.ShallowCircuit.copyFromCircuit(self.Pycircuit)
             utils.SPICEParser.clampLayer(self.circuit, x)
 
         else:

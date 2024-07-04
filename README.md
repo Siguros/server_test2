@@ -53,6 +53,20 @@ conda env create -f environment.yaml -n myenv
 conda activate myenv
 ```
 
+#### \[Optional\] SPICE
+
+```bash
+conda install -c conda-forge pyspice
+
+# or
+
+pip install PySpice
+
+# and eventually
+
+pyspice-post-installation --check-install
+```
+
 ## How to run
 
 Train model with default configuration

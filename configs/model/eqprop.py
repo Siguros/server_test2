@@ -52,17 +52,19 @@ XyceStrategyConfig = full_builds(
     strategy.XyceStrategy,
     amp_factor="${model.net.solver.amp_factor}",
     SPICE_params={
-        "L": [1e-05, 1e-05],
-        "U": [0.11309093484108271, 0.2669695249887658],
-        "A": 4,
-        "alpha": [0.1, 0.05],
-        "beta": 0.01,
-        "Diode": {"Path": "./1N4148.lib", "ModelName": "1N4148", "Rectifier": "BidRectifier"},
+        "A": "${model.net.solver.amp_factor}",
+        "beta": "${model.net.beta}",
+        "Diode": {
+            "Path": "./src/core/spice/1N4148.lib",
+            "ModelName": "1N4148",
+            "Rectifier": "BidRectifier",
+        },
         "noise": 0,
     },
     mpi_commands=["mpirun", "-use-hwthread-cpus", "-np", "1", "-cpu-set"],
     activation=None,
 )
+
 
 AnalogEqPropSolverConfig = partial_builds(
     solver.AnalogEqPropSolver,
@@ -104,7 +106,7 @@ eqprop_xor = EqPropBackboneConfig(
     min_w=0.0001,
     max_w=0.1,
     max_w_gain=None,
-    cfg="${eval:'[2*${.scale_input}, 10, 1*${.scale_output}]'}",
+    cfg="${eval:'[2*${.scale_input}, 2, 1*${.scale_output}]'}",
 )
 
 eqprop_xor_onehot = EqPropBackboneConfig(

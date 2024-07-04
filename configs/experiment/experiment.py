@@ -44,6 +44,19 @@ ep_xor_mse_config = make_config(
     ],
 )
 
+ep_xor_mse_xyce_config = make_config(
+    bases=(xor_config,),
+    model=dict(
+        optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=True), criterion=just(MSELoss)
+    ),
+    hydra_defaults=[
+        "_self_",
+        {"override /data": "xor"},
+        {"override /model": "ep-xor"},
+        {"override /model/net/solver/strategy": "Xyce"},
+    ],
+)
+
 ep_xor_onehot_config = make_config(
     bases=(xor_config,),
     hydra_defaults=[
@@ -84,3 +97,4 @@ def _register_configs():
     exp_store(ep_xor_onehot_config, name="ep-xor-onehot")
     exp_store(ep_xor_dummy_config, name="ep-xor-dummy")
     exp_store(ep_mnist_config, name="ep-mnist")
+    exp_store(ep_xor_mse_xyce_config, name="ep-xor-mse-xyce")

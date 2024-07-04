@@ -32,7 +32,7 @@ def create_circuit(
     n_layers = len(dims)
     # input V sources
     for i in range(dims[0]):
-        circuit.VoltageSource("s" + str(i), "I" + str(i), circuit.gnd, 0)
+        circuit.VoltageSource("s" + str(i), "I" + str(i), circuit.gnd, input[i].item())
 
     # hidden Rarray /neurons   I->H1_i->H1_o // H1_o->H2_i->H2_o ... // Hn-2_o->Hn-1_i->Hn-1_o => {n-2 layers}
     Rectifier = params["Diode"]["Rectifier"]
@@ -54,8 +54,6 @@ def create_circuit(
                 outNodes,
                 pre1=Prefix1,
                 pre2=Prefix2,
-                L=params["L"][i],
-                U=params["U"][i],
                 G=G,
             )
         )
@@ -71,11 +69,7 @@ def create_circuit(
     outNodes = dims[-1]
     lastPrefix = "H" + str(n_layers - 2) + "_o"
     G = W[-1].data
-    circuit.subcircuit(
-        Rarray(
-            inNodes, outNodes, pre1=lastPrefix, pre2="o", L=params["L"][-1], U=params["U"][-1], G=G
-        )
-    )
+    circuit.subcircuit(Rarray(inNodes, outNodes, pre1=lastPrefix, pre2="o", G=G))
     nodes2 = Rarray.genNodes(inNodes, outNodes, lastPrefix, "o")
     circuit.X("R" + str(n_layers - 1), Rarray.genName(inNodes, outNodes), *nodes2)
     # output I sources

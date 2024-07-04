@@ -150,15 +150,15 @@ class XyceStrategy(SPICEStrategy):
         """Convert input to netlist."""
         """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
 
-        self.Pycircuit = circuits.create_circuit(
-            input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
-        )
-        self.circuit = shallowcircuit.ShallowCircuit.copyFromCircuit(self.Pycircuit)
-
         if I_ext is None:
+            self.Pycircuit = circuits.create_circuit(
+                input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
+            )
+            self.circuit = shallowcircuit.ShallowCircuit.copyFromCircuit(self.Pycircuit)
             utils.SPICEParser.clampLayer(self.circuit, x)
+
         else:
-            utils.SPICEParser.releaseLayer(self.circuit, I_ext)
+            utils.SPICEParser.releaseLayer(self.circuit, -I_ext)
 
         return
 

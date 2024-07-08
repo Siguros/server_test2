@@ -1,3 +1,3 @@
 from .circuits import ShallowCircuit, create_circuit
-from .utils import SPICEParser
+from .spice_utils import SPICENNParser
 from .xyce import XyceSim

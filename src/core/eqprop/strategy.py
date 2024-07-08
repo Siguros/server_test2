@@ -4,19 +4,28 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.utils import _SCIPY_AVAILABLE, _SPICE_AVAILABLE
+from src.utils import _SCIPY_AVAILABLE, _SPICE_AVAILABLE, RankedLogger
 
 if _SCIPY_AVAILABLE:
     from scipy.optimize import fsolve
 if _SPICE_AVAILABLE:
-    from src.core.spice import circuits, utils, xyce
+    from src.core.spice import circuits, xyce, spice_utils
 
 from src.core.eqprop import eqprop_util
-from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 NpOrTensor = np.ndarray | torch.Tensor
+
+__all__ = [
+    "AbstractStrategy",
+    "ScipyStrategy",
+    "XyceStrategy",
+    "NewtonStrategy",
+    "GradientDescentStrategy",
+    "IdealQPStrategy",
+    "FirstOrderStrategy",
+]
 
 
 def cache_free_solution(func: callable):
@@ -86,8 +95,13 @@ class AbstractStrategy(ABC):
                 elif name.endswith("bias"):
                     self.B.append(param)
 
+    def set_bias_type(self, bias_type: str) -> None:
+        """Set the bias type of the model."""
+        self.bias_type = bias_type
+        ...
 
-class SPICEStrategy(AbstractStrategy):
+
+class AbstractSPICEStrategy(AbstractStrategy):
     """Calculate Node potentials with SPICE."""
 
     """
@@ -97,10 +111,9 @@ class SPICEStrategy(AbstractStrategy):
         return super().__new__(cls)
     """
 
-    def __init__(self, SPICE_params: dict, mpi_commands: list, **kwargs) -> None:
+    def __init__(self, SPICE_params: dict, **kwargs) -> None:
         super().__init__(**kwargs)
         self.SPICE_params = SPICE_params
-        self.mpi_commands = mpi_commands
 
     @classmethod
     def _check_spice(cls):
@@ -108,11 +121,12 @@ class SPICEStrategy(AbstractStrategy):
         raise NotImplementedError()
 
 
-class XyceStrategy(SPICEStrategy):
+class XyceStrategy(AbstractSPICEStrategy):
     """Get Node potentials with Xyce."""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.mpi_commands = kwargs.get("mpi_commands") or ["mpirun", "-use-hwthread-cpus"]
 
         if self.mpi_commands[-1] == "-cpu-set":
             # self.mpi_commands.append(str(id + 1))
@@ -121,19 +135,21 @@ class XyceStrategy(SPICEStrategy):
 
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
         """Solve for the equilibrium point of the network with Xyce."""
-
+        if i_ext is None:
+            self.create_netlist(x)
+            spice_utils.SPICENNParser.updateWeight(self.circuit, self.W)
         nodes_list = []
         # not multiprocessing yet
         batch_size = x.size(0)
         dims = [len(x[0])] + self.dims
         for i in range(batch_size):
             if i_ext is None:
-                self.create_netlist(x[i], i_ext)
+                spice_utils.SPICENNParser.clampLayer(self.circuit, x[i])
             else:
-                self.create_netlist(x[i], i_ext[i])
+                spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext)
 
             raw_file = self.sim(spice_input=self.circuit)
-            voltages = utils.SPICEParser.fastRawfileParser(
+            voltages = spice_utils.SPICENNParser.fastRawfileParser(
                 raw_file, nodenames=self.circuit.nodes, dimensions=dims
             )
 
@@ -142,25 +158,18 @@ class XyceStrategy(SPICEStrategy):
 
         nodes_array = np.stack(nodes_list, axis=0)
         nodes = torch.from_numpy(nodes_array).float()
-        nodes.to(x.device)
         nodes = [node.to(x.device) for node in nodes.split(self.dims, dim=1)]
         return nodes
 
-    def create_netlist(self, x, I_ext):
+    def create_netlist(self, x):
         """Convert input to netlist."""
         """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
-
-        if I_ext is None:
+        if self.circuit is None:
             self.Pycircuit = circuits.create_circuit(
                 input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
             )
             self.circuit = circuits.ShallowCircuit.copyFromCircuit(self.Pycircuit)
-            utils.SPICEParser.clampLayer(self.circuit, x)
-
-        else:
-            utils.SPICEParser.releaseLayer(self.circuit, -I_ext)
-
-        return
+            del self.Pycircuit
 
     def reset(self):
         """Reset the internal states after 1 iteration."""
@@ -497,6 +506,7 @@ class NewtonStrategy(SecondOrderStrategy):
             # limit the voltage change
             dv.clamp_(min=-self.clip_threshold, max=self.clip_threshold)
             v_new = v + self.attn_factor * dv
+            log.debug(v_new)
             residual_v_new = self.residual(v_new, x, i_ext).unsqueeze(-1)
             if torch.any(residual_v_new.norm() > residual_v.norm()):
                 log.debug(f"residual increased, idx={idx}")

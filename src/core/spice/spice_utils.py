@@ -1,22 +1,24 @@
 import numpy as np
 import torch
 from PySpice.Spice.Xyce.RawFile import RawFile
-from torch.nn.modules import ModuleList
 
 from . import ShallowCircuit
 
 
-class SPICEParser:
-    """Parse data between MyCircuit <-> netlist for Xyce."""
+class SPICENNParser:
+    """Parse data between ShallowCircuit <-> netlist."""
 
-    def updateWeight(netlist: ShallowCircuit, W: ModuleList):  # resetState
+    def __init__(self):
+        self.circuit = ShallowCircuit()
+
+    def updateWeight(netlist: ShallowCircuit, W: list[torch.Tensor]):  # resetState
         """Append Rarray subcircuit to netlist corresponding to updated weight."""
         Rarrays = [
             key for key in netlist.raw_subcircuits.keys() if key.endswith("_resistor_array")
         ]
         for idx, key in enumerate(Rarrays):
             last = True if idx == len(Rarrays) - 1 else False
-            netlist.raw_subcircuits[key] = SPICEParser.genRarray(W[idx].weight.data, idx, last)
+            netlist.raw_subcircuits[key] = SPICENNParser.genRarray(W[idx].data, idx, last)
 
     def clampLayer(netlist: ShallowCircuit, x: torch.Tensor):
         """_summary_
@@ -56,7 +58,9 @@ class SPICEParser:
         for idx, (key, elem) in enumerate(Isources[1::2]):
             elem.value = +ygrad[idx].item()
 
-    def fastRawfileParser(raw_file: RawFile, nodenames: tuple, dimensions: list):
+    def fastRawfileParser(
+        raw_file: RawFile, nodenames: tuple, dimensions: list
+    ) -> tuple[np.ndarray]:
         """Parse rawfile to extract Vin, Vout from Xyce simulation.
 
         Returns: (Vin, Vout) where Vin, Vout are list of numpy arrays.

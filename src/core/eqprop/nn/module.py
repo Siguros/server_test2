@@ -114,6 +114,7 @@ class EqPropSequential(EqPropBase, nn.Sequential):
         return x
 
 
+# TODO: referencing huggingface's PEFT implementation
 def to_eqprop(submodule: nn.Module):
     """Convert submodule to EqPropModule."""
     if isinstance(submodule, nn.Linear):

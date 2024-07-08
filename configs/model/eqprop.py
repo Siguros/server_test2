@@ -7,6 +7,7 @@ from src._eqprop import AnalogEP2, EqPropBinaryLitModule, EqPropLitModule, EqPro
 from src.core.eqprop import eqprop_util, solver, strategy
 
 IdealRectifierConfig = full_builds(eqprop_util.IdealRectifier)
+OTSConfig = full_builds(eqprop_util.OTS)
 P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=0, Vr=0)
 p3ots_real = P3OTSConfig(Is=4.352e-6, Vth=0.026, Vl=0, Vr=0)
 symrelu = full_builds(eqprop_util.SymReLU, Vl=-0.6, Vr=0.6)
@@ -37,9 +38,10 @@ NewtonStrategyConfig = full_builds(
     amp_factor="${model.net.solver.amp_factor}",
     eps=1e-6,
     max_iter=25,
-    atol=1e-6,
+    atol=1e-7,
     activation=MISSING,
     add_nonlin_last=False,
+    momentum=0.1,
 )
 
 XyceStrategyConfig = full_builds(
@@ -171,6 +173,7 @@ EqPropMNISTMSEModuleConfig = builds(
 def _register_configs():
     activation_store = store(group="model/net/solver/strategy/activation")
     activation_store(IdealRectifierConfig, name="ideal")
+    activation_store(OTSConfig, name="ots")
     activation_store(P3OTSConfig, name="p3ots")
     activation_store(p3ots_real, name="p3ots-real")
     activation_store(symrelu, name="symrelu")

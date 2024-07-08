@@ -280,7 +280,7 @@ class FirstOrderStrategy(PythonStrategy):
         if self._R is None:
             B = -self.bias()  # 1D row vector
             if len(x.shape) == 2:  # batched
-                B = B.expand(x.size(0), *B.shape)
+                B = B.expand(x.size(0), *B.shape).clone()
             elif len(x.shape) == 1:
                 B.unsqueeze_(0)
                 x = x.unsqueeze(0)
@@ -535,6 +535,8 @@ class NewtonStrategy(SecondOrderStrategy):
                 lo, piv, info = torch.linalg.lu_factor_ex(J)
                 dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
             # limit the voltage change
+            if torch.isnan(dv).any():
+                raise ValueError("dv contains NaN")
             dv.clamp_(min=-self.clip_threshold, max=self.clip_threshold)
             p = p * self.momentum + self.attn_factor * dv
             v_new = v + p

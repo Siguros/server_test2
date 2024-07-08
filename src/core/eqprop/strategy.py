@@ -231,17 +231,22 @@ class FirstOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def bias(self) -> torch.Tensor:
-        """Compute the 2D Bias matrix and cache it."""
+        """Compute the 1D Bias row vector and cache it."""
         if self._B is None:
             dims = self.dims
             size = sum(dims)
             B = torch.zeros(size).type_as(self.W[0]) if not self.B else torch.cat(self.B, dim=-1)
+            assert len(B.shape) == 1
             self._B = B
         return self._B.detach().clone()
 
     @torch.no_grad()
     def laplacian(self) -> torch.Tensor:
-        """Compute the 2D Laplacian + bias matrix and cache it."""
+        """Compute the 2D Laplacian + bias matrix and cache it.
+
+        Returns:
+            torch.Tensor: (size, size)
+        """
         if self._L is None:
             dims = self.dims
             size = sum(dims)
@@ -254,7 +259,7 @@ class FirstOrderStrategy(PythonStrategy):
             L = Ll + Ll.mT * self.amp_factor
             D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(self.W[0].sum(-1), (0, size - dims[0]))
             L += D0.diag()
-            L += self.bias().diag()
+            L += self.bias().diag() if self.B else 0
             self._L = L
             self._set = True
         elif self._set is False:
@@ -263,11 +268,24 @@ class FirstOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def rhs(self, x) -> torch.Tensor:
-        """Compute the 2D RHS vector {-bias +-x@W0} without i_ext and cache it."""
+        """Compute the batched 2D RHS vector {-bias +-[x@W0.T,0]} without i_ext and cache it.
+
+        Args:
+            x (torch.Tensor): input of the network. (batchsize, size)
+
+        Returns:
+            torch.Tensor: batched 2D RHS vector. (batchsize, size)
+        """
         dims = self.dims
         if self._R is None:
-            B = -self.bias()
-            B = B.expand(x.size(0), *B.shape).clone() if len(x.shape) == 2 else B.unsqueeze(0)
+            B = -self.bias()  # 1D row vector
+            if len(x.shape) == 2:  # batched
+                B = B.expand(x.size(0), *B.shape)
+            elif len(x.shape) == 1:
+                B.unsqueeze_(0)
+                x = x.unsqueeze(0)
+            else:
+                raise ValueError(f"unsupported shape {x.shape} while constructing RHS")
             B[:, : dims[0]] -= x @ self.W[0].T
             B *= self.amp_factor
             self._R = B
@@ -282,7 +300,16 @@ class FirstOrderStrategy(PythonStrategy):
         x: torch.Tensor,
         i_ext: torch.Tensor | None,
     ):
-        """Compute the residual (L+b)v + R + i_r(v)"""
+        """Compute the residual v(L+b) + R + i_r(v) where v, R, i_r(v) are batched vectors.
+
+        Args:
+            v (NpOrTensor): node potentials. (batchsize, size)
+            x (torch.Tensor): input of the network. (batchsize, size)
+            i_ext (torch.Tensor): external current. (batchsize, size)
+
+        Returns:
+            torch.Tensor: residual vector. (batchsize, size)
+        """
         L = self.laplacian()
         R = self.rhs(x)
         if i_ext is not None:
@@ -291,7 +318,7 @@ class FirstOrderStrategy(PythonStrategy):
             v = torch.from_numpy(v).type_as(x)
         if len(v.shape) == 1:
             v = v.unsqueeze(0)
-        f = torch.einsum("...i, oi->...o", v, L) + R
+        f = torch.einsum("bi, oi->bo", v, L) + R
         if self.add_nonlin_last:
             f += self.OTS.i(v)
         else:
@@ -444,10 +471,13 @@ class NewtonStrategy(SecondOrderStrategy):
         attn_factor (float): attenuation factor for voltage change.
     """
 
-    def __init__(self, clip_threshold, attn_factor: float = 1, **kwargs) -> None:
+    def __init__(
+        self, clip_threshold, attn_factor: float = 1, momentum: float = 0, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold
         self.attn_factor = attn_factor
+        self.momentum = momentum
 
     @cache_free_solution
     @torch.no_grad()
@@ -494,6 +524,7 @@ class NewtonStrategy(SecondOrderStrategy):
         residual_v = self.residual(v, x, i_ext).unsqueeze(-1)
         J = None
         idx = 1
+        p = torch.zeros_like(v)
         while (residual_v.abs().max() > self.atol) and (idx < self.max_iter):
             J = self.jacobian(v)
             # or SPOSV
@@ -505,9 +536,10 @@ class NewtonStrategy(SecondOrderStrategy):
                 dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
             # limit the voltage change
             dv.clamp_(min=-self.clip_threshold, max=self.clip_threshold)
-            v_new = v + self.attn_factor * dv
+            p = p * self.momentum + self.attn_factor * dv
+            v_new = v + p
             log.debug(v_new)
-            residual_v_new = self.residual(v_new, x, i_ext).unsqueeze(-1)
+            residual_v_new = self.residual(v_new, x, i_ext).unsqueeze(-1)  # (batchsize, size, 1)
             if torch.any(residual_v_new.norm() > residual_v.norm()):
                 log.debug(f"residual increased, idx={idx}")
                 self.attn_factor *= 0.25
@@ -518,7 +550,7 @@ class NewtonStrategy(SecondOrderStrategy):
             else:
                 v = v_new
                 residual_v = residual_v_new
-                self.attn_factor *= 1.25
+                self.attn_factor *= 1.1
             idx += 1
         (
             log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")

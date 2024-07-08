@@ -60,21 +60,24 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 
 
 class LogCapture:
-    def __init__(self, logger_name: str = None):
+
+    def __init__(self, logger_name: str = None, level=logging.DEBUG):
         """Capture log messages to a list.
 
         Args:
             logger_name (str, optional): Name of the logger. Usually the file path under src. Defaults to None.
+            level (int, optional): Log level. Defaults to logging.DEBUG.
 
         Example:
             with LogCapture("src.core.eqprop.strategy") as log_capture:
-                logger = logging.getLogger("src.core.eqprop.strategy")
+                logger = log_capture.logger
                 logger.info("Hello")
                 logger.info("World")
                 log_list = log_capture.get_log_list()
         """
         self.log_stream = io.StringIO()
         self.logger = logging.getLogger(logger_name)
+        self.logger.setLevel(level)
         self.stream_handler = logging.StreamHandler(self.log_stream)
         self.formatter = logging.Formatter("%(message)s")
         self.stream_handler.setFormatter(self.formatter)
@@ -90,6 +93,8 @@ class LogCapture:
         self.log_stream.close()
 
     def get_log_list(self):
-        """Get the log messages as a list."""
-        log_contents = self.log_stream.getvalue().strip().split("\n")
-        return log_contents
+        """Get the log messages as a list.
+
+        Note that torch.set_printoptions() will affect the output precision.
+        """
+        return self.log_stream.getvalue().strip().split("\n")

@@ -3,13 +3,7 @@ from dataclasses import dataclass
 from hydra_zen import MISSING, builds, make_config, store
 
 from configs import full_builds, partial_builds
-from src._eqprop import (
-    AnalogEP2,
-    DummyAnalogEP2,
-    EqPropBinaryLitModule,
-    EqPropLitModule,
-    EqPropMSELitModule,
-)
+from src._eqprop import AnalogEP2, EqPropBinaryLitModule, EqPropLitModule, EqPropMSELitModule
 from src.core.eqprop import eqprop_util, solver, strategy
 
 IdealRectifierConfig = full_builds(eqprop_util.IdealRectifier)
@@ -89,11 +83,6 @@ EqPropBackboneConfig = builds(
     hydra_convert="partial",
 )
 
-DummyEqPropBackboneConfig = builds(
-    DummyAnalogEP2,
-    batch_size="${data.batch_size}",
-    builds_bases=(EqPropBackboneConfig,),
-)
 
 eqprop_mnist = EqPropBackboneConfig(
     cfg="${eval:'[784*${.scale_input}, 128, 10*${.scale_output}]'}",
@@ -106,7 +95,7 @@ eqprop_xor = EqPropBackboneConfig(
     min_w=0.0001,
     max_w=0.1,
     max_w_gain=None,
-    cfg="${eval:'[2*${.scale_input}, 2, 1*${.scale_output}]'}",
+    cfg="${eval:'[3*${.scale_input}, 2, 1*${.scale_output}]'}",  # change to 2
 )
 
 eqprop_xor_onehot = EqPropBackboneConfig(
@@ -119,9 +108,6 @@ eqprop_xor_onehot = EqPropBackboneConfig(
     cfg="${eval:'[2*${.scale_input}, 10, 2*${.scale_output}]'}",
 )
 
-dummy_eqprop_xor = DummyEqPropBackboneConfig(
-    cfg="${eval:'[2*${.scale_input}, 10, 2*${.scale_output}]'}",
-)
 
 EqPropModuleConfig = make_config(
     scheduler=None,

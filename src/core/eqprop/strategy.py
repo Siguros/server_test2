@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import torch
 import torch.nn.functional as F
+from qpsolvers import solve_qp
 
 from src.utils import _SCIPY_AVAILABLE, _SPICE_AVAILABLE, RankedLogger
 
@@ -23,7 +24,7 @@ __all__ = [
     "XyceStrategy",
     "NewtonStrategy",
     "GradientDescentStrategy",
-    "IdealQPStrategy",
+    "QPStrategy",
     "FirstOrderStrategy",
 ]
 
@@ -213,7 +214,7 @@ class PythonStrategy(AbstractStrategy):
                 setattr(self, key, value)
             else:
                 log.warning(f"key {key} not found in {self.__class__.__name__}")
-        for attr in ["OTS", "dims"]:
+        for attr in ["OTS", "dims", "W"]:
             if getattr(self, attr) is None:
                 raise ValueError(f"{attr} must be set before calling")
 
@@ -344,7 +345,7 @@ class FirstOrderStrategy(PythonStrategy):
         return v
 
     def reset(self):
-        """Reset method."""
+        """Reset cache for every free phase."""
         self._L = None
         self._R = None
         self._B = None
@@ -449,18 +450,41 @@ class GradientDescentStrategy(FirstOrderStrategy):
         return v
 
 
-class IdealQPStrategy(FirstOrderStrategy):
+class QPStrategy(FirstOrderStrategy):
 
-    def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
+    def __init__(
+        self, add_nonlin_last: bool = True, solver_type: str = "proxqp", **kwargs
+    ) -> None:
+        """Solve for the equilibrium point of the network with qpsolvers library."""
         super().__init__(add_nonlin_last, **kwargs)
+        self.solver_type = solver_type
 
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
         self.check_and_set_attrs(kwargs)
-        v = self.lin_solve(x, i_ext)
-        v = v.clamp(min=self.activation.Vl, max=self.activation.Vr)
+        P = self.laplacian()
+        R = self.rhs(x)
+        if i_ext is not None:
+            R[:, -self.dims[-1] :] += i_ext * self.amp_factor
+        q = R.squeeze()
+        lb = self.OTS.Vl * np.ones_like(q)
+        ub = self.OTS.Vr * np.ones_like(q)
+        v = solve_qp(P, q, lb=lb, ub=ub, solver=self.solver_type, **kwargs)
+        v = torch.from_numpy(v).type_as(x).unsqueeze(0)
         nodes = list(v.split(self.dims, dim=1))
         return nodes
+
+    def sparse_laplacian(self):
+        """Compute the 2D Laplacian + bias matrix in bsr format and cache it.
+
+        Raises:
+            ValueError: _description_
+            RuntimeError: _description_
+            NotImplementedError: _description_
+
+        Returns:
+            _type_: _description_
+        """
 
 
 class NewtonStrategy(SecondOrderStrategy):

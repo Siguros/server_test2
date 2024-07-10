@@ -7,8 +7,8 @@ from src._eqprop import AnalogEP2, EqPropBinaryLitModule, EqPropLitModule, EqPro
 from src.core.eqprop import eqprop_util, solver, strategy
 
 IdealRectifierConfig = full_builds(eqprop_util.IdealRectifier)
-OTSConfig = full_builds(eqprop_util.OTS)
-P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=0, Vr=0)
+OTSConfig = full_builds(eqprop_util.OTS, Is=1e-6, Vth=0.026, Vl=0.1, Vr=0.9)
+P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=-0.5, Vr=0.5)
 p3ots_real = P3OTSConfig(Is=4.352e-6, Vth=0.026, Vl=0, Vr=0)
 symrelu = full_builds(eqprop_util.SymReLU, Vl=-0.6, Vr=0.6)
 
@@ -26,10 +26,12 @@ GDStrategyConfig = full_builds(
     activation=MISSING,
 )
 
-IdealQPStrategyConfig = full_builds(
-    strategy.IdealQPStrategy,
+QPStrategyConfig = full_builds(
+    strategy.QPStrategy,
     amp_factor="${model.net.solver.amp_factor}",
     activation=MISSING,
+    solver_type="proxqp",
+    add_nonlin_last=False,
 )
 
 NewtonStrategyConfig = full_builds(
@@ -97,7 +99,7 @@ eqprop_xor = EqPropBackboneConfig(
     min_w=0.0001,
     max_w=0.1,
     max_w_gain=None,
-    cfg="${eval:'[3*${.scale_input}, 2, 1*${.scale_output}]'}",  # change to 2
+    cfg="${eval:'[2*${.scale_input}, 4, 1*${.scale_output}]'}",  # change to 2
 )
 
 eqprop_xor_onehot = EqPropBackboneConfig(
@@ -181,7 +183,7 @@ def _register_configs():
     strategy_store = store(group="model/net/solver/strategy")
     strategy_store(GDStrategyConfig, name="gd")
     strategy_store(NewtonStrategyConfig, name="newton")
-    strategy_store(IdealQPStrategyConfig, name="ideal-qp")
+    strategy_store(QPStrategyConfig, name="qp")
     strategy_store(XyceStrategyConfig, name="Xyce")
 
     model_store = store(group="model")

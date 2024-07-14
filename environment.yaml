@@ -31,7 +31,7 @@ dependencies:
   - pre-commit=3.*
   - pytest=7.*
   - beartype
-  - numpy <= 2.* # conflicts with wandb 1.6.6
+  - numpy=1.* # conflicts with wandb 1.6.6
 
   # --------- loggers --------- #
   - wandb

@@ -53,17 +53,25 @@ conda env create -f environment.yaml -n ml
 conda activate ml
 ```
 
-```bash
-# or you can create environment for specific project with additional packages
-conda env update -n ml -f src/_eqprop/environment.yaml
-
-conda activate ml-ep
-```
-
 #### Setup
 
 ```bash
 python -m setup develop
+```
+
+#### \[Optional\] eqprop
+
+```bash
+#you can create environment for specific project with additional packages
+conda env update -n ml -f src/_eqprop/environment.yaml
+# or
+pip install -r src/_eqprop/requirements.txt
+
+```
+
+```bash
+conda activate ml
+src/core/eqprop/build_proxsuite_w_openmp.sh
 ```
 
 #### \[Optional\] SPICE

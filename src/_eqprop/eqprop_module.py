@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from src._eqprop.eqprop_backbone import AnalogEP2
-from src.core.eqprop import eqprop_util
+from src.core.eqprop.python import eqprop_util
 from src.models.classifier_module import BinaryClassifierLitModule, ClassifierLitModule
 
 

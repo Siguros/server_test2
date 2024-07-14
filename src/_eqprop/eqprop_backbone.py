@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.core.eqprop import eqprop_util
-from src.core.eqprop.solver import AnalogEqPropSolver
+from src.core.eqprop.python import eqprop_util
+from src.core.eqprop.python.solver import AnalogEqPropSolver
 
 
 class EP(nn.Module):

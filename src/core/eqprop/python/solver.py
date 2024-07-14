@@ -5,7 +5,7 @@ from typing import Any, Optional, Sequence
 import torch
 import torch.nn as nn
 
-from src.core.eqprop.strategy import AbstractStrategy
+from src.core.eqprop.python.strategy import AbstractStrategy
 from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)

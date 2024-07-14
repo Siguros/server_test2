@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from src.core.eqprop import eqprop_util, strategy
+from src.core.eqprop.python import eqprop_util, strategy
 
 
 class TestSecondOrderStrategy:

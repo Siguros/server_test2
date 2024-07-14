@@ -22,25 +22,25 @@ xor_onehot_config = make_config(
 )
 ep_xor_config = make_config(
     bases=(xor_config,),
-    model=dict(optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=True)),
+    model=dict(optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=False)),
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
         {"override /model": "ep-xor"},
-        {"override /model/net/solver/strategy": "newton"},
+        {"override /model/net/solver/strategy": "qp"},
     ],
 )
 
 ep_xor_mse_config = make_config(
     bases=(xor_config,),
     model=dict(
-        optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=True), criterion=just(MSELoss)
+        optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=False), criterion=just(MSELoss)
     ),
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
         {"override /model": "ep-xor"},
-        {"override /model/net/solver/strategy": "newton"},
+        {"override /model/net/solver/strategy": "qp"},
     ],
 )
 

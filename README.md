@@ -21,7 +21,7 @@ Encapsulates all the boilerplate code for training and evaluating a model.
 
 ## Installation
 
-#### Pip
+#### A. Pip
 
 ```bash
 # clone project
@@ -29,8 +29,8 @@ git clone https://github.com/nmdlkg/ml
 cd ml
 
 # [OPTIONAL] create conda environment
-conda create -n myenv python=3.10
-conda activate myenv
+conda create -n ml python=3.10
+conda activate ml
 
 # install pytorch according to instructions
 # https://pytorch.org/get-started/
@@ -39,18 +39,31 @@ conda activate myenv
 pip install -r requirements.txt
 ```
 
-#### Conda
+#### B. Conda
 
 ```bash
 # clone project
 git clone https://github.com/nmdlkg/ml
 cd ml
 
-# create conda environment and install dependencies
-conda env create -f environment.yaml -n myenv
+# create common conda environment and install dependencies
+conda env create -f environment.yaml -n ml
 
 # activate conda environment
-conda activate myenv
+conda activate ml
+```
+
+```bash
+# or you can create environment for specific project with additional packages
+conda env update -n ml -f src/_eqprop/environment.yaml
+
+conda activate ml-ep
+```
+
+#### Setup
+
+```bash
+python -m setup develop
 ```
 
 #### \[Optional\] SPICE

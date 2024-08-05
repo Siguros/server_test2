@@ -1,25 +1,40 @@
-import os
 from abc import ABC, abstractmethod
-from typing import Callable
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.utils.utils import package_available
+from src.utils import _QPSOLVERS_AVAILABLE, _SCIPY_AVAILABLE, _SPICE_AVAILABLE, RankedLogger
 
-if package_available("scipy"):
+if _SCIPY_AVAILABLE:
     from scipy.optimize import fsolve
 
-from src.core.eqprop import eqprop_util
-from src.utils import RankedLogger
+if _QPSOLVERS_AVAILABLE:
+    import proxsuite
+    from qpsolvers import solve_qp
+
+if _SPICE_AVAILABLE:
+    from src.core.spice import circuits, xyce, spice_utils
+
+from src.core.eqprop.python import eqprop_util
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
 NpOrTensor = np.ndarray | torch.Tensor
 
+__all__ = [
+    "AbstractStrategy",
+    "ScipyStrategy",
+    "XyceStrategy",
+    "NewtonStrategy",
+    "GradientDescentStrategy",
+    "QPStrategy",
+    "ProxQPStrategy",
+    "FirstOrderStrategy",
+]
 
-def cache_free_solution(func):
+
+def cache_free_solution(func: callable):
     """Cache the free-phase solution of the network."""
 
     def wrapper(self, x, i_ext, **kwargs):
@@ -45,7 +60,7 @@ class AbstractStrategy(ABC):
 
     def __init__(
         self,
-        activation: Callable | str,
+        activation: eqprop_util.AbstractRectifier,
         max_iter: int = 30,
         atol: float = 1e-6,
         **kwargs,
@@ -72,22 +87,16 @@ class AbstractStrategy(ABC):
 
     @abstractmethod
     def reset(self):
-        """Reset the internal states after 1 iteration."""
+        """Reset the internal states at the beginning of 1 iteration."""
         ...
 
-    # TODO: 일부레이어만 bias 있다면? -> eqprop 모듈화
-    def set_strategy_params(self, model: torch.nn.Module) -> None:
-        """Set strategy parameters from nn.Module."""
-        if not self.W and not self.B:
-            for name, param in model.named_parameters():
-                if name.endswith("weight"):
-                    self.W.append(param)
-                    self.dims.append(param.shape[0])
-                elif name.endswith("bias"):
-                    self.B.append(param)
+    def set_bias_type(self, bias_type: str) -> None:
+        """Set the bias type of the model."""
+        self.bias_type = bias_type
+        ...
 
 
-class SPICEStrategy(AbstractStrategy):
+class AbstractSPICEStrategy(AbstractStrategy):
     """Calculate Node potentials with SPICE."""
 
     """
@@ -97,13 +106,69 @@ class SPICEStrategy(AbstractStrategy):
         return super().__new__(cls)
     """
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, SPICE_params: dict, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.SPICE_params = SPICE_params
 
     @classmethod
     def _check_spice(cls):
         """Check if spice is installed."""
         raise NotImplementedError()
+
+
+class XyceStrategy(AbstractSPICEStrategy):
+    """Get Node potentials with Xyce."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.mpi_commands = kwargs.get("mpi_commands") or ["mpirun", "-use-hwthread-cpus"]
+
+        if self.mpi_commands[-1] == "-cpu-set":
+            # self.mpi_commands.append(str(id + 1))
+            pass
+        self.sim = xyce.XyceSim(mpi_commands=self.mpi_commands)
+
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        """Solve for the equilibrium point of the network with Xyce."""
+        if i_ext is None:
+            self.create_netlist(x)
+            spice_utils.SPICENNParser.updateWeight(self.circuit, self.W)
+        nodes_list = []
+        # not multiprocessing yet
+        batch_size = x.size(0)
+        dims = [len(x[0])] + self.dims
+        for i in range(batch_size):
+            if i_ext is None:
+                spice_utils.SPICENNParser.clampLayer(self.circuit, x[i])
+            else:
+                spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext)
+
+            raw_file = self.sim(spice_input=self.circuit)
+            voltages = spice_utils.SPICENNParser.fastRawfileParser(
+                raw_file, nodenames=self.circuit.nodes, dimensions=dims
+            )
+
+            combined_voltages = np.concatenate([voltages[1][0], voltages[1][1]])
+            nodes_list.append(combined_voltages)
+
+        nodes_array = np.stack(nodes_list, axis=0)
+        nodes = torch.from_numpy(nodes_array).float()
+        nodes = [node.to(x.device) for node in nodes.split(self.dims, dim=1)]
+        return nodes
+
+    def create_netlist(self, x):
+        """Convert input to netlist."""
+        """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
+        if self.circuit is None:
+            self.Pycircuit = circuits.create_circuit(
+                input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
+            )
+            self.circuit = circuits.ShallowCircuit.copyFromCircuit(self.Pycircuit)
+            del self.Pycircuit
+
+    def reset(self):
+        """Reset the internal states after 1 iteration."""
+        return NotImplementedError()
 
 
 class PythonStrategy(AbstractStrategy):
@@ -134,18 +199,17 @@ class PythonStrategy(AbstractStrategy):
 
     def check_and_set_attrs(self, kwargs: dict):
         """Check if all attributes are set and set them if not."""
-        if self.attrchecked:
-            return
+        if kwargs is None and self.attrchecked:
+            pass
         else:
-            self.attrchecked = True
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                log.warning(f"key {key} not found in {self.__class__.__name__}")
-        for attr in ["OTS", "dims"]:
-            if getattr(self, attr) is None:
-                raise ValueError(f"{attr} must be set before calling")
+            for key, value in kwargs.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+                else:
+                    log.warning(f"key {key} not found in {self.__class__.__name__}")
+            for attr in ["OTS", "dims", "W"]:
+                if getattr(self, attr) is None:
+                    raise ValueError(f"{attr} must be set before calling")
 
 
 class FirstOrderStrategy(PythonStrategy):
@@ -155,12 +219,28 @@ class FirstOrderStrategy(PythonStrategy):
         super().__init__(**kwargs)
         self._L = None
         self._R = None
+        self._B = None
         self.add_nonlin_last = add_nonlin_last
         self._set: bool = False
 
     @torch.no_grad()
+    def bias(self) -> torch.Tensor:
+        """Compute the 1D Bias row vector and cache it."""
+        if self._B is None:
+            dims = self.dims
+            size = sum(dims)
+            B = torch.zeros(size).type_as(self.W[0]) if not self.B else torch.cat(self.B, dim=-1)
+            assert len(B.shape) == 1
+            self._B = B
+        return self._B.detach().clone()
+
+    @torch.no_grad()
     def laplacian(self) -> torch.Tensor:
-        """Compute the 2D Laplacian matrix and cache it."""
+        """Compute the 2D Laplacian + bias matrix and cache it.
+
+        Returns:
+            torch.Tensor: (size, size)
+        """
         if self._L is None:
             dims = self.dims
             size = sum(dims)
@@ -173,6 +253,7 @@ class FirstOrderStrategy(PythonStrategy):
             L = Ll + Ll.mT * self.amp_factor
             D0 = -Ll.sum(-2) - Ll.sum(-1) + F.pad(self.W[0].sum(-1), (0, size - dims[0]))
             L += D0.diag()
+            L += self.bias().diag() if self.B else 0
             self._L = L
             self._set = True
         elif self._set is False:
@@ -181,16 +262,24 @@ class FirstOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def rhs(self, x) -> torch.Tensor:
-        """Compute the 2D RHS vector without i_ext and cache it."""
+        """Compute the batched 2D RHS vector {-bias +-[x@W0.T,0]} without i_ext and cache it.
+
+        Args:
+            x (torch.Tensor): input of the network. (batchsize, size)
+
+        Returns:
+            torch.Tensor: batched 2D RHS vector. (batchsize, size)
+        """
         dims = self.dims
-        size = sum(dims)
         if self._R is None:
-            B = torch.zeros(size).type_as(x) if not self.B else torch.cat(self.B, dim=-1)
-            B = (
-                B.expand(x.size(0), *B.shape).clone()
-                if len(x.shape) == 2
-                else B.clone().unsqueeze(0)
-            )
+            B = -self.bias()  # 1D row vector
+            if len(x.shape) == 2:  # batched
+                B = B.expand(x.size(0), *B.shape).clone()
+            elif len(x.shape) == 1:
+                B.unsqueeze_(0)
+                x = x.unsqueeze(0)
+            else:
+                raise ValueError(f"unsupported shape {x.shape} while constructing RHS")
             B[:, : dims[0]] -= x @ self.W[0].T
             B *= self.amp_factor
             self._R = B
@@ -205,7 +294,16 @@ class FirstOrderStrategy(PythonStrategy):
         x: torch.Tensor,
         i_ext: torch.Tensor | None,
     ):
-        """Compute the residual Lv + R + i_r(v)"""
+        """Compute the residual v(L+b) + R + i_r(v) where v, R, i_r(v) are batched vectors.
+
+        Args:
+            v (NpOrTensor): node potentials. (batchsize, size)
+            x (torch.Tensor): input of the network. (batchsize, size)
+            i_ext (torch.Tensor): external current. (batchsize, size)
+
+        Returns:
+            torch.Tensor: residual vector. (batchsize, size)
+        """
         L = self.laplacian()
         R = self.rhs(x)
         if i_ext is not None:
@@ -214,7 +312,7 @@ class FirstOrderStrategy(PythonStrategy):
             v = torch.from_numpy(v).type_as(x)
         if len(v.shape) == 1:
             v = v.unsqueeze(0)
-        f = torch.einsum("...i, oi->...o", v, L) + R
+        f = torch.einsum("bi, oi->bo", v, L) + R
         if self.add_nonlin_last:
             f += self.OTS.i(v)
         else:
@@ -228,25 +326,31 @@ class FirstOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def lin_solve(self, x, i_ext) -> torch.Tensor:
-        """Solve the linear system Lv = -(R + i_ext)."""
+        """Solve the linear system (L+b)v = -(R + i_ext)."""
         if self._free_solution is not None and i_ext is not None:
             v = self.free_solution
         else:
             lo = torch.linalg.cholesky(self.laplacian())
             R = self.rhs(x)
             if i_ext is not None:
-                R[-self.dims[-1] :] += i_ext * self.amp_factor
+                R[:, -self.dims[-1] :] += i_ext * self.amp_factor
             v = torch.cholesky_solve(-R.unsqueeze(-1), lo).squeeze(-1)
         return v
 
     def reset(self):
+        """Reset cache for every free phase."""
         self._L = None
         self._R = None
+        self._B = None
         self._set = False
 
 
 class SecondOrderStrategy(FirstOrderStrategy):
-    """Solve for the equilibrium point of the network with second order approximation."""
+    """Solve for the equilibrium point of the network with second order approximation.
+
+    Args:
+        eps (float): small value to add to the diagonal of the Laplacian matrix.
+    """
 
     def __init__(self, eps: float = 1e-8, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -254,7 +358,7 @@ class SecondOrderStrategy(FirstOrderStrategy):
 
     @torch.no_grad()
     def jacobian(self, v: NpOrTensor) -> torch.Tensor:
-        """Compute the 3D Jacobian of the residual L + a_r(v)"""
+        """Compute the 3D Jacobian of the residual L + b + a_r(v)"""
         L = self.laplacian() + self.eps * torch.eye(v.size(-1)).type_as(v)
         if len(v.shape) == 2:
             batchsize = v.size(0)
@@ -277,6 +381,8 @@ class SecondOrderStrategy(FirstOrderStrategy):
 
 
 class ScipyStrategy(SecondOrderStrategy):
+    """Solve for the equilibrium point of the network with Scipy."""
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -309,6 +415,12 @@ class ScipyStrategy(SecondOrderStrategy):
 
 
 class GradientDescentStrategy(FirstOrderStrategy):
+    """Solve for the equilibrium point of the network with gradient descent.
+
+    Args:
+        alpha (float): attenuation rate.
+    """
+
     def __init__(self, alpha: float = 1.0, **kwargs) -> None:
         super().__init__(**kwargs)
         self.alpha = alpha
@@ -324,10 +436,95 @@ class GradientDescentStrategy(FirstOrderStrategy):
             v += self.alpha * dv
             if dv.abs().max() < self.atol:
                 log.debug(f"stepsolve converged in {idx} iterations")
-                return
+                return v
         log.warning(
             f"stepsolve did not converge in {self.max_iter} iterations, residual={dv.abs().max():.3e}"
         )
+        return v
+
+
+class QPStrategy(FirstOrderStrategy):
+
+    def __init__(
+        self, add_nonlin_last: bool = True, solver_type: str = "proxqp", **kwargs
+    ) -> None:
+        """Solve for the equilibrium point of the network with qpsolvers library."""
+        super().__init__(add_nonlin_last, **kwargs)
+        self.solver_type = solver_type
+
+    @torch.no_grad()
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        self.check_and_set_attrs(kwargs)
+        P = self.laplacian()
+        R = self.rhs(x)
+        if i_ext is not None:
+            R[:, -self.dims[-1] :] += i_ext * self.amp_factor
+        q = R.squeeze()
+        lb = self.OTS.Vl * np.ones_like(q)
+        ub = self.OTS.Vr * np.ones_like(q)
+        v = solve_qp(P, q, lb=lb, ub=ub, solver=self.solver_type, **kwargs)
+        v = torch.from_numpy(v).type_as(x).unsqueeze(0)
+        # v_lin = self.lin_solve(x, i_ext)
+        # sgn = torch.sign(v_lin-v)
+        # v_logdiff = 0.02*(v_lin-v).abs().log1p()
+        # v += sgn*v_logdiff
+        nodes = list(v.split(self.dims, dim=1))
+        return nodes
+
+    def sparse_laplacian(self):
+        """Compute the 2D Laplacian + bias matrix in bsr format and cache it.
+
+        Raises:
+            ValueError: _description_
+            RuntimeError: _description_
+            NotImplementedError: _description_
+
+        Returns:
+            _type_: _description_
+        """
+
+
+class ProxQPStrategy(QPStrategy):
+    """Solve for the equilibrium point of the network with ProxQP."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(solver_type="proxqp", **kwargs)
+        self.num_threads = proxsuite.proxqp.omp_get_max_threads() - 1
+
+    @torch.no_grad()
+    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+        batch_size, _ = x.shape
+        g = self.rhs(x).numpy()
+        if i_ext is None:
+            H = self.laplacian().numpy()
+            n = n_ineq = H.shape[0]
+            A = b = C = lower = upper = None
+            self.lb = self.OTS.Vl * np.ones(n)
+            self.ub = self.OTS.Vr * np.ones(n)
+            self.qps = proxsuite.proxqp.dense.VectorQP()
+            for i in range(batch_size):
+                qp = proxsuite.proxqp.dense.QP(n, 0, n_ineq, True)
+                qp.init(H, g[i], A, b, C, lower, upper, self.lb, self.ub)
+                self.qps.append(qp)
+        else:
+            g[:, -self.dims[-1] :] += i_ext.numpy()
+            for idx, qp in enumerate(self.qps):
+                qp.settings.initial_guess = (
+                    proxsuite.proxqp.InitialGuess.WARM_START_WITH_PREVIOUS_RESULT
+                )
+                qp.update(g=g[idx], l_box=self.lb, u_box=self.ub)
+
+        proxsuite.proxqp.dense.solve_in_parallel(self.qps, self.num_threads)
+        nodes_list = []
+        for i in range(batch_size):
+            vout = self.qps[i].results.x
+            nodes_list.append(torch.from_numpy(vout).type_as(x))
+        nodes = torch.stack(nodes_list, dim=0).split(self.dims, dim=1)
+        return list(nodes)
+
+    def reset(self):
+        super().reset()
+        # del self.qps
 
 
 class NewtonStrategy(SecondOrderStrategy):
@@ -338,10 +535,13 @@ class NewtonStrategy(SecondOrderStrategy):
         attn_factor (float): attenuation factor for voltage change.
     """
 
-    def __init__(self, clip_threshold, attn_factor: float = 1, **kwargs) -> None:
+    def __init__(
+        self, clip_threshold, attn_factor: float = 1, momentum: float = 0, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
         self.clip_threshold = clip_threshold
         self.attn_factor = attn_factor
+        self.momentum = momentum
 
     @cache_free_solution
     @torch.no_grad()
@@ -372,7 +572,7 @@ class NewtonStrategy(SecondOrderStrategy):
         x: torch.Tensor,
         i_ext=None,
     ) -> torch.Tensor:
-        r"""Solve J\Delta{X}=-f with dense cholesky/LU decomposition.
+        r"""Solve J\Delta{X}=-f with dense cholesky/LU decomposition. uses adaptive step size.
 
         Args:
             x (torch.Tensor): Input.
@@ -388,6 +588,7 @@ class NewtonStrategy(SecondOrderStrategy):
         residual_v = self.residual(v, x, i_ext).unsqueeze(-1)
         J = None
         idx = 1
+        p = torch.zeros_like(v)
         while (residual_v.abs().max() > self.atol) and (idx < self.max_iter):
             J = self.jacobian(v)
             # or SPOSV
@@ -398,9 +599,13 @@ class NewtonStrategy(SecondOrderStrategy):
                 lo, piv, info = torch.linalg.lu_factor_ex(J)
                 dv = torch.linalg.lu_solve(lo, piv, -residual_v).squeeze(-1)
             # limit the voltage change
+            if torch.isnan(dv).any():
+                raise ValueError("dv contains NaN")
             dv.clamp_(min=-self.clip_threshold, max=self.clip_threshold)
-            v_new = v + self.attn_factor * dv
-            residual_v_new = self.residual(v_new, x, i_ext).unsqueeze(-1)
+            p = p * self.momentum + self.attn_factor * dv
+            v_new = v + p
+            log.debug(v_new)
+            residual_v_new = self.residual(v_new, x, i_ext).unsqueeze(-1)  # (batchsize, size, 1)
             if torch.any(residual_v_new.norm() > residual_v.norm()):
                 log.debug(f"residual increased, idx={idx}")
                 self.attn_factor *= 0.25
@@ -411,7 +616,7 @@ class NewtonStrategy(SecondOrderStrategy):
             else:
                 v = v_new
                 residual_v = residual_v_new
-                self.attn_factor *= 1.25
+                self.attn_factor *= 1.1
             idx += 1
         (
             log.debug(f"condition number of J: {torch.linalg.cond(J[0]):.2f}")
@@ -886,6 +1091,7 @@ class LMStrategy(PythonStrategy):
 
 
 def _inv_L(W: torch.Tensor, D0: torch.Tensor, dims: list) -> torch.Tensor:
+    """Compute the inverse of the Laplacian matrix."""
     hidden_len = dims[0]
     D1 = D0[hidden_len:]
     D2 = D0[:hidden_len]

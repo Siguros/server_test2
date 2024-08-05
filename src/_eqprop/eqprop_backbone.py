@@ -1,11 +1,12 @@
 from collections import OrderedDict
-from typing import Any, Callable, Iterator, List, Mapping, Sequence, Tuple, Union, overload
+from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.core.eqprop.eqprop_util import interleave, type_as
+from src.core.eqprop.python import eqprop_util
+from src.core.eqprop.python.solver import AnalogEqPropSolver
 
 
 class EP(nn.Module):
@@ -44,7 +45,7 @@ class EP(nn.Module):
         self.doubling = kwargs.get("doubling", False)
         self.num_classes = dims[-1]
         if self.doubling:
-            interleave.on()
+            # eqprop_util.interleave.on()
             self.num_classes //= 2
         self.eps = epsilon
         self.dims = dims
@@ -89,8 +90,8 @@ class EP(nn.Module):
             else:
                 nn.init.xavier_uniform_(self.W[idx].weight)
 
-    @type_as
-    def forward(self, x, y=None, beta=0.0) -> List[torch.Tensor]:
+    # @eqprop_util.type_as
+    def forward(self, x, y=None, beta=0.0) -> list[torch.Tensor]:
         """Relax Nodes till converge."""
         self.W.requires_grad_(False)  # freeze weights
         if beta == 0.0:
@@ -105,11 +106,11 @@ class EP(nn.Module):
         self,
         x,
         y=None,
-        Nodes: List[torch.Tensor] = None,
+        Nodes: list[torch.Tensor] = None,
         beta=0.0,
         iters=None,
         **kwargs,
-    ) -> List[torch.Tensor]:
+    ) -> list[torch.Tensor]:
         """Minimize the total energy function using torch.autograd."""
         Nodes = self._Nodes if Nodes is None else Nodes
         iters = self.free_iters if iters is None else iters
@@ -120,11 +121,11 @@ class EP(nn.Module):
         relaxedNodes1 = [nodes.clone().detach() for nodes in Nodes]
         return relaxedNodes1
 
-    def step(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
+    def step(self, Nodes: list[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
         """Update Nodes one step.
 
         Args:
-            Nodes (List[torch.Tensor]): _description_
+            Nodes (list[torch.Tensor]): _description_
             x (_type_): _description_
             y (_type_, optional): _description_. Defaults to None.
             beta (float, optional): _description_. Defaults to 0.0.
@@ -140,11 +141,11 @@ class EP(nn.Module):
                 Nodes[idx].requires_grad_(True)
 
     # TODO: make net._Nodes gradient zero after step
-    def step_(self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
+    def step_(self, Nodes: list[torch.Tensor], x, y=None, beta: float = 0.0) -> None:
         """Alternative method to step. Use autograd.backward() instead.
 
         Args:
-            Nodes (List[torch.Tensor]): _description_
+            Nodes (list[torch.Tensor]): _description_
             x (_type_): _description_
             y (_type_, optional): _description_. Defaults to None.
             beta (float, optional): _description_. Defaults to 0.0.
@@ -158,7 +159,7 @@ class EP(nn.Module):
                 nodes.requires_grad_(True)
                 nodes.grad = None  # ...?
 
-    def energy(self, Nodes: List[torch.Tensor], x) -> torch.Tensor:
+    def energy(self, Nodes: list[torch.Tensor], x) -> torch.Tensor:
         """Energy function."""
         it = len(Nodes)
         act = self.activation
@@ -192,7 +193,7 @@ class EP(nn.Module):
         return E
 
     def Tenergy(
-        self, Nodes: List[torch.Tensor], x, y=None, beta: float = 0.0, **kwargs
+        self, Nodes: list[torch.Tensor], x, y=None, beta: float = 0.0, **kwargs
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute Total Free Energy: Wsum rho(u_i)W_{ij}rho(u_j)"""
         E = self.energy(Nodes, x)
@@ -204,7 +205,7 @@ class EP(nn.Module):
             L = L.mean().detach()
         return (E, L)
 
-    @interleave(type="in")
+    @eqprop_util.interleave(type="in")
     def loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute loss."""
         if self.criterion.__class__.__name__.find("MSE") != -1:
@@ -215,7 +216,7 @@ class EP(nn.Module):
         return L
 
     @torch.no_grad()
-    def update(self, free_nodes: List[torch.Tensor], nudge_nodes: List[torch.Tensor], x) -> None:
+    def update(self, free_nodes: list[torch.Tensor], nudge_nodes: list[torch.Tensor], x) -> None:
         """Update weights with hardcoded gradients from theorm.
 
         dw_ij = (rho(un_i)rho(un_j) - rho(uf_i)rho(uf_j))/beta
@@ -224,8 +225,8 @@ class EP(nn.Module):
           uf<>: minimized free_nodes
 
         Args:
-            free_nodes (List[torch.Tensor]): _description_
-            nudge_nodes (List[torch.Tensor]): _description_
+            free_nodes (list[torch.Tensor]): _description_
+            nudge_nodes (list[torch.Tensor]): _description_
             x (_type_): _description_
         """
         # lr = 1e-1
@@ -275,7 +276,7 @@ class EP(nn.Module):
         return (Ef.clone().detach(), En.clone().detach(), loss)
 
     @property
-    def Nodes(self) -> List[torch.Tensor]:
+    def Nodes(self) -> list[torch.Tensor]:
         """Get nodes."""
         Nodes = [nodes.clone().detach().requires_grad_(True) for nodes in self._Nodes]
         return Nodes
@@ -285,7 +286,7 @@ class AnalogEP(EP):
     """Use slightly different energy(pseudopower)
 
     Attrs:
-        _Nodes (List[torch.Tensor]): output node voltages of each layer
+        _Nodes (list[torch.Tensor]): output node voltages of each layer
     """
 
     def __init__(
@@ -383,7 +384,7 @@ class AnalogEP(EP):
         return N - M
 
     @torch.no_grad()
-    def update(self, free_opt_Vout: List[torch.Tensor], nudge_opt_Vout: List[torch.Tensor], x):
+    def update(self, free_opt_Vout: list[torch.Tensor], nudge_opt_Vout: list[torch.Tensor], x):
         """Update weights from optimized Node Voltages (free_opt_Vout & nudge_opt_Vout)"""
         self.W.requires_grad_(True)
         self.W.zero_grad()
@@ -405,42 +406,64 @@ class AnalogEP2(nn.Module):
     """Direct implementation of analog eqprop.
 
     Args:
-        nn (_type_): _description_
+        batch_size (int): batch size
+        solver (AnalogEqPropSolver): solver class
+        cfg (list[int], optional): network architecture. Defaults to [784*2, 128, 10*2].
+        beta (float, optional): loss coupling strength. Defaults to 0.1.
+        bias (bool, optional): use bias. Defaults to False.
+        positive_w (bool, optional): positive weights. Defaults to True.
+        min_w (float, optional): minimum weight. Defaults to 1e-6.
+        max_w (Optional[float], optional): maximum weight. Defaults to None.
+        max_w_gain (Optional[float], optional): maximum weight gain. Defaults to 0.28.
+        scale_input (int, optional): input scaling. Defaults to 2.
+        scale_output (int, optional): output scaling. Defaults to 2.
     """
 
     def __init__(
         self,
         batch_size: int,
-        solver: Callable,
-        input_size: int = 784 * 2,
-        lin1_size: int = 128,
-        output_size: int = 10 * 2,
-        beta=0.1,
-        hyper_params: dict = {"bias": False},
+        solver: AnalogEqPropSolver,
+        cfg: list[int] = [784 * 2, 128, 10 * 2],
+        beta: float = 0.1,
+        bias: bool = False,
+        positive_w: bool = True,
+        min_w: float = 1e-6,
+        max_w: Optional[float] = None,
+        max_w_gain: Optional[float] = 0.28,
+        scale_input: int = 2,
+        scale_output: int = 2,
     ) -> None:
         super().__init__()
-        self.hparams = hyper_params
         self.beta = beta
-        dims = [input_size, lin1_size, output_size]
-        odic = OrderedDict()
-        for idx in range(1, len(dims) - 1):
-            odic[f"lin{idx}"] = nn.Linear(dims[idx - 1], dims[idx], bias=self.hparams["bias"])
-        odic["last"] = nn.Linear(dims[-2], dims[-1], bias=self.hparams["bias"])
-        self.model = nn.Sequential(odic)
+        layers = []
+        for idx in range(len(cfg) - 1):
+            layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=bias))
+        self.model = nn.Sequential(*layers)
+
+        # init weights
+        if positive_w:
+            self.model.apply(
+                eqprop_util.positive_param_init(
+                    min_w,
+                    max_w,
+                    max_w_gain,
+                )
+            )
 
         # Add free/nudge nodes per layer as buffers
-        # input_shape = (batch_size, dims[0])
-        # addnode_fn = AddNodes(input_shape)
-        # self.model.apply(addnode_fn)
         self.init_nodes(batch_size)
-        self.model.register_buffer("ypred", torch.empty(batch_size, dims[-1]))
+        self.register_buffer("ypred", torch.empty(batch_size, cfg[-1]))
 
         # instiantiate solver
-        self.solver = solver(self.model)
+        solver.set_model(self.model)
+        self.solver = solver
 
-        FutureWarning("AnalogEP2 will be replaced by eqprop.nn.EqPropLinear")
+        eqprop_util.interleave.set_num_input(scale_input)
+        eqprop_util.interleave.set_num_output(scale_output)
 
-    @interleave(type="out")
+        FutureWarning("AnalogEP2 will be replaced by core.eqprop.nn.EqPropLinear")
+
+    @eqprop_util.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation.
@@ -453,18 +476,19 @@ class AnalogEP2(nn.Module):
         """
         # assert self.training is False
         self.reset_nodes()
-        reversed_nodes, _ = self.solver(x)
-        self.set_nodes(reversed_nodes, positive_phase=True)
-        logits = self.model.get_buffer("last.positive_node")
-        self.model.ypred = logits.detach().clone().requires_grad_(True)
-        return self.model.ypred
+        nodes, _ = self.solver(x, nudge_phase=False)
+        self.set_nodes(nodes, positive_phase=True)
+        logits = self.model[-1].get_buffer("positive_node")
+        self.ypred = logits.detach().clone().requires_grad_(True)
+        return self.ypred
 
+    @eqprop_util.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
         assert self.training
-        reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=False)
+        nodes, _ = self.solver(x, grad=self.ypred.grad, nudge_phase=True)
+        self.set_nodes(nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
 
@@ -528,27 +552,29 @@ class AnalogEP2(nn.Module):
         self.model.apply(_init_nodes)
 
     def reset_nodes(self):
+        """Reset free/nudge nodes to zero."""
         for buf in self.model.buffers():
-            buf = torch.zeros_like(buf)
+            buf.zero_()
 
-    def set_nodes(self, reversed_nodes: list, positive_phase: bool) -> None:
+    def set_nodes(self, nodes: list, positive_phase: bool) -> None:
         """Set free/nudge nodes to each layer.
 
         Args:
-            reversed_nodes (list): reversed list of free/nudge nodes from last layer to first layer
+            nodes (list): list of free/nudge nodes from last layer to first layer
             positive_phase (bool): True if positive phase, False otherwise
         """
 
         def _set_nodes_layer(submodule: nn.Module):
-            nonlocal reversed_nodes
+            nonlocal nodes
             if hasattr(submodule, "positive_node"):
                 if positive_phase:
-                    submodule.positive_node = reversed_nodes.pop()
+                    submodule.positive_node = nodes.pop()
                 else:
-                    submodule.negative_node = reversed_nodes.pop()
+                    submodule.negative_node = nodes.pop()
 
+        nodes.reverse()
         self.model.apply(_set_nodes_layer)
-        del reversed_nodes
+        del nodes
 
 
 class AnalogEPSym(AnalogEP2):
@@ -557,25 +583,45 @@ class AnalogEPSym(AnalogEP2):
     Use 3rd nudge phase to compute gradients.
     """
 
-    @interleave(type="out")
+    @eqprop_util.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation."""
         # assert self.training is False
         self.reset_nodes()
-        reversed_nodes, _ = self.solver(x)
-        logits = reversed_nodes[0]
+        nodes, _ = self.solver(x)
+        logits = nodes[0]
         self.model.ypred = logits.clone().detach().requires_grad_(True)
         return self.model.ypred
 
+    @eqprop_util.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
-        reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=True)
-        self.solver.beta = "flip"
-        reversed_nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(reversed_nodes, positive_phase=False)
+        nodes, _ = self.solver(x, nudge_phase=True)
+        self.set_nodes(nodes, positive_phase=True)
+        self.solver.flip_beta()
+        nodes, _ = self.solver(x, nudge_phase=True)
+        self.set_nodes(nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
-        self.solver.beta = "flip"
+        self.solver.flip_beta()
+
+
+class DummyAnalogEP2(AnalogEP2):
+    """Dummy AnalogEP2 for testing purposes."""
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.model.insert(1, nn.ReLU())
+
+    @eqprop_util.interleave(type="both")
+    def forward(self, x):
+        return self.model(x)
+
+    def eqprop(self, x: torch.Tensor):
+        pass

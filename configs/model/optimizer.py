@@ -8,7 +8,7 @@ pbuilds = make_custom_builds_fn(
     zen_partial=True
 )  # To make it pickleable, we need to give up beartype support
 
-SGDConfig = pbuilds(optim.SGD, lr=0.001)
+SGDConfig = pbuilds(optim.SGD, lr=0.001, momentum=0.9)
 RMSPropConfig = pbuilds(optim.RMSprop, lr=0.001)
 AdamConfig = pbuilds(optim.Adam, lr=0.001)
 AdamWConfig = pbuilds(optim.AdamW, lr=0.001)

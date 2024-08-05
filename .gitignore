@@ -145,9 +145,10 @@ dmypy.json
 *.tar.gz
 
 # Lightning-Hydra-Template
-configs/local/default.yaml
-/data/
-/logs/
+configs/local/*
+!configs/local/example.yaml
+/data/*
+/logs/*
 .env
 
 # Aim logging
@@ -157,3 +158,6 @@ configs/local/default.yaml
 /.pants.*
 /dist/
 /.pids
+
+# Wandb
+/wandb/

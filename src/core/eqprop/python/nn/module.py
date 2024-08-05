@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Any, C
+from typing import Any
 
 import torch
 import torch.nn as nn
+
+from src.core.eqprop.solver import AnalogEqPropSolver, EqPropSolver
 
 
 class EqPropBase(ABC):
@@ -10,23 +12,32 @@ class EqPropBase(ABC):
 
     Args:
         activation (torch.nn.functional): activation function
-        beta (float, optional): numerical approximation scale. Defaults to 0.1.
+        beta (float, optional): perturbation scale. Defaults to 0.1.
     """
 
     IS_CONTAINER: bool = False
 
-    def __init__(self, activation: callable, beta: float = 0.1, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self, activation: callable, beta: float = 0.1, solver: EqPropSolver = AnalogEqPropSolver()
+    ) -> None:
         self.activation = activation
         self.beta = beta
+        self.solver = solver
+        self._init_nodes()
 
     @abstractmethod
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         """Forward pass for EqProp layer."""
         return EqPropFunc.apply(self, x)
 
     @abstractmethod
-    def _eqprop(self, x, dy):
+    def _eqprop(self, x: torch.Tensor, dy: torch.Tensor):
         """Internelly called by EqPropFunc.backward()."""
+        pass
+
+    @abstractmethod
+    def _init_nodes(self, x: torch.Tensor):
+        """Initialize positive & negative nodes."""
         pass
 
 
@@ -101,3 +112,16 @@ class EqPropSequential(EqPropBase, nn.Sequential):
         for module in self:
             x = module(x)
         return x
+
+
+# TODO: referencing huggingface's PEFT implementation
+def to_eqprop(submodule: nn.Module):
+    """Convert submodule to EqPropModule."""
+    if isinstance(submodule, nn.Linear):
+        return EqPropLinear(submodule)
+    elif isinstance(submodule, nn.Conv2d):
+        return EqPropConv2d(submodule)
+    elif isinstance(submodule, nn.Sequential):
+        return EqPropSequential(submodule)
+    else:
+        raise NotImplementedError(f"EqProp not implemented for {submodule}")

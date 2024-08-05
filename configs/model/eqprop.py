@@ -3,12 +3,17 @@ from dataclasses import dataclass
 from hydra_zen import MISSING, builds, make_config, store
 
 from configs import full_builds, partial_builds
-from src._eqprop import AnalogEP2, EqPropLitModule, EqPropMSELitModule
-from src.core.eqprop import eqprop_util, solver, strategy
+from src._eqprop import AnalogEP2, EqPropBinaryLitModule, EqPropLitModule, EqPropMSELitModule
+from src.core.eqprop.python import eqprop_util, solver, strategy
 
-P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=0, Vr=0)
+IdealRectifierConfig = full_builds(eqprop_util.IdealRectifier)
+OTSConfig = full_builds(eqprop_util.OTS, Is=1e-6, Vth=0.026, Vl=-0.5, Vr=0.5)
+P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=-0.5, Vr=0.5)
 p3ots_real = P3OTSConfig(Is=4.352e-6, Vth=0.026, Vl=0, Vr=0)
 symrelu = full_builds(eqprop_util.SymReLU, Vl=-0.6, Vr=0.6)
+
+ParamAdjusterConfig = full_builds(eqprop_util.AdjustParams)
+xor_adjuster = ParamAdjusterConfig(L=1e-7, clamp=True, normalize=False)
 
 AbstractStrategyConfig = full_builds(strategy.AbstractStrategy)
 
@@ -18,8 +23,24 @@ GDStrategyConfig = full_builds(
     amp_factor="${model.net.solver.amp_factor}",
     max_iter=50,
     atol=1e-6,
-    activation=P3OTSConfig,
+    activation=MISSING,
 )
+
+QPStrategyConfig = full_builds(
+    strategy.QPStrategy,
+    amp_factor="${model.net.solver.amp_factor}",
+    activation=MISSING,
+    solver_type="proxqp",
+    add_nonlin_last=False,
+)
+
+ProxQPStrategyConfig = full_builds(
+    strategy.ProxQPStrategy,
+    amp_factor="${model.net.solver.amp_factor}",
+    activation=MISSING,
+    add_nonlin_last=False,
+)
+
 
 NewtonStrategyConfig = full_builds(
     strategy.NewtonStrategy,
@@ -27,9 +48,29 @@ NewtonStrategyConfig = full_builds(
     amp_factor="${model.net.solver.amp_factor}",
     eps=1e-6,
     max_iter=25,
-    atol=1e-6,
-    activation=P3OTSConfig,
+    atol=1e-7,
+    activation=MISSING,
+    add_nonlin_last=False,
+    momentum=0.1,
 )
+
+XyceStrategyConfig = full_builds(
+    strategy.XyceStrategy,
+    amp_factor="${model.net.solver.amp_factor}",
+    SPICE_params={
+        "A": "${model.net.solver.amp_factor}",
+        "beta": "${model.net.beta}",
+        "Diode": {
+            "Path": "./src/core/spice/1N4148.lib",
+            "ModelName": "1N4148",
+            "Rectifier": "BidRectifier",
+        },
+        "noise": 0,
+    },
+    mpi_commands=["mpirun", "-use-hwthread-cpus", "-np", "1", "-cpu-set"],
+    activation=None,
+)
+
 
 AnalogEqPropSolverConfig = partial_builds(
     solver.AnalogEqPropSolver,
@@ -38,46 +79,79 @@ AnalogEqPropSolverConfig = partial_builds(
     strategy=MISSING,
 )
 
-EqPropBackboneConfig = partial_builds(
+EqPropBackboneConfig = builds(
     AnalogEP2,
     batch_size="${data.batch_size}",
-    input_size=MISSING,
-    lin1_size=MISSING,
-    output_size=MISSING,
     beta=0.01,
+    bias=False,
+    positive_w=True,
+    min_w=1e-6,
+    max_w_gain=0.28,
+    scale_input=2,
+    scale_output=2,
+    cfg=MISSING,
     solver=AnalogEqPropSolverConfig,
+    populate_full_signature=True,
+    hydra_convert="partial",
 )
 
+
 eqprop_mnist = EqPropBackboneConfig(
-    input_size="${eval:'784*${model.scale_input}'}",
-    lin1_size=128,
-    output_size="${eval:'10*${model.scale_output}'}",
+    cfg="${eval:'[784*${.scale_input}, 128, 10*${.scale_output}]'}",
 )
 
 eqprop_xor = EqPropBackboneConfig(
-    input_size=2,
-    lin1_size=2,
-    output_size=2,
+    beta=0.001,
+    scale_input=1,
+    scale_output=2,
+    min_w=0.0001,
+    max_w=0.1,
+    max_w_gain=None,
+    cfg="${eval:'[3*${.scale_input}, 2, 1*${.scale_output}]'}",  # change to 2
 )
+
+eqprop_xor_onehot = EqPropBackboneConfig(
+    beta=0.001,
+    scale_input=1,
+    scale_output=2,
+    min_w=0.0001,
+    max_w=0.1,
+    max_w_gain=None,
+    cfg="${eval:'[2*${.scale_input}, 10, 2*${.scale_output}]'}",
+)
+
 
 EqPropModuleConfig = make_config(
     scheduler=None,
     optimizer=MISSING,
     net=MISSING,
-    scale_input=2,
-    scale_output=2,
-    positive_w=True,
-    bias=False,
-    clip_weights=True,
-    normalize_weights=False,
-    min_w=1e-6,
-    max_w_gain=0.28,
+    compile=False,
+    param_adjuster=MISSING,
 )
-ep_defaults = ["_self_", {"optimizer": "sgd"}, {"net/solver/strategy": "newton"}]
 
+
+ep_defaults = [
+    "_self_",
+    {"optimizer": "sgd"},
+    {"net/solver/strategy": "newton"},
+    {"net/solver/strategy/activation": "ots"},
+]
 EqPropXORModuleConfig = builds(
-    EqPropLitModule,
+    EqPropBinaryLitModule,
     net=eqprop_xor,
+    num_classes=1,
+    param_adjuster=xor_adjuster,
+    builds_bases=(EqPropModuleConfig,),
+    hydra_defaults=ep_defaults,
+    populate_full_signature=True,
+)
+
+EqPropXOROHModuleConfig = builds(
+    EqPropLitModule,
+    net=eqprop_xor_onehot,
+    num_classes=2,
+    scheduler=None,
+    param_adjuster=xor_adjuster,
     builds_bases=(EqPropModuleConfig,),
     hydra_defaults=ep_defaults,
 )
@@ -85,6 +159,7 @@ EqPropXORModuleConfig = builds(
 EqPropMNISTModuleConfig = builds(
     EqPropLitModule,
     net=eqprop_mnist,
+    param_adjuster=ParamAdjusterConfig(),
     builds_bases=(EqPropModuleConfig,),
     hydra_defaults=ep_defaults,
 )
@@ -96,16 +171,19 @@ ep_mnist_adamw = builds(
     hydra_defaults=["_self_", {"override /optimizer": "adamw"}],
 )
 
-
 EqPropMNISTMSEModuleConfig = builds(
     EqPropMSELitModule,
     net=eqprop_mnist,
+    param_adjuster=ParamAdjusterConfig(),
     builds_bases=(EqPropModuleConfig,),
+    hydra_defaults=ep_defaults,
 )
 
 
 def _register_configs():
     activation_store = store(group="model/net/solver/strategy/activation")
+    activation_store(IdealRectifierConfig, name="ideal")
+    activation_store(OTSConfig, name="ots")
     activation_store(P3OTSConfig, name="p3ots")
     activation_store(p3ots_real, name="p3ots-real")
     activation_store(symrelu, name="symrelu")
@@ -113,9 +191,13 @@ def _register_configs():
     strategy_store = store(group="model/net/solver/strategy")
     strategy_store(GDStrategyConfig, name="gd")
     strategy_store(NewtonStrategyConfig, name="newton")
+    strategy_store(QPStrategyConfig, name="qp")
+    strategy_store(ProxQPStrategyConfig, name="proxqp")
+    strategy_store(XyceStrategyConfig, name="Xyce")
 
     model_store = store(group="model")
     model_store(EqPropXORModuleConfig, name="ep-xor")
+    model_store(EqPropXOROHModuleConfig, name="ep-xor-onehot")
     model_store(EqPropMNISTModuleConfig, name="ep-mnist")
     model_store(ep_mnist_adamw, name="ep-mnist-adamw")
     model_store(EqPropMNISTMSEModuleConfig, name="ep-mnist-mse")

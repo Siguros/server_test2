@@ -5,7 +5,7 @@ from hydra.utils import instantiate
 from omegaconf import open_dict
 
 from src._eqprop.eqprop_backbone import AnalogEP2
-from src.core.eqprop import eqprop_util, strategy
+from src.core.eqprop.python import eqprop_util, strategy
 
 
 @pytest.fixture(scope="module")

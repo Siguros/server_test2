@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from src.core.eqprop import eqprop_util, strategy
+from src.core.eqprop.python import eqprop_util, strategy
 
 
 class TestSecondOrderStrategy:
@@ -76,7 +76,7 @@ def test_strategy_solve(toymodel, strategy_name, x, v):
         add_nonlin_last=False,
         atol=1e-6,
     )
-    st.set_strategy_params(toymodel)
+    # st.set_strategy_params(toymodel)
     st.reset()
     x = torch.tensor([x])
     v = torch.tensor([v])

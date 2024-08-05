@@ -1,11 +1,11 @@
-# from hydra_zen import store
-# from hydra.core.config_store import ConfigStore
 from hydra_zen import store
 
 import src.data as data
 from configs import full_builds
 
 XORModuleConfig = full_builds(data.XORDataModule)
+
+XORwithBiasModuleConfig = full_builds(data.XORwithBiasDataModule)
 
 MNISTModuleConfig = full_builds(
     data.MNISTDataModule,
@@ -26,5 +26,6 @@ CIFAR10ModuleConfig = full_builds(
 def _register_configs():
     data_store = store(group="data")
     data_store(XORModuleConfig, name="xor")
+    data_store(XORwithBiasModuleConfig, name="xor2")
     data_store(MNISTModuleConfig, name="mnist")
     data_store(CIFAR10ModuleConfig, name="cifar10")

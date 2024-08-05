@@ -30,7 +30,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 #
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
-from src.core.eqprop import eqprop_util
+
 from src.utils import (
     RankedLogger,
     extras,
@@ -90,9 +90,6 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     # set precision for matrix multiplication
     if cfg.trainer.get("accelerator") == "gpu" and torch.cuda.is_available():
         torch.set_float32_matmul_precision("highest")
-
-    if num_output := cfg.model.get("scale_output"):
-        eqprop_util.interleave.set_num_output(num_output)
 
     if cfg.get("compile"):
         log.info("Compiling model!")

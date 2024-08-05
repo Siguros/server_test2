@@ -72,7 +72,7 @@ XyceStrategyConfig = full_builds(
 )
 
 
-AnalogEqPropSolverConfig = partial_builds(
+AnalogEqPropSolverConfig = builds(
     solver.AnalogEqPropSolver,
     amp_factor=1.0,
     beta="${model.net.beta}",

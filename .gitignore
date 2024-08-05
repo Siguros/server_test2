@@ -158,3 +158,6 @@ configs/local/*
 /.pants.*
 /dist/
 /.pids
+
+# Wandb
+/wandb/

@@ -7,7 +7,7 @@ from src._eqprop import AnalogEP2, EqPropBinaryLitModule, EqPropLitModule, EqPro
 from src.core.eqprop.python import eqprop_util, solver, strategy
 
 IdealRectifierConfig = full_builds(eqprop_util.IdealRectifier)
-OTSConfig = full_builds(eqprop_util.OTS, Is=1e-6, Vth=0.026, Vl=-0.5, Vr=0.5)
+OTSConfig = full_builds(eqprop_util.OTS, Is=1e-6, Vth=0.026, Vl=0.1, Vr=0.9)
 P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=-0.5, Vr=0.5)
 p3ots_real = P3OTSConfig(Is=4.352e-6, Vth=0.026, Vl=0, Vr=0)
 symrelu = full_builds(eqprop_util.SymReLU, Vl=-0.6, Vr=0.6)
@@ -72,7 +72,7 @@ XyceStrategyConfig = full_builds(
 )
 
 
-AnalogEqPropSolverConfig = partial_builds(
+AnalogEqPropSolverConfig = builds(
     solver.AnalogEqPropSolver,
     amp_factor=1.0,
     beta="${model.net.beta}",
@@ -86,7 +86,7 @@ EqPropBackboneConfig = builds(
     bias=False,
     positive_w=True,
     min_w=1e-6,
-    max_w_gain=0.28,
+    max_w_gain=0.08,
     scale_input=2,
     scale_output=2,
     cfg=MISSING,

@@ -84,7 +84,7 @@ ep_mnist_config = make_config(
         {"override /model": "ep-mnist"},
         {"override /model/net/solver/strategy": "proxqp"},
     ],
-    model=dict(optimizer=dict(lr=0.1, momentum=0.9)),
+    model=dict(optimizer=dict(lr=0.1)),
     data=dict(batch_size=64),
 )
 

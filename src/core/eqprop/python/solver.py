@@ -20,22 +20,20 @@ class EqPropSolver:
         amp_factor (float, optional): inter-layer potential amplifying factor. Defaults to 1.0.
     """
 
-    # singletons
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    # # singletons
+    # def __new__(cls, *args, **kwargs):
+    #     if not hasattr(cls, "_instance"):
+    #         cls._instance = super().__new__(cls)
+    #     return cls._instance
 
     def __init__(
         self,
-        model: nn.Module,
         amp_factor: float,
         beta: float,
         strategy: AbstractStrategy,
     ) -> None:
         self.amp_factor = amp_factor
         self.beta = beta
-        strategy.set_strategy_params(model)
         self.strategy = strategy
 
     @property
@@ -43,11 +41,23 @@ class EqPropSolver:
         return self._beta
 
     @beta.setter
-    def beta(self, value: float | str):
-        if not isinstance(value, str):
-            self._beta = value
-        elif value == "flip":
-            self._beta *= -1
+    def beta(self, value: float | int):
+        self._beta = value
+
+    def flip_beta(self) -> None:
+        """Flip the sign of beta."""
+        self.beta = -self.beta
+
+    def set_model(self, model: torch.nn.Module) -> None:
+        """Set strategy parameters from nn.Module."""
+        st = self.strategy
+        if not st.W and not st.B:
+            for name, param in model.named_parameters():
+                if name.endswith("weight"):
+                    st.W.append(param)
+                    st.dims.append(param.shape[0])
+                elif name.endswith("bias"):
+                    st.B.append(param)
 
     def __call__(
         self,
@@ -64,6 +74,7 @@ class EqPropSolver:
             return_energy (bool, optional): Defaults to False.
         """
         i_ext = None
+
         if nudge_phase:
             i_ext = self.beta * grad
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
@@ -121,10 +132,11 @@ class AnalogEqPropSolver(EqPropSolver):
 
     def __init__(
         self,
-        *args,
-        **kwargs: Sequence[Any],
+        amp_factor: float,
+        beta: float,
+        strategy: AbstractStrategy,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(amp_factor, beta, strategy)
 
     # TODO: Check validity when amp_factor is not 1
     def energy(self, Nodes, x) -> torch.Tensor:

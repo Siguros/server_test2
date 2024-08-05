@@ -407,7 +407,7 @@ class AnalogEP2(nn.Module):
 
     Args:
         batch_size (int): batch size
-        solver (Callable[[nn.Module], AnalogEqPropSolver]): solver class
+        solver (AnalogEqPropSolver): solver class
         cfg (list[int], optional): network architecture. Defaults to [784*2, 128, 10*2].
         beta (float, optional): loss coupling strength. Defaults to 0.1.
         bias (bool, optional): use bias. Defaults to False.
@@ -422,7 +422,7 @@ class AnalogEP2(nn.Module):
     def __init__(
         self,
         batch_size: int,
-        solver: Callable[[nn.Module], AnalogEqPropSolver],
+        solver: AnalogEqPropSolver,
         cfg: list[int] = [784 * 2, 128, 10 * 2],
         beta: float = 0.1,
         bias: bool = False,
@@ -455,12 +455,13 @@ class AnalogEP2(nn.Module):
         self.register_buffer("ypred", torch.empty(batch_size, cfg[-1]))
 
         # instiantiate solver
-        self.solver = solver(self.model)
+        solver.set_model(self.model)
+        self.solver = solver
 
         eqprop_util.interleave.set_num_input(scale_input)
         eqprop_util.interleave.set_num_output(scale_output)
 
-        FutureWarning("AnalogEP2 will be replaced by eqprop.nn.EqPropLinear")
+        FutureWarning("AnalogEP2 will be replaced by core.eqprop.nn.EqPropLinear")
 
     @eqprop_util.interleave(type="both")
     @torch.no_grad()
@@ -599,12 +600,12 @@ class AnalogEPSym(AnalogEP2):
         """Nudge phases & grad calculation."""
         nodes, _ = self.solver(x, nudge_phase=True)
         self.set_nodes(nodes, positive_phase=True)
-        self.solver.beta = "flip"
+        self.solver.flip_beta()
         nodes, _ = self.solver(x, nudge_phase=True)
         self.set_nodes(nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
-        self.solver.beta = "flip"
+        self.solver.flip_beta()
 
 
 class DummyAnalogEP2(AnalogEP2):

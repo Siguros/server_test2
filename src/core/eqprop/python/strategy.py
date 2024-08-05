@@ -29,6 +29,7 @@ __all__ = [
     "NewtonStrategy",
     "GradientDescentStrategy",
     "QPStrategy",
+    "ProxQPStrategy",
     "FirstOrderStrategy",
 ]
 
@@ -88,17 +89,6 @@ class AbstractStrategy(ABC):
     def reset(self):
         """Reset the internal states at the beginning of 1 iteration."""
         ...
-
-    # TODO: 일부레이어만 bias 있다면? -> eqprop 모듈화
-    def set_strategy_params(self, model: torch.nn.Module) -> None:
-        """Set strategy parameters from nn.Module."""
-        if not self.W and not self.B:
-            for name, param in model.named_parameters():
-                if name.endswith("weight"):
-                    self.W.append(param)
-                    self.dims.append(param.shape[0])
-                elif name.endswith("bias"):
-                    self.B.append(param)
 
     def set_bias_type(self, bias_type: str) -> None:
         """Set the bias type of the model."""
@@ -209,18 +199,17 @@ class PythonStrategy(AbstractStrategy):
 
     def check_and_set_attrs(self, kwargs: dict):
         """Check if all attributes are set and set them if not."""
-        if self.attrchecked:
-            return
+        if kwargs is None and self.attrchecked:
+            pass
         else:
-            self.attrchecked = True
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                log.warning(f"key {key} not found in {self.__class__.__name__}")
-        for attr in ["OTS", "dims", "W"]:
-            if getattr(self, attr) is None:
-                raise ValueError(f"{attr} must be set before calling")
+            for key, value in kwargs.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+                else:
+                    log.warning(f"key {key} not found in {self.__class__.__name__}")
+            for attr in ["OTS", "dims", "W"]:
+                if getattr(self, attr) is None:
+                    raise ValueError(f"{attr} must be set before calling")
 
 
 class FirstOrderStrategy(PythonStrategy):

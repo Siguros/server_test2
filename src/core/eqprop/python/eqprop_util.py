@@ -1,19 +1,25 @@
 import functools
 import math
 from abc import ABC, abstractmethod
-from typing import Callable, Literal, Sequence, Union
+from typing import Any, Callable, Literal, Sequence, Union
 
 import torch
 import torch.nn as nn
 
+from src.utils import RankedLogger
+
+log = RankedLogger(__name__, rank_zero_only=True)
+
 
 class interleave:
-    """Decorator class for interleaving in/out nodes."""
+    """Decorator class for interleaving in/out nodes.
 
-    _on = False
+    If type is "in", doubles and flips adjacent element for first input tensor. \n If type is
+    "out", sum every num_output elems to one for all output tensor. \n If type is "both", does
+    both.
+    """
 
-    def __init__(self, type: Literal["in, out"]):
-        assert type == "in" or type == "out", 'type must be either "in" or "out"'
+    def __init__(self, type: Literal["in", "out", "both"]):
         self.type = type
         # self._num_output = 0
         # self.num_output = interleave._num_output
@@ -23,25 +29,23 @@ class interleave:
 
         @functools.wraps(func)
         def wrapper(obj, *args, **kwargs) -> torch.Tensor:
-            if self._num_output:
-                if self.type == "in":  # mod y_hat
-                    y_hat, *others = args
-                    new_args = self.interleave(y_hat), *others
-                    outs = func(obj, *new_args, **kwargs)
-                    return outs
-                elif self.type == "out":  # mod all outputs
-                    outs = func(obj, *args, **kwargs)
-                    # outs = [self.interleave(out) for out in outs]
-                    return self.interleave(outs)
+            if self.type in ["in", "both"]:
+                if len(args) == 1:
+                    args = (self.interleave_input(*args),)
+                elif len(args) == 2:
+                    ins, *others = args
+                    args = self.interleave_input(ins), *others
                 else:
-                    raise ValueError("Invalid type")
-            else:
-                return func(obj, *args, **kwargs)
+                    raise ValueError("No input argument found")
+            outs = func(obj, *args, **kwargs)
+            if self.type in ["out", "both"]:
+                outs = self.interleave_output(outs)
+            return outs
 
         return wrapper
 
-    def interleave(self, t: torch.Tensor) -> torch.Tensor:
-        """Interleave 2D tensor."""
+    def interleave_output(self, t: torch.Tensor) -> torch.Tensor:
+        """Interleave 2D tensor if num output set to even."""
         assert t.dim() == 2, "interleave only works on 2D tensors"
         if self._num_output == 1:
             return t
@@ -54,14 +58,27 @@ class interleave:
 
             return result
 
+    @torch.no_grad()
+    def interleave_input(self, x: torch.Tensor) -> torch.Tensor:
+        """Interleave input tensor."""
+        if self._num_input == 1:
+            return x.view(x.size(0), -1)
+        elif self._num_input == 2:
+            x = x.view(x.size(0), -1)  # == x.view(-1,x.size(-1)**2)
+            x = x.repeat_interleave(2, dim=1)
+            x[:, 1::2] = -x[:, ::2]
+            return x
+        else:
+            raise ValueError("num_input must be 1 or 2")
+
     @classmethod
-    def on(cls):
-        """Turn on interleaving."""
-        cls._on = True
+    def set_num_input(cls, num_input):
+        assert num_input == 2 or num_input == 1, "num_input must be 2 or 1"
+        cls._num_input = num_input
 
     @classmethod
     def set_num_output(cls, num_output):
-        assert num_output % 2 == 0, "num_output must be even"
+        assert num_output % 2 == 0 or num_output == 1, "num_output must be even or 1"
         cls._num_output = num_output
 
 
@@ -70,6 +87,7 @@ class type_as:
 
     def __init__(self, func: Callable[..., Union[Sequence[torch.Tensor], torch.Tensor]]):
         self.func = func
+        raise DeprecationWarning("Use torch.Tensor.to(self.device) instead.")
 
     def __call__(self, obj, *args, **kwargs):
         """Decorator for matching output tensor type as input tensor type."""
@@ -83,7 +101,7 @@ class type_as:
         return functools.partial(self.__call__, instance)
 
 
-class BaseRectifier(ABC):
+class AbstractRectifier(ABC):
     """Base class for rectifiers."""
 
     def __init__(self, Is, Vth, Vl, Vr):
@@ -94,18 +112,35 @@ class BaseRectifier(ABC):
 
     @abstractmethod
     def i(self, V: torch.Tensor):
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def a(self, V: torch.Tensor):
-        raise NotImplementedError
+        pass
 
     @abstractmethod
     def p(self, V: torch.Tensor):
-        raise NotImplementedError
+        pass
 
 
-class OTS(BaseRectifier):
+class IdealRectifier(AbstractRectifier):
+
+    def __init__(self, Vl=-1, Vr=1):
+        super().__init__(None, None, Vl, Vr)
+
+    def i(self, V: torch.Tensor):
+        return torch.zeros_like(V)
+
+    def a(self, V: torch.Tensor):
+        return torch.zeros_like(V)
+
+    @classmethod
+    def p(cls, V: torch.Tensor):
+        """Compute power."""
+        pass
+
+
+class OTS(AbstractRectifier):
     """Ovonic Threshold Switch rectifier."""
 
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
@@ -158,7 +193,7 @@ class SymOTS(OTS):
         )
 
 
-class PolyOTS(BaseRectifier):
+class PolyOTS(AbstractRectifier):
     """Polynomial Taylor expansion of OTS rectifier."""
 
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9, power=2):
@@ -196,7 +231,7 @@ class PolyOTS(BaseRectifier):
         return self.Is * res
 
 
-class P3OTS(BaseRectifier):
+class P3OTS(AbstractRectifier):
     """3rd order polynomial OTS rectifier."""
 
     def __init__(self, Is=1e-8, Vth=0.026, Vl=0.1, Vr=0.9):
@@ -217,7 +252,7 @@ class P3OTS(BaseRectifier):
         pass
 
 
-class SymReLU(BaseRectifier):
+class SymReLU(AbstractRectifier):
     """Symmetric ReLU rectifier."""
 
     def __init__(self, Is=1, Vth=1, Vl=-0.5, Vr=0.5):
@@ -270,7 +305,7 @@ def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 class AdjustParams:
     def __init__(
         self,
-        L: Union[float, None] = 0.0,
+        L: Union[float, None] = 1e-7,
         U: Union[float, None] = None,
         clamp: bool = True,
         normalize: bool = False,
@@ -284,30 +319,35 @@ class AdjustParams:
     def __call__(self, submodule: nn.Module):
         """Adjust parameters."""
         for name, param in submodule.named_parameters():
-            if name == "weight":
+            if name in ["weight", "bias"]:
                 if self.clamp:
+                    (
+                        log.debug(f"Clamping {name}...")
+                        if torch.any(param.min() < self.min)
+                        else ...
+                    )
                     param.clamp_(self.min, self.max)
                 if self.normalize:
                     nn.functional.normalize(param, dim=1, p=2)
 
 
-def init_params(min_w: float = 1e-6, max_w_gain: float = 0.08):
+def positive_param_init(min_w: float = 1e-6, max_w: float | None = None, max_w_gain: float = 0.08):
     """Initialize weights."""
+    if max_w is None and max_w_gain is None:
+        raise ValueError("Either max_w or max_w_gain must be provided")
 
-    def _init_params(
-        submodule: nn.Module,
-        param_name: str = "weight",
-        min_w: float = 1e-6,
-        max_w_gain: float = 1,
-    ):
-        if hasattr(submodule, param_name):
-            param = submodule.get_parameter(param_name)
+    def _init_params(submodule: nn.Module):
+        nonlocal min_w, max_w, max_w_gain
+        if hasattr(submodule, "weight") and getattr(submodule, "weight") is not None:
+            param = submodule.get_parameter("weight")
             # positive xaiver_uniform
             fan_in, fan_out = nn.init._calculate_fan_in_and_fan_out(param)
-            max_w = max_w_gain / math.sqrt(fan_in + fan_out)
-            nn.init.uniform_(param, min_w, max_w)
+            upper_thres = max_w_gain / math.sqrt(fan_in + fan_out) if max_w is None else max_w
+            nn.init.uniform_(param, min_w, upper_thres)
+        if hasattr(submodule, "bias") and getattr(submodule, "bias") is not None:
+            nn.init.zeros_(submodule.get_parameter("bias"))
 
-    return functools.partial(_init_params, param_name="weight", min_w=min_w, max_w_gain=max_w_gain)
+    return _init_params
 
 
 def gaussian_noise(std: float):

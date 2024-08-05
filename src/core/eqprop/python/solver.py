@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Optional, Sequence
 
 import torch
 import torch.nn as nn
 
-from src.core.eqprop.strategy import AbstractStrategy
+from src.core.eqprop.python.strategy import AbstractStrategy
 from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -20,23 +20,20 @@ class EqPropSolver:
         amp_factor (float, optional): inter-layer potential amplifying factor. Defaults to 1.0.
     """
 
-    # singletons
-    def __new__(cls, *args, **kwargs):
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    # # singletons
+    # def __new__(cls, *args, **kwargs):
+    #     if not hasattr(cls, "_instance"):
+    #         cls._instance = super().__new__(cls)
+    #     return cls._instance
 
     def __init__(
         self,
-        model: nn.Module,
         amp_factor: float,
         beta: float,
         strategy: AbstractStrategy,
     ) -> None:
         self.amp_factor = amp_factor
-        self.model = model
         self.beta = beta
-        strategy.set_strategy_params(model)
         self.strategy = strategy
 
     @property
@@ -44,13 +41,31 @@ class EqPropSolver:
         return self._beta
 
     @beta.setter
-    def beta(self, value: float | str):
-        if type(value) != str:
-            self._beta = value
-        elif value == "flip":
-            self._beta *= -1
+    def beta(self, value: float | int):
+        self._beta = value
 
-    def __call__(self, x: torch.Tensor, **kwargs: Any) -> tuple[list[torch.Tensor], torch.Tensor]:
+    def flip_beta(self) -> None:
+        """Flip the sign of beta."""
+        self.beta = -self.beta
+
+    def set_model(self, model: torch.nn.Module) -> None:
+        """Set strategy parameters from nn.Module."""
+        st = self.strategy
+        if not st.W and not st.B:
+            for name, param in model.named_parameters():
+                if name.endswith("weight"):
+                    st.W.append(param)
+                    st.dims.append(param.shape[0])
+                elif name.endswith("bias"):
+                    st.B.append(param)
+
+    def __call__(
+        self,
+        x: torch.Tensor,
+        nudge_phase: bool,
+        grad: torch.Tensor | None = None,
+        **kwargs: Any,
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
         """Call the solver.
 
         Args:
@@ -59,19 +74,19 @@ class EqPropSolver:
             return_energy (bool, optional): Defaults to False.
         """
         i_ext = None
-        if kwargs.get("nudge_phase", False):
-            i_ext = self.beta * self.model.ypred.grad
+
+        if nudge_phase:
+            i_ext = self.beta * grad
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
         else:
-            del self.model.ypred
             self.strategy.reset()
-        reversed_nodes = self.strategy.solve(x, i_ext, **kwargs)
-        reversed_nodes.reverse()
+        nodes = self.strategy.solve(x, i_ext, **kwargs)
+        # nodes.reverse()
         if kwargs.get("return_energy", False):
-            E = self.energy(reversed_nodes, x)
-            return (reversed_nodes, E)
+            E = self.energy(nodes, x)
+            return (nodes, E)
         else:
-            return (reversed_nodes, None)
+            return (nodes, None)
 
     def energy(self, Nodes, x) -> torch.Tensor:
         """Energy function."""
@@ -113,15 +128,19 @@ class EqPropSolver:
 
 
 class AnalogEqPropSolver(EqPropSolver):
+    """Solver for analog resistive network with EqProp."""
+
     def __init__(
         self,
-        *args,
-        **kwargs: Sequence[Any],
+        amp_factor: float,
+        beta: float,
+        strategy: AbstractStrategy,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(amp_factor, beta, strategy)
 
     # TODO: Check validity when amp_factor is not 1
     def energy(self, Nodes, x) -> torch.Tensor:
+        """Energy function."""
         if self.amp_factor != 1:
             raise NotImplementedError(
                 "energy function for analog EqProp is not implemented when amp_factor != 1"

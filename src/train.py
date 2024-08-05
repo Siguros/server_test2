@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-import hydra
 import lightning as L
 import rootutils
 import torch
@@ -9,12 +8,10 @@ from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
 
-from configs import register_configs
+from configs import register_everything
 from configs.model import optimizer
-from src.core.eqprop import eqprop_util
 
 # import local modules, not methods or classes directly
-from src.utils import utils
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -94,9 +91,6 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     if cfg.trainer.get("accelerator") == "gpu" and torch.cuda.is_available():
         torch.set_float32_matmul_precision("highest")
 
-    if num_output := cfg.model.get("scale_output"):
-        eqprop_util.interleave.set_num_output(num_output)
-
     if cfg.get("compile"):
         log.info("Compiling model!")
         model = torch.compile(model)  # type: ignore
@@ -147,10 +141,8 @@ def main(zen_cfg: DictConfig) -> Optional[float]:
 
 
 if __name__ == "__main__":
-    register_configs()
-    store.add_to_hydra_store()
+    register_everything()
     pre_seed = zen(lambda seed: L.seed_everything(seed))
-    OmegaConf.register_new_resolver(eval.__name__, eval)
     zen(main, pre_call=pre_seed).hydra_main(
         version_base="1.3", config_path="../configs", config_name="train.yaml"
     )

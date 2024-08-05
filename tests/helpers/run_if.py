@@ -19,6 +19,7 @@ from tests.helpers.package_available import (
     _IS_WINDOWS,
     _MLFLOW_AVAILABLE,
     _NEPTUNE_AVAILABLE,
+    _OPTUNA_PLUGIN_AVAILABLE,
     _SH_AVAILABLE,
     _TPU_AVAILABLE,
     _WANDB_AVAILABLE,
@@ -55,6 +56,7 @@ class RunIf:
         neptune: bool = False,
         comet: bool = False,
         mlflow: bool = False,
+        optuna_plugin: bool = False,
         **kwargs: Dict[Any, Any],
     ) -> MarkDecorator:
         """Creates a new `@RunIf` `MarkDecorator` decorator.
@@ -72,6 +74,7 @@ class RunIf:
         :param neptune: If `neptune` module is required to run the test.
         :param comet: If `comet` module is required to run the test.
         :param mlflow: If `mlflow` module is required to run the test.
+        :param optuna_plugin: If `optuna` module is required to run the test.
         :param kwargs: Native `pytest.mark.skipif` keyword arguments.
         """
         conditions = []
@@ -133,6 +136,10 @@ class RunIf:
         if mlflow:
             conditions.append(not _MLFLOW_AVAILABLE)
             reasons.append("mlflow")
+
+        if optuna_plugin:
+            conditions.append(not _OPTUNA_PLUGIN_AVAILABLE)
+            reasons.append("optuna-sweeper-plugin")
 
         reasons = [rs for cond, rs in zip(conditions, reasons) if cond]
         return pytest.mark.skipif(

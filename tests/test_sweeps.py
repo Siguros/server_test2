@@ -5,13 +5,12 @@ import pytest
 from tests.helpers.run_if import RunIf
 from tests.helpers.run_sh_command import run_sh_command
 
-startfile = "src/train.py"
 overrides = ["logger=[]"]
 
 
 @RunIf(sh=True)
 @pytest.mark.slow
-def test_experiments(tmp_path: Path) -> None:
+def test_experiments(tmp_path: Path, startfile: str) -> None:
     """Test running all available experiment configs with `fast_dev_run=True.`
 
     :param tmp_path: The temporary logging path.
@@ -28,7 +27,7 @@ def test_experiments(tmp_path: Path) -> None:
 
 @RunIf(sh=True)
 @pytest.mark.slow
-def test_hydra_sweep(tmp_path: Path) -> None:
+def test_hydra_sweep(tmp_path: Path, startfile: str) -> None:
     """Test default hydra sweep.
 
     :param tmp_path: The temporary logging path.
@@ -46,7 +45,7 @@ def test_hydra_sweep(tmp_path: Path) -> None:
 
 @RunIf(sh=True)
 @pytest.mark.slow
-def test_hydra_sweep_ddp_sim(tmp_path: Path) -> None:
+def test_hydra_sweep_ddp_sim(tmp_path: Path, startfile: str) -> None:
     """Test default hydra sweep with ddp sim.
 
     :param tmp_path: The temporary logging path.
@@ -65,9 +64,9 @@ def test_hydra_sweep_ddp_sim(tmp_path: Path) -> None:
     run_sh_command(command)
 
 
-@RunIf(sh=True)
+@RunIf(sh=True, optuna_plugin=True)
 @pytest.mark.slow
-def test_optuna_sweep(tmp_path: Path) -> None:
+def test_optuna_sweep(tmp_path: Path, startfile: str) -> None:
     """Test Optuna hyperparam sweeping.
 
     :param tmp_path: The temporary logging path.
@@ -84,9 +83,9 @@ def test_optuna_sweep(tmp_path: Path) -> None:
     run_sh_command(command)
 
 
-@RunIf(wandb=True, sh=True)
+@RunIf(wandb=True, sh=True, optuna_plugin=True)
 @pytest.mark.slow
-def test_optuna_sweep_ddp_sim_wandb(tmp_path: Path) -> None:
+def test_optuna_sweep_ddp_sim_wandb(tmp_path: Path, startfile: str) -> None:
     """Test Optuna sweep with wandb logging and ddp sim.
 
     :param tmp_path: The temporary logging path.

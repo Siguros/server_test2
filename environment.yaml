@@ -5,7 +5,7 @@
 # - conda allows for installing packages without requiring certain compilers or
 #   libraries to be available in the system, since it installs precompiled binaries
 
-name: myenv
+name: ml
 
 channels:
   - pytorch
@@ -22,7 +22,7 @@ channels:
 
 dependencies:
   - python=3.10
-  - pytorch=2.*
+  - pytorch=2.* #
   - torchvision=0.*
   - lightning=2.*
   - torchmetrics=0.*
@@ -30,6 +30,8 @@ dependencies:
   - rich=13.*
   - pre-commit=3.*
   - pytest=7.*
+  - beartype
+  - numpy=1.* # conflicts with wandb 1.6.6
 
   # --------- loggers --------- #
   - wandb
@@ -43,4 +45,4 @@ dependencies:
       - hydra-optuna-sweeper
       - hydra-colorlog
       - rootutils
-      # - hydra_zen
+      - hydra_zen

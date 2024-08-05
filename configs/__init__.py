@@ -1,14 +1,12 @@
 # Original code from: https://github.com/groomata/vision/blob/main/src/groovis/configs/__init__.py
 import importlib.util
 import os
-import pkgutil
-import sys
-from dataclasses import dataclass, field
 from typing import Any
 
 from hydra import compose, initialize
-from hydra_zen import MISSING, load_from_yaml, make_config, make_custom_builds_fn, to_yaml
+from hydra_zen import MISSING, load_from_yaml, make_config, make_custom_builds_fn, store, to_yaml
 from hydra_zen.third_party.beartype import validates_with_beartype
+from omegaconf import OmegaConf
 from rich import print
 
 
@@ -78,6 +76,7 @@ EvalConfig = make_config(
 
 
 def register_configs():
+    """Register all configs under config directory to hydra-zen."""
     for root, dirs, files in os.walk(os.path.dirname(__file__)):
         for file in files:
             if file.endswith(".py") and not file.startswith("__"):
@@ -87,3 +86,11 @@ def register_configs():
                 spec.loader.exec_module(module)
                 if hasattr(module, "_register_configs"):
                     module._register_configs()
+
+
+def register_everything() -> None:
+    """Register all configs and eval resolver to hydra global Configstore."""
+    register_configs()
+    store.add_to_hydra_store()
+    if not OmegaConf.has_resolver("eval"):
+        OmegaConf.register_new_resolver("eval", eval)

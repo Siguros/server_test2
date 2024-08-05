@@ -10,8 +10,8 @@ ______________________________________________________________________
 <a href="https://github.com/ashleve/lightning-hydra-template"><img alt="Template" src="https://img.shields.io/badge/-Lightning--Hydra--Template-017F2F?style=flat&logo=github&labelColor=gray"></a><br>
 
 [![Interrogate](./interrogate_badge.svg)](https://github.com/econchick/interrogate)
+[![codecov](https://codecov.io/gh/nmdlkg/ml/graph/badge.svg?token=PGDGVA7A3J)](https://codecov.io/gh/nmdlkg/ml)
 [![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)](https://www.nature.com/articles/nature14539)
-[![Conference](http://img.shields.io/badge/AnyConference-year-4b44ce.svg)](https://papers.nips.cc/paper/2020)
 
 </div>
 
@@ -21,7 +21,7 @@ Encapsulates all the boilerplate code for training and evaluating a model.
 
 ## Installation
 
-#### Pip
+#### A. Pip
 
 ```bash
 # clone project
@@ -29,8 +29,8 @@ git clone https://github.com/nmdlkg/ml
 cd ml
 
 # [OPTIONAL] create conda environment
-conda create -n myenv python=3.10
-conda activate myenv
+conda create -n ml python=3.10
+conda activate ml
 
 # install pytorch according to instructions
 # https://pytorch.org/get-started/
@@ -39,18 +39,53 @@ conda activate myenv
 pip install -r requirements.txt
 ```
 
-#### Conda
+#### B. Conda
 
 ```bash
 # clone project
 git clone https://github.com/nmdlkg/ml
 cd ml
 
-# create conda environment and install dependencies
-conda env create -f environment.yaml -n myenv
+# create common conda environment and install dependencies
+conda env create -f environment.yaml -n ml
 
 # activate conda environment
-conda activate myenv
+conda activate ml
+```
+
+#### Setup
+
+```bash
+python -m setup develop
+```
+
+#### \[Optional\] eqprop
+
+```bash
+#you can create environment for specific project with additional packages
+conda env update -n ml -f src/_eqprop/environment.yaml
+# or
+pip install -r src/_eqprop/requirements.txt
+
+```
+
+```bash
+conda activate ml
+src/core/eqprop/build_proxsuite_w_openmp.sh
+```
+
+#### \[Optional\] SPICE
+
+```bash
+conda install -c conda-forge pyspice
+
+# or
+
+pip install PySpice
+
+# and eventually
+
+pyspice-post-installation --check-install
 ```
 
 ## How to run
@@ -75,7 +110,7 @@ python src/train.py model/optimizer=sgd model/scheduler=steplr
 Train model with chosen experiment configuration from [configs/experiment/](configs/experiment/)
 
 ```bash
-python src/train.py experiment=experiment_name.yaml
+python src/train.py experiment=experiment_name
 ```
 
 You can override any parameter from command line like this

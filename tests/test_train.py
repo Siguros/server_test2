@@ -88,7 +88,7 @@ def test_train_resume(tmp_path: Path, cfg_train: DictConfig) -> None:
         cfg_train.trainer.max_epochs = 1
 
     HydraConfig().set_config(cfg_train)
-    metric_dict_1, _ = train(cfg_train)
+    metric_dict_1 = train(cfg_train)
 
     files = os.listdir(tmp_path / "checkpoints")
     assert "last.ckpt" in files
@@ -98,7 +98,7 @@ def test_train_resume(tmp_path: Path, cfg_train: DictConfig) -> None:
         cfg_train.ckpt_path = str(tmp_path / "checkpoints" / "last.ckpt")
         cfg_train.trainer.max_epochs = 2
 
-    metric_dict_2, _ = train(cfg_train)
+    metric_dict_2 = train(cfg_train)
 
     files = os.listdir(tmp_path / "checkpoints")
     assert "epoch_001.ckpt" in files

@@ -1,12 +1,27 @@
 """This file prepares config fixtures for other tests."""
 
+import os
 from pathlib import Path
 
 import pytest
 import rootutils
 from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
-from omegaconf import DictConfig, open_dict
+from hydra_zen import store
+from omegaconf import DictConfig, OmegaConf, open_dict
+
+from configs import register_everything
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_hydra_zen() -> None:
+    """A pytest fixture for setting up Hydra Zen configs."""
+    register_everything()
+
+
+@pytest.fixture(scope="session")
+def startfile(pytestconfig) -> str:
+    return os.path.join(str(pytestconfig.rootdir), "src/train.py")
 
 
 @pytest.fixture(scope="package")

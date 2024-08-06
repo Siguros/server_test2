@@ -22,7 +22,7 @@ class PositiveEqPropFunc(torch.autograd.Function):
     def forward(ctx, eqprop_layer: EqPropMixin, input) -> torch.Tensor:
         """Free phase for EqProp."""
         ctx.eqprop_layer = eqprop_layer
-        positive_node, _ = eqprop_layer.solver(input, nudge_phase=False)
+        positive_node = eqprop_layer.solver(input)
         ctx.mark_non_differentiable(positive_node)
         ctx.save_for_backward(input, positive_node)
         return positive_node[-1]
@@ -33,7 +33,7 @@ class PositiveEqPropFunc(torch.autograd.Function):
         """Backward pass for EqProp."""
         input, positive_node = ctx.saved_tensors
         eqprop_layer: EqPropMixin = ctx.eqprop_layer
-        negative_node, _ = eqprop_layer.solver(input, nudge_phase=True, grad=grad_output)
+        negative_node = eqprop_layer.solver(input, grad=grad_output)
         nodes = (positive_node, negative_node)
         eqprop_layer.calc_n_set_param_grad_(input, nodes)
         grad_input = eqprop_layer.calc_x_grad(nodes)  # dL/dx = g*(dV_nudge -dV_free)/beta
@@ -49,7 +49,7 @@ class AlteredEqPropFunc(PositiveEqPropFunc):
         input, positive_node = ctx.saved_tensors
         eqprop_layer: EqPropMixin = ctx.eqprop_layer
         eqprop_layer.solver.flip_beta()
-        negative_node = eqprop_layer.solver(input, nudge_phase=True, grad=grad_output)
+        negative_node = eqprop_layer.solver(input, grad=grad_output)
         nodes = (positive_node, negative_node)
         eqprop_layer.calc_n_set_param_grad_(input, nodes)
         grad_input = eqprop_layer.calc_x_grad(nodes)  # dL/dx = g*(dV_nudge -dV_free)/beta
@@ -76,9 +76,9 @@ class CenteredEqPropFunc(PositiveEqPropFunc):
         """Backward pass for centered EqProp."""
         input = ctx.saved_tensors
         eqprop_layer: EqPropMixin = ctx.eqprop_layer
-        positive_node = eqprop_layer.solver(input, nudge_phase=True, grad=grad_output)
+        positive_node = eqprop_layer.solver(input, grad=grad_output)
         eqprop_layer.solver.flip_beta()
-        negative_node = eqprop_layer.solver(input, nudge_phase=True, grad=grad_output)
+        negative_node = eqprop_layer.solver(input, grad=grad_output)
         nodes = (positive_node, negative_node)
         eqprop_layer.calc_n_set_param_grad_(input, nodes)
         grad_input = eqprop_layer.calc_x_grad(nodes)
@@ -260,7 +260,7 @@ class EqPropConv2d(EqPropMixin, nn.Conv2d):
         """
         x = self.unfold(x).transpose(1, 2)
         x = EqPropMixin.forward(self, x)
-        batch, out_channels, _ = x.shape
+        batch, out_channels = x.shape
         x = x.view(batch, out_channels, *self.output_shape)
         return x
 

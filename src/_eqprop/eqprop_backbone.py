@@ -476,7 +476,7 @@ class AnalogEP2(nn.Module):
         """
         # assert self.training is False
         self.reset_nodes()
-        nodes, _ = self.solver(x, nudge_phase=False)
+        nodes = self.solver(x)
         self.set_nodes(nodes, positive_phase=True)
         logits = self.model[-1].get_buffer("positive_node")
         self.ypred = logits.detach().clone().requires_grad_(True)
@@ -487,7 +487,7 @@ class AnalogEP2(nn.Module):
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
         assert self.training
-        nodes, _ = self.solver(x, grad=self.ypred.grad, nudge_phase=True)
+        nodes = self.solver(x, grad=self.ypred.grad)
         self.set_nodes(nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
@@ -589,19 +589,19 @@ class AnalogEPSym(AnalogEP2):
         """Forward propagation."""
         # assert self.training is False
         self.reset_nodes()
-        nodes, _ = self.solver(x)
+        nodes = self.solver(x)
         logits = nodes[0]
-        self.model.ypred = logits.clone().detach().requires_grad_(True)
-        return self.model.ypred
+        self.ypred = logits.clone().detach().requires_grad_(True)
+        return self.ypred
 
     @eqprop_util.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
-        nodes, _ = self.solver(x, nudge_phase=True)
+        nodes = self.solver(x, grad=self.ypred.grad)
         self.set_nodes(nodes, positive_phase=True)
         self.solver.flip_beta()
-        nodes, _ = self.solver(x, nudge_phase=True)
+        nodes = self.solver(x, grad=self.ypred.grad)
         self.set_nodes(nodes, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)

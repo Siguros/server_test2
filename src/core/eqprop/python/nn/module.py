@@ -27,7 +27,6 @@ class PositiveEqPropFunc(torch.autograd.Function):
         ctx.save_for_backward(input, positive_node)
         return positive_node[-1]
 
-    # : implement explicit backward pass
     @staticmethod
     # @torch.once_differentiable()
     def backward(ctx, grad_output) -> torch.Tensor:
@@ -60,7 +59,7 @@ class AlteredEqPropFunc(PositiveEqPropFunc):
 class CenteredEqPropFunc(PositiveEqPropFunc):
     """Centered EqProp.
 
-    Use 2 nudged phases to calculate gradient.
+    Use 2 opposite nudged phases to calculate gradient.
     """
 
     @staticmethod
@@ -93,21 +92,21 @@ class EqPropMixin(ABC):
 
     Args:
         solver (EqPropSolver): EqProp solver
-        eqpropfn (PositiveEqPropFunc): EqProp wrapper function
+        eqprop_fn (PositiveEqPropFunc): EqProp wrapper function
     """
 
     IS_CONTAINER: bool = False
 
     def __init__(
-        self, solver: EqPropSolver, eqpropfn: torch.autograd.Function = PositiveEqPropFunc
+        self, solver: EqPropSolver, eqprop_fn: torch.autograd.Function = PositiveEqPropFunc
     ) -> None:
-        self.eqpropfn = eqpropfn.apply
+        self.eqprop_fn = eqprop_fn.apply
         self.solver = solver
         self.solver.set_model(self)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass for EqProp."""
-        return self.eqpropfn(self, x)
+        return self.eqprop_fn(self, x)
 
     @abstractmethod
     def calc_n_set_param_grad_(
@@ -128,13 +127,13 @@ class EqPropLinear(EqPropMixin, nn.Linear):
         solver: EqPropSolver,
         in_features: int,
         out_features: int,
-        eqpropfn: torch.autograd.Function = PositiveEqPropFunc,
+        eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
         bias: bool = True,
         device=None,
         dtype=None,
     ):
         nn.Linear.__init__(self, in_features, out_features, bias=bias, device=device, dtype=dtype)
-        EqPropMixin.__init__(self, solver, eqpropfn)
+        EqPropMixin.__init__(self, solver, eqprop_fn)
 
     def forward(self, x):
         """Forward pass for EqPropLinear."""
@@ -232,7 +231,7 @@ class EqPropConv2d(EqPropMixin, nn.Conv2d):
         groups: int,
         bias: bool,
         padding_mode: str,
-        eqpropfn: torch.autograd.Function = PositiveEqPropFunc,
+        eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
         device=None,
         dtype=None,
     ) -> None:
@@ -252,7 +251,7 @@ class EqPropConv2d(EqPropMixin, nn.Conv2d):
             device,
             dtype,
         )
-        EqPropMixin.__init__(self, solver, eqpropfn)
+        EqPropMixin.__init__(self, solver, eqprop_fn)
 
     def forward(self, x):
         """Forward pass for EqPropConv2d.
@@ -281,7 +280,7 @@ class EqPropSequential(EqPropMixin, nn.Sequential):
 
     def __init__(self, *args, **kwargs):
         nn.Sequential.__init__(self, *args, **kwargs)
-        # EqPropMixin.__init__(self, solver, eqpropfn)
+        # EqPropMixin.__init__(self, solver, eqprop_fn)
         self.check_all_eqprop()
 
     def forward(self, x):

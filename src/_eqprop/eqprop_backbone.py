@@ -1,12 +1,11 @@
-from collections import OrderedDict
-from typing import Any, Callable, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.core.eqprop.python import eqprop_util
 from src.core.eqprop.python.solver import AnalogEqPropSolver
+from src.utils import eqprop_utils
 
 
 class EP(nn.Module):
@@ -45,7 +44,7 @@ class EP(nn.Module):
         self.doubling = kwargs.get("doubling", False)
         self.num_classes = dims[-1]
         if self.doubling:
-            # eqprop_util.interleave.on()
+            # eqprop_utils.interleave.on()
             self.num_classes //= 2
         self.eps = epsilon
         self.dims = dims
@@ -90,7 +89,7 @@ class EP(nn.Module):
             else:
                 nn.init.xavier_uniform_(self.W[idx].weight)
 
-    # @eqprop_util.type_as
+    # @eqprop_utils.type_as
     def forward(self, x, y=None, beta=0.0) -> list[torch.Tensor]:
         """Relax Nodes till converge."""
         self.W.requires_grad_(False)  # freeze weights
@@ -205,7 +204,7 @@ class EP(nn.Module):
             L = L.mean().detach()
         return (E, L)
 
-    @eqprop_util.interleave(type="in")
+    @eqprop_utils.interleave(type="in")
     def loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute loss."""
         if self.criterion.__class__.__name__.find("MSE") != -1:
@@ -443,7 +442,7 @@ class AnalogEP2(nn.Module):
         # init weights
         if positive_w:
             self.model.apply(
-                eqprop_util.positive_param_init(
+                eqprop_utils.positive_param_init(
                     min_w,
                     max_w,
                     max_w_gain,
@@ -458,12 +457,12 @@ class AnalogEP2(nn.Module):
         solver.set_model(self.model)
         self.solver = solver
 
-        eqprop_util.interleave.set_num_input(scale_input)
-        eqprop_util.interleave.set_num_output(scale_output)
+        eqprop_utils.interleave.set_num_input(scale_input)
+        eqprop_utils.interleave.set_num_output(scale_output)
 
         FutureWarning("AnalogEP2 will be replaced by core.eqprop.nn.EqPropLinear")
 
-    @eqprop_util.interleave(type="both")
+    @eqprop_utils.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation.
@@ -482,7 +481,7 @@ class AnalogEP2(nn.Module):
         self.ypred = logits.detach().clone().requires_grad_(True)
         return self.ypred
 
-    @eqprop_util.interleave(type="in")
+    @eqprop_utils.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
@@ -583,7 +582,7 @@ class AnalogEPSym(AnalogEP2):
     Use 3rd nudge phase to compute gradients.
     """
 
-    @eqprop_util.interleave(type="both")
+    @eqprop_utils.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation."""
@@ -594,7 +593,7 @@ class AnalogEPSym(AnalogEP2):
         self.ypred = logits.clone().detach().requires_grad_(True)
         return self.ypred
 
-    @eqprop_util.interleave(type="in")
+    @eqprop_utils.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
@@ -619,7 +618,7 @@ class DummyAnalogEP2(AnalogEP2):
         super().__init__(*args, **kwargs)
         self.model.insert(1, nn.ReLU())
 
-    @eqprop_util.interleave(type="both")
+    @eqprop_utils.interleave(type="both")
     def forward(self, x):
         return self.model(x)
 

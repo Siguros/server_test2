@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 
 from src.core.eqprop.python.strategy import AbstractStrategy
-from src.utils import RankedLogger
+from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -62,7 +62,6 @@ class EqPropSolver:
     def __call__(
         self,
         x: torch.Tensor,
-        nudge_phase: bool,
         grad: torch.Tensor | None = None,
         **kwargs: Any,
     ) -> tuple[list[torch.Tensor], torch.Tensor]:
@@ -75,18 +74,13 @@ class EqPropSolver:
         """
         i_ext = None
 
-        if nudge_phase:
+        if grad is not None:
             i_ext = self.beta * grad
             log.debug(f"i_ext: {i_ext.abs().mean():.3e}")
         else:
             self.strategy.reset()
         nodes = self.strategy.solve(x, i_ext, **kwargs)
-        # nodes.reverse()
-        if kwargs.get("return_energy", False):
-            E = self.energy(nodes, x)
-            return (nodes, E)
-        else:
-            return (nodes, None)
+        return nodes
 
     def energy(self, Nodes, x) -> torch.Tensor:
         """Energy function."""

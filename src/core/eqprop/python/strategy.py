@@ -16,7 +16,7 @@ if _QPSOLVERS_AVAILABLE:
 if _SPICE_AVAILABLE:
     from src.core.spice import circuits, xyce, spice_utils
 
-from src.core.eqprop.python import eqprop_util
+from src.core.eqprop.python import activation
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -60,7 +60,7 @@ class AbstractStrategy(ABC):
 
     def __init__(
         self,
-        activation: eqprop_util.AbstractRectifier,
+        activation: activation.AbstractRectifier,
         max_iter: int = 30,
         atol: float = 1e-6,
         **kwargs,
@@ -553,14 +553,14 @@ class NewtonStrategy(SecondOrderStrategy):
             i_ext (torch.Tensor): external current.
         KwArgs:
             params (tuple[list[torch.Tensor], list[torch.Tensor]]): weights and biases of the model.
-            OTS (eqprop_util.P3OTS): nonlinearity.
+            OTS (eqprop_utils.P3OTS): nonlinearity.
             dims (list): dimensions of the model.
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
         """
         self.check_and_set_attrs(kwargs)
-        if isinstance(self.OTS, eqprop_util.SymOTS):
+        if isinstance(self.OTS, activation.SymOTS):
             vout = self._densecholsol2(x, i_ext)
         else:
             vout = self._densecholsol(x, i_ext)
@@ -579,7 +579,7 @@ class NewtonStrategy(SecondOrderStrategy):
             W (list): List of weight matrices. Each element of the list size (dim, dim).
             B (list, optional): List of bias vectors. Defaults to None. Each element of the list size (batchsize, dim).
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -647,7 +647,7 @@ class NewtonStrategy(SecondOrderStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -738,7 +738,7 @@ class NewtonStrategy(SecondOrderStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -801,7 +801,7 @@ class NewtonStrategy(SecondOrderStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -960,7 +960,7 @@ class LMStrategy(PythonStrategy):
             i_ext (torch.Tensor): external current.
         KwArgs:
             params (tuple[list[torch.Tensor], list[torch.Tensor]]): weights and biases of the model.
-            OTS (eqprop_util.P3OTS): nonlinearity.
+            OTS (eqprop_utils.P3OTS): nonlinearity.
             dims (list): dimensions of the model.
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
@@ -991,7 +991,7 @@ class LMStrategy(PythonStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.

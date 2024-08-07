@@ -1,3 +1,3 @@
-# from .eqprop_util import P3OTS
+# from .eqprop_utils import P3OTS
 # from .solver import AnalogEqPropSolver
 # from .strategy import NewtonStrategy

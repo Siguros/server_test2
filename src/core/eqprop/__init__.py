@@ -1,1 +1,1 @@
-from .python import nn
+from src.core.eqprop.python import nn

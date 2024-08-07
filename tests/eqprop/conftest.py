@@ -5,7 +5,7 @@ from hydra.utils import instantiate
 from omegaconf import open_dict
 
 from src._eqprop.eqprop_backbone import AnalogEP2
-from src.core.eqprop.python import eqprop_util, strategy
+from src.core.eqprop.python import activation, strategy
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +19,7 @@ def second_order_strategy(toymodel) -> strategy.SecondOrderStrategy:
         strategy.SecondOrderStrategy: _description_
     """
     st = strategy.NewtonStrategy(
-        activation=eqprop_util.SymReLU(Vl=-0.6, Vr=0.6),
+        activation=activation.SymReLU(Vl=-0.6, Vr=0.6),
         amp_factor=1.0,
         add_nonlin_last=False,
         max_iter=1,
@@ -51,7 +51,7 @@ def toy_backbone(cfg_train_global) -> AnalogEP2:
         cfg.model.net.solver.strategy.clip_threshold = 1
         cfg.model.net.solver.strategy.max_iter = 20
         cfg.model.net.solver.strategy.activation = {
-            "_target_": "src.core.eqprop.eqprop_util.SymReLU",
+            "_target_": "src.utils.eqprop_utils.SymReLU",
             "Vl": -0.6,
             "Vr": 0.6,
         }

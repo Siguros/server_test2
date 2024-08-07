@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 import torch
 import torch.nn as nn
+from hydra_zen import instantiate
 
 from src.core.eqprop.python.solver import EqPropSolver
 
@@ -98,9 +99,21 @@ class EqPropMixin(ABC):
     IS_CONTAINER: bool = False
 
     def __init__(
-        self, solver: EqPropSolver, eqprop_fn: torch.autograd.Function = PositiveEqPropFunc
+        self, solver: EqPropSolver | None, eqprop_fn: torch.autograd.Function = PositiveEqPropFunc
     ) -> None:
         self.eqprop_fn = eqprop_fn.apply
+        if solver is None:
+            # move import under here to avoid circular import
+            from configs.eqprop.solver import (
+                AnalogEqPropSolverConfig,
+                IdealRectifierConfig,
+                ProxQPStrategyConfig,
+            )
+
+            rectifier_cfg = IdealRectifierConfig(Vl=0.1, Vr=0.9)
+            strategy_cfg = ProxQPStrategyConfig(amp_factor=1.0, activation=rectifier_cfg)
+            cfg = AnalogEqPropSolverConfig(beta=0.1, strategy=strategy_cfg)
+            solver = instantiate(cfg)
         self.solver = solver
         self.solver.set_model(self)
 
@@ -124,13 +137,13 @@ class EqPropLinear(EqPropMixin, nn.Linear):
 
     def __init__(
         self,
-        solver: EqPropSolver,
         in_features: int,
         out_features: int,
         eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
         bias: bool = True,
         device=None,
         dtype=None,
+        solver: EqPropSolver | None = None,
     ):
         nn.Linear.__init__(self, in_features, out_features, bias=bias, device=device, dtype=dtype)
         EqPropMixin.__init__(self, solver, eqprop_fn)
@@ -219,7 +232,6 @@ class EqPropConv2d(EqPropMixin, nn.Conv2d):
 
     def __init__(
         self,
-        solver: EqPropSolver,
         in_channels: int,
         out_channels: int,
         kernel_size: tuple[int, ...],
@@ -234,6 +246,7 @@ class EqPropConv2d(EqPropMixin, nn.Conv2d):
         eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
         device=None,
         dtype=None,
+        solver: EqPropSolver | None = None,
     ) -> None:
         nn.Linear.__init__(
             self,

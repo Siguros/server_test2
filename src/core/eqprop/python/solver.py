@@ -64,7 +64,7 @@ class EqPropSolver:
         x: torch.Tensor,
         grad: torch.Tensor | None = None,
         **kwargs: Any,
-    ) -> tuple[list[torch.Tensor], torch.Tensor]:
+    ) -> torch.Tensor:
         """Call the solver.
 
         Args:

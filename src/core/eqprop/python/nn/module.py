@@ -125,11 +125,17 @@ class EqPropMixin(ABC):
     def calc_n_set_param_grad_(
         self, x: torch.Tensor, nodes: tuple[torch.Tensor, torch.Tensor]
     ) -> None:
-        """Calculate & set gradient in-place for params."""
+        """Calculate & set gradient in-place for params.
+
+        This function is called in EqPropFunc.backward.
+        """
 
     @abstractmethod
     def calc_x_grad(self, nodes: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        """Calculate & return gradient for input dy/dx."""
+        """Calculate & return gradient for input dy/dx.
+
+        This function is called in EqPropFunc.backward.
+        """
 
 
 class EqPropLinear(EqPropMixin, nn.Linear):

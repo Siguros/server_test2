@@ -456,7 +456,7 @@ class AnalogEP2(nn.Module):
         # instiantiate solver
         solver.set_model(self.model)
         self.solver = solver
-
+        self.dims = self.solver.strategy.dims
         eqprop_utils.interleave.set_num_input(scale_input)
         eqprop_utils.interleave.set_num_output(scale_output)
 
@@ -475,8 +475,8 @@ class AnalogEP2(nn.Module):
         """
         # assert self.training is False
         self.reset_nodes()
-        nodes = self.solver(x)
-        self.set_nodes(nodes, positive_phase=True)
+        vout = self.solver(x)
+        self.set_nodes(vout, positive_phase=True)
         logits = self.model[-1].get_buffer("positive_node")
         self.ypred = logits.detach().clone().requires_grad_(True)
         return self.ypred
@@ -486,8 +486,8 @@ class AnalogEP2(nn.Module):
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
         assert self.training
-        nodes = self.solver(x, grad=self.ypred.grad)
-        self.set_nodes(nodes, positive_phase=False)
+        vout = self.solver(x, grad=self.ypred.grad)
+        self.set_nodes(vout, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
 
@@ -555,11 +555,11 @@ class AnalogEP2(nn.Module):
         for buf in self.model.buffers():
             buf.zero_()
 
-    def set_nodes(self, nodes: list, positive_phase: bool) -> None:
+    def set_nodes(self, vout: torch.Tensor, positive_phase: bool) -> None:
         """Set free/nudge nodes to each layer.
 
         Args:
-            nodes (list): list of free/nudge nodes from last layer to first layer
+            vout (torch.Tensor): concatenated output of each layer
             positive_phase (bool): True if positive phase, False otherwise
         """
 
@@ -571,7 +571,7 @@ class AnalogEP2(nn.Module):
                 else:
                     submodule.negative_node = nodes.pop()
 
-        nodes.reverse()
+        nodes = list(reversed(vout.split(self.dims, dim=1)))
         self.model.apply(_set_nodes_layer)
         del nodes
 
@@ -588,8 +588,9 @@ class AnalogEPSym(AnalogEP2):
         """Forward propagation."""
         # assert self.training is False
         self.reset_nodes()
-        nodes = self.solver(x)
-        logits = nodes[0]
+        vout = self.solver(x)
+        # nodes = list(vout.split(self.dims, dim=1))
+        logits = vout[:, -self.dims[-1] :]
         self.ypred = logits.clone().detach().requires_grad_(True)
         return self.ypred
 
@@ -597,11 +598,11 @@ class AnalogEPSym(AnalogEP2):
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
-        nodes = self.solver(x, grad=self.ypred.grad)
-        self.set_nodes(nodes, positive_phase=True)
+        vout = self.solver(x, grad=self.ypred.grad)
+        self.set_nodes(vout, positive_phase=True)
         self.solver.flip_beta()
-        nodes = self.solver(x, grad=self.ypred.grad)
-        self.set_nodes(nodes, positive_phase=False)
+        vout = self.solver(x, grad=self.ypred.grad)
+        self.set_nodes(vout, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
         self.solver.flip_beta()

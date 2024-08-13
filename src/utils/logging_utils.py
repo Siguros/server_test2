@@ -69,11 +69,12 @@ class LogCapture:
             level (int, optional): Log level. Defaults to logging.DEBUG.
 
         Example:
-            with LogCapture("src.core.eqprop.strategy") as log_capture:
-                logger = log_capture.logger
-                logger.info("Hello")
-                logger.info("World")
-                log_list = log_capture.get_log_list()
+
+            >>> with LogCapture("eqprop.strategy") as logc:
+            >>>    logger = logc.logger
+            >>>    logger.info("Hello")
+            >>>    logger.info("World")
+            >>>    log_list = logc.get_log_list()
         """
         self.log_stream = io.StringIO()
         self.logger = logging.getLogger(logger_name)

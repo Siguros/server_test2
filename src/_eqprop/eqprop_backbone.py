@@ -460,7 +460,7 @@ class AnalogEP2(nn.Module):
         eqprop_utils.interleave.set_num_input(scale_input)
         eqprop_utils.interleave.set_num_output(scale_output)
 
-        FutureWarning("AnalogEP2 will be replaced by core.eqprop.nn.EqPropLinear")
+        FutureWarning("AnalogEP2 will be replaced by src.core.eqprop.nn.EqPropLinear")
 
     @eqprop_utils.interleave(type="both")
     @torch.no_grad()

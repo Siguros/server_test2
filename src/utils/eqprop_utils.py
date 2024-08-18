@@ -57,7 +57,7 @@ class interleave:
 
             return result
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def interleave_input(self, x: torch.Tensor) -> torch.Tensor:
         """Interleave input tensor."""
         if self._num_input == 1:

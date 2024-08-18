@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Literal
 
 import torch
 import torch.nn as nn
 from hydra_zen import instantiate
 
 from src.core.eqprop.python.solver import EqPropSolver
+from src.utils import eqprop_utils
 
 __all__ = ["EqPropLinear", "EqPropConv2d", "EqPropSequential", "to_eqprop"]
 
@@ -146,14 +146,27 @@ class EqPropLinear(_EqPropMixin, nn.Linear):
         self,
         in_features: int,
         out_features: int,
-        eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
         bias: bool = True,
         device=None,
         dtype=None,
+        eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
         solver: EqPropSolver | None = None,
+        param_init_args: dict = {"min_w": 1e-6, "max_w": None, "max_w_gain": 0.28},
     ):
+        """Initialize EqPropLinear.
+
+        Args:
+            in_features (int): size of each input sample
+            out_features (int): size of each output sample
+            bias (bool, optional): If set to ``False``, the layer will not learn an additive bias. Defaults to ``True``.
+            eqprop_fn (torch.autograd.Function, optional): specific Eqprop algorithm. Defaults to PositiveEqPropFunc.
+            solver (EqPropSolver | None, optional): _description_. Defaults to None.
+            param_init_args (dict, optional): args for set positive param init.
+                Defaults to {"min_w":1e-6, "max_w":None, "max_w_gain":0.28}.
+        """
         nn.Linear.__init__(self, in_features, out_features, bias=bias, device=device, dtype=dtype)
         _EqPropMixin.__init__(self, solver, eqprop_fn)
+        self.apply(eqprop_utils.positive_param_init(**param_init_args))
 
     def forward(self, x):
         """Forward pass for EqPropLinear."""

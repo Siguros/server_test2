@@ -495,8 +495,8 @@ class AnalogEP2(nn.Module):
         """Set gradients of parameters manually.
 
         dL/dw = (nudge_dV^2 - free_dV^2)/beta
-        = [prev_negative^2 - n_node^2
-        + prev_positive^2 - p_node^2
+        = [prev_negative^2 + n_node^2
+        - (prev_positive^2 + p_node^2)
         - 2(prev_negative.T@n_node - prev_positive@p_node)]/beta
 
         Args:

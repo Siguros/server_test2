@@ -120,6 +120,7 @@ class _EqPropMixin(ABC):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass for EqProp."""
+        x.requires_grad_()
         return self.eqprop_fn(self, x)
 
     @abstractmethod

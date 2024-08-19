@@ -26,5 +26,5 @@ class EqPropBackbone(nn.Module):
 
     @eqprop_utils.interleave(type="both")
     def forward(self, x):
-        # self.model.apply(self.param_adjuster)
+        self.model.apply(self.param_adjuster)
         return self.model(x)

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -46,7 +46,7 @@ class ClassifierLitModule(LightningModule):
         self,
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
         compile: bool = False,
         num_classes: int = 10,
         criterion: type[nn.modules.loss._Loss] = nn.CrossEntropyLoss,

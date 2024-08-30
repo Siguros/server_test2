@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -100,7 +101,9 @@ class _EqPropMixin(ABC):
     IS_CONTAINER: bool = False
 
     def __init__(
-        self, solver: EqPropSolver | None, eqprop_fn: torch.autograd.Function = PositiveEqPropFunc
+        self,
+        solver: EqPropSolver | None,
+        eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
     ) -> None:
         self.eqprop_fn = eqprop_fn.apply
         if solver is None:
@@ -161,7 +164,7 @@ class EqPropLinear(_EqPropMixin, nn.Linear):
             out_features (int): size of each output sample
             bias (bool, optional): If set to ``False``, the layer will not learn an additive bias. Defaults to ``True``.
             eqprop_fn (torch.autograd.Function, optional): specific Eqprop algorithm. Defaults to PositiveEqPropFunc.
-            solver (EqPropSolver | None, optional): _description_. Defaults to None.
+            solver (Optional[EqPropSolver], optional): _description_. Defaults to None.
             param_init_args (dict, optional): args for set positive param init.
                 Defaults to {"min_w":1e-6, "max_w":None, "max_w_gain":0.28}.
         """

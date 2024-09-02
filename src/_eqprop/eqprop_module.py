@@ -4,7 +4,7 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from src._eqprop.eqprop_backbone import AnalogEP2
+from src._eqprop.direct_backbone import AnalogEP2
 from src.models.classifier_module import BinaryClassifierLitModule, ClassifierLitModule
 from src.utils import eqprop_utils
 

@@ -57,7 +57,7 @@ EqPropModuleConfig = make_config(
 ep_defaults = [
     "_self_",
     {"optimizer": "sgd"},
-    {"net/solver/strategy": "newton"},
+    {"net/solver/strategy": "proxqp"},
     {"net/solver/strategy/activation": "ots"},
 ]
 EqPropXORModuleConfig = builds(

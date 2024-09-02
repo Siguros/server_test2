@@ -37,6 +37,7 @@ ProxQPStrategyConfig = full_builds(
     amp_factor="${model.net.solver.amp_factor}",
     activation=MISSING,
     add_nonlin_last=False,
+    num_threads=None,
 )
 
 

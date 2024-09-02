@@ -4,7 +4,7 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
 from omegaconf import open_dict
 
-from src._eqprop.eqprop_backbone import AnalogEP2
+from src._eqprop.direct_backbone import AnalogEP2
 from src.core.eqprop.python import activation, strategy
 
 

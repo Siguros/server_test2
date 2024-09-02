@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import numpy as np
 import torch
@@ -484,16 +485,18 @@ class QPStrategy(FirstOrderStrategy):
 class ProxQPStrategy(QPStrategy):
     """Solve for the equilibrium point of the network with ProxQP."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, num_threads: Optional[int], **kwargs) -> None:
         super().__init__(solver_type="proxqp", **kwargs)
-        self.num_threads = proxsuite.proxqp.omp_get_max_threads() - 1
+        self.num_threads = (
+            proxsuite.proxqp.omp_get_max_threads() - 1 if num_threads is None else num_threads
+        )
 
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         batch_size, _ = x.shape
-        g = self.rhs(x).numpy()
+        g = self.rhs(x).cpu().numpy()
         if i_ext is None:
-            H = self.laplacian().numpy()
+            H = self.laplacian().cpu().numpy()
             n = n_ineq = H.shape[0]
             A = b = C = lower = upper = None
             self.lb = self.OTS.Vl * np.ones(n)
@@ -504,7 +507,7 @@ class ProxQPStrategy(QPStrategy):
                 qp.init(H, g[i], A, b, C, lower, upper, self.lb, self.ub)
                 self.qps.append(qp)
         else:
-            g[:, -self.dims[-1] :] += i_ext.numpy()
+            g[:, -self.dims[-1] :] += i_ext.cpu().numpy()
             for idx, qp in enumerate(self.qps):
                 qp.settings.initial_guess = (
                     proxsuite.proxqp.InitialGuess.WARM_START_WITH_PREVIOUS_RESULT

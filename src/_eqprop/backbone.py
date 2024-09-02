@@ -7,6 +7,11 @@ from src.utils import eqprop_utils
 
 
 class EqPropBackbone(nn.Module):
+    """EqPropBackbone with Default EqPropLinear layers.
+
+    Each EqPropLinear layer uses PositiveEqPropFunc as eqprop function and ProxQPStrategy as
+    solver.
+    """
 
     def __init__(
         self,
@@ -15,12 +20,16 @@ class EqPropBackbone(nn.Module):
         scale_input: int = 2,
         scale_output: int = 2,
         param_adjuster: Optional[eqprop_utils.AdjustParams] = eqprop_utils.AdjustParams(),
+        dummy: bool = False,
     ) -> None:
         super().__init__()
         layers = []
         for idx in range(len(cfg) - 1):
             bias_idx = bias if isinstance(bias, bool) else bias[idx]
-            layers.append(enn.EqPropLinear(cfg[idx], cfg[idx + 1], bias=bias_idx))
+            if dummy:
+                layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=bias_idx))
+            else:
+                layers.append(enn.EqPropLinear(cfg[idx], cfg[idx + 1], bias=bias_idx))
         self.model = nn.Sequential(*layers)
         self.param_adjuster = param_adjuster
         eqprop_utils.interleave.set_num_input(scale_input)

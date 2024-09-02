@@ -26,7 +26,7 @@ ep_xor_config = make_config(
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
-        {"override /model": "ep-xor"},
+        {"override /model": "dep-xor"},
         {"override /model/net/solver/strategy": "qp"},
     ],
 )
@@ -39,7 +39,7 @@ ep_xor_mse_config = make_config(
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
-        {"override /model": "ep-xor"},
+        {"override /model": "dep-xor"},
         {"override /model/net/solver/strategy": "qp"},
     ],
 )
@@ -52,7 +52,7 @@ ep_xor_mse_xyce_config = make_config(
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
-        {"override /model": "ep-xor"},
+        {"override /model": "dep-xor"},
         {"override /model/net/solver/strategy": "Xyce"},
     ],
 )
@@ -62,7 +62,7 @@ ep_xor_onehot_config = make_config(
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
-        {"override /model": "ep-xor-onehot"},
+        {"override /model": "dep-xor-onehot"},
         {"override /model/net/solver/strategy": "newton"},
     ],
 )
@@ -73,15 +73,15 @@ ep_xor_dummy_config = make_config(
     hydra_defaults=[
         "_self_",
         {"override /data": "xor"},
-        {"override /model": "ep-xor-dummy"},
+        {"override /model": "dep-xor-dummy"},
     ],
 )
 
-ep_mnist_config = make_config(
+direct_ep_mnist_config = make_config(
     hydra_defaults=[
         "_self_",
         {"override /data": "mnist"},
-        {"override /model": "ep-mnist"},
+        {"override /model": "dep-mnist"},
         {"override /model/net/solver/strategy": "proxqp"},
     ],
     model=dict(optimizer=dict(lr=0.1)),
@@ -93,9 +93,9 @@ def _register_configs():
     exp_store = store(group="experiment", package="_global_")
     exp_store(xor_config, name="xor")
     exp_store(xor_onehot_config, name="xor-onehot")
-    exp_store(ep_xor_config, name="ep-xor")
-    exp_store(ep_xor_mse_config, name="ep-xor-mse")
-    exp_store(ep_xor_onehot_config, name="ep-xor-onehot")
-    exp_store(ep_xor_dummy_config, name="ep-xor-dummy")
-    exp_store(ep_mnist_config, name="ep-mnist")
-    exp_store(ep_xor_mse_xyce_config, name="ep-xor-mse-xyce")
+    exp_store(ep_xor_config, name="dep-xor")
+    exp_store(ep_xor_mse_config, name="dep-xor-mse")
+    exp_store(ep_xor_onehot_config, name="dep-xor-onehot")
+    exp_store(ep_xor_dummy_config, name="dep-xor-dummy")
+    exp_store(direct_ep_mnist_config, name="dep-mnist")
+    exp_store(ep_xor_mse_xyce_config, name="dep-xor-mse-xyce")

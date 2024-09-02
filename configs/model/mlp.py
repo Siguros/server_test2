@@ -3,7 +3,11 @@ from torch.nn import MSELoss, Sigmoid
 
 from configs.eqprop.solver import ParamAdjusterConfig
 from src._eqprop import EqPropBackbone
-from src.models.classifier_module import BinaryClassifierLitModule, ClassifierLitModule
+from src.models.classifier_module import (
+    BinaryClassifierLitModule,
+    ClassifierLitModule,
+    MSELitModule,
+)
 from src.models.components.simple_dense_net import SimpleDenseNet
 
 MLPBackboneConfig = builds(SimpleDenseNet, populate_full_signature=True)
@@ -29,14 +33,21 @@ eqprop_backbone = EqPropBackboneConfig(
 
 ModuleConfig = make_config(net=MISSING, optimizer=MISSING, scheduler=MISSING, compile=False)
 
-MNISTModuleConfig = builds(
+CEModuleConfig = builds(
     ClassifierLitModule,
     scheduler=None,
-    num_classes=10,
+    num_classes=MISSING,
     builds_bases=(ModuleConfig,),
     hydra_defaults=[{"optimizer": "adam"}, {"net": "mnist-narrow"}, "_self_"],
 )  # beartype not supported, so we use builds instead of full_builds
 
+MSEModuleConfig = builds(
+    MSELitModule,
+    scheduler=None,
+    num_classes=MISSING,
+    builds_bases=(ModuleConfig,),
+    hydra_defaults=[{"optimizer": "adam"}, {"net": "mnist-narrow"}, "_self_"],
+)
 
 XORModuleConfig = builds(
     BinaryClassifierLitModule,
@@ -66,7 +77,8 @@ MNISTModuleConfigXYCE = builds(
     hydra_defaults=[{"optimizer": "adam"}, "_self_"],
 )  # beartype not supported, so we use builds instead of full_builds
 
-mnist_module = MNISTModuleConfig()
+basic_module = CEModuleConfig(num_classes=10)
+mse_module = MSEModuleConfig(num_classes=10)
 xor_module = XORModuleConfig()
 xor_oh_module = XOROneHotModuleConfig()
 
@@ -78,4 +90,5 @@ def _register_configs():
     backbone_store(mnist_wide_backbone, name="mnist-wide")
 
     model_store = store(group="model")
-    model_store(mnist_module, name="mnist")
+    model_store(basic_module, name="mnist")
+    model_store(mse_module, name="mnist-mse")

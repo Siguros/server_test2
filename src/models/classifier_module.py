@@ -223,6 +223,23 @@ class ClassifierLitModule(LightningModule):
         return {"optimizer": optimizer}
 
 
+class MSELitModule(ClassifierLitModule):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.criterion = torch.nn.MSELoss(reduction="mean")
+
+    def model_step(self, batch: tuple[torch.Tensor, torch.Tensor]):
+        x, y = batch
+        yhat = self.forward(x)
+        # yhat = F.softmax(logits, dim=1)
+        # make y onehot
+        y_onehot = torch.nn.functional.one_hot(y, num_classes=self.hparams.num_classes).float()
+        loss = self.criterion(yhat, y_onehot)
+        preds = torch.argmax(yhat, dim=1)
+        return loss, preds, y
+
+
 class BinaryClassifierLitModule(ClassifierLitModule):
 
     def __init__(

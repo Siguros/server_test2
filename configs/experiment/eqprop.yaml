@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - override /data: mnist
-  - override /model: ep-mnist
+  - override /model: dep-mnist
   - override /trainer: default
   - override /callbacks: default
 

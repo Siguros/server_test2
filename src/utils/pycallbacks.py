@@ -7,8 +7,8 @@ from lightning import Callback, Trainer
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from lightning.pytorch.loggers.logger import DummyLogger
 
-from src._eqprop.eqprop_backbone import AnalogEP2
-from src.core.eqprop.eqprop_util import deltaV
+from src._eqprop.direct_backbone import AnalogEP2
+from src.utils.eqprop_utils import deltaV
 
 LOGGER_TYPE = {"tb": TensorBoardLogger, "wandb": WandbLogger}
 

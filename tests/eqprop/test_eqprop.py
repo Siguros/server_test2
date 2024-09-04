@@ -80,7 +80,7 @@ class TestAnalogEP2XOR:
         loss = criterion(ypred, torch.tensor([0.3]))
         loss.backward()
         assert torch.allclose(ypred.grad, torch.tensor([-3.0]))
-        reversed_nodes, _ = toy_backbone.solver(x, nudge_phase=True)
+        reversed_nodes = toy_backbone.solver(x, grad=ypred.grad)
         assert torch.allclose(reversed_nodes[0], torch.tensor(-0.95))
         assert torch.allclose(reversed_nodes[1], torch.tensor(-1.1))
 

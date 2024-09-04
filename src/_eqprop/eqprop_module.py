@@ -4,9 +4,9 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from src._eqprop.eqprop_backbone import AnalogEP2
-from src.core.eqprop.python import eqprop_util
+from src._eqprop.direct_backbone import AnalogEP2
 from src.models.classifier_module import BinaryClassifierLitModule, ClassifierLitModule
+from src.utils import eqprop_utils
 
 
 class EqPropLitModule(ClassifierLitModule):
@@ -36,7 +36,7 @@ class EqPropLitModule(ClassifierLitModule):
         compile: bool = False,
         num_classes: int = 10,
         criterion: type[torch.nn.modules.loss._Loss] = torch.nn.CrossEntropyLoss,
-        param_adjuster: Optional[eqprop_util.AdjustParams] = eqprop_util.AdjustParams(),
+        param_adjuster: Optional[eqprop_utils.AdjustParams] = eqprop_utils.AdjustParams(),
         gaussian_std: Optional[float] = None,
     ):
         super().__init__(net, optimizer, scheduler, compile, num_classes, criterion)
@@ -85,7 +85,7 @@ class EqPropLitModule(ClassifierLitModule):
 
     def test_step(self, batch: Any, batch_idx: int):
         if self.hparams.gaussian_std:
-            self.net.apply(eqprop_util.gaussian_noise(std=self.hparams.gaussian_std))
+            self.net.apply(eqprop_utils.gaussian_noise(std=self.hparams.gaussian_std))
         loss, preds, targets = self.model_step(batch)
 
         # update and log metrics
@@ -125,7 +125,7 @@ class EqPropBinaryLitModule(BinaryClassifierLitModule):
         compile: bool = False,
         num_classes: int = 10,
         criterion: type[torch.nn.modules.loss._Loss] = torch.nn.BCEWithLogitsLoss,
-        param_adjuster: Optional[eqprop_util.AdjustParams] = eqprop_util.AdjustParams(),
+        param_adjuster: Optional[eqprop_utils.AdjustParams] = eqprop_utils.AdjustParams(),
         gaussian_std: Optional[float] = None,
     ):
         super().__init__(net, optimizer, scheduler, compile, num_classes, criterion)

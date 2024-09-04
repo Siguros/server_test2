@@ -3,13 +3,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import lightning as L
 import rootutils
 import torch
-from hydra_zen import instantiate, store, zen
+from hydra_zen import instantiate, zen
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
 from configs import register_everything
-from configs.model import optimizer
 
 # import local modules, not methods or classes directly
 
@@ -31,15 +30,8 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # more info: https://github.com/ashleve/rootutils
 # ------------------------------------------------------------------------------------ #
 
-from src.utils import (
-    RankedLogger,
-    extras,
-    get_metric_value,
-    instantiate_callbacks,
-    instantiate_loggers,
-    log_hyperparameters,
-    task_wrapper,
-)
+from src.utils import RankedLogger, extras, get_metric_value, log_hyperparameters, task_wrapper
+from src.utils.instantiators import instantiate_callbacks, instantiate_loggers
 
 log = RankedLogger(__name__, rank_zero_only=True)
 

@@ -1,1 +1,1 @@
-# from .module import *  # noqa: F403
+from src.core.eqprop.python.nn.module import *  # noqa: F403

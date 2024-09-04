@@ -1,12 +1,11 @@
-from collections import OrderedDict
-from typing import Any, Callable, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Sequence, Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.core.eqprop.python import eqprop_util
 from src.core.eqprop.python.solver import AnalogEqPropSolver
+from src.utils import eqprop_utils
 
 
 class EP(nn.Module):
@@ -45,7 +44,7 @@ class EP(nn.Module):
         self.doubling = kwargs.get("doubling", False)
         self.num_classes = dims[-1]
         if self.doubling:
-            # eqprop_util.interleave.on()
+            # eqprop_utils.interleave.on()
             self.num_classes //= 2
         self.eps = epsilon
         self.dims = dims
@@ -90,7 +89,7 @@ class EP(nn.Module):
             else:
                 nn.init.xavier_uniform_(self.W[idx].weight)
 
-    # @eqprop_util.type_as
+    # @eqprop_utils.type_as
     def forward(self, x, y=None, beta=0.0) -> list[torch.Tensor]:
         """Relax Nodes till converge."""
         self.W.requires_grad_(False)  # freeze weights
@@ -205,7 +204,7 @@ class EP(nn.Module):
             L = L.mean().detach()
         return (E, L)
 
-    @eqprop_util.interleave(type="in")
+    @eqprop_utils.interleave(type="in")
     def loss(self, y_hat: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """Compute loss."""
         if self.criterion.__class__.__name__.find("MSE") != -1:
@@ -443,7 +442,7 @@ class AnalogEP2(nn.Module):
         # init weights
         if positive_w:
             self.model.apply(
-                eqprop_util.positive_param_init(
+                eqprop_utils.positive_param_init(
                     min_w,
                     max_w,
                     max_w_gain,
@@ -457,13 +456,13 @@ class AnalogEP2(nn.Module):
         # instiantiate solver
         solver.set_model(self.model)
         self.solver = solver
+        self.dims = self.solver.strategy.dims
+        eqprop_utils.interleave.set_num_input(scale_input)
+        eqprop_utils.interleave.set_num_output(scale_output)
 
-        eqprop_util.interleave.set_num_input(scale_input)
-        eqprop_util.interleave.set_num_output(scale_output)
+        FutureWarning("AnalogEP2 will be replaced by src.core.eqprop.nn.EqPropLinear")
 
-        FutureWarning("AnalogEP2 will be replaced by core.eqprop.nn.EqPropLinear")
-
-    @eqprop_util.interleave(type="both")
+    @eqprop_utils.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation.
@@ -476,19 +475,19 @@ class AnalogEP2(nn.Module):
         """
         # assert self.training is False
         self.reset_nodes()
-        nodes, _ = self.solver(x, nudge_phase=False)
-        self.set_nodes(nodes, positive_phase=True)
+        vout = self.solver(x)
+        self.set_nodes(vout, positive_phase=True)
         logits = self.model[-1].get_buffer("positive_node")
         self.ypred = logits.detach().clone().requires_grad_(True)
         return self.ypred
 
-    @eqprop_util.interleave(type="in")
+    @eqprop_utils.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phase & grad calculation."""
         assert self.training
-        nodes, _ = self.solver(x, grad=self.ypred.grad, nudge_phase=True)
-        self.set_nodes(nodes, positive_phase=False)
+        vout = self.solver(x, grad=self.ypred.grad)
+        self.set_nodes(vout, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
 
@@ -496,8 +495,8 @@ class AnalogEP2(nn.Module):
         """Set gradients of parameters manually.
 
         dL/dw = (nudge_dV^2 - free_dV^2)/beta
-        = [prev_negative^2 - n_node^2
-        + prev_positive^2 - p_node^2
+        = [prev_negative^2 + n_node^2
+        - (prev_positive^2 + p_node^2)
         - 2(prev_negative.T@n_node - prev_positive@p_node)]/beta
 
         Args:
@@ -556,11 +555,11 @@ class AnalogEP2(nn.Module):
         for buf in self.model.buffers():
             buf.zero_()
 
-    def set_nodes(self, nodes: list, positive_phase: bool) -> None:
+    def set_nodes(self, vout: torch.Tensor, positive_phase: bool) -> None:
         """Set free/nudge nodes to each layer.
 
         Args:
-            nodes (list): list of free/nudge nodes from last layer to first layer
+            vout (torch.Tensor): concatenated output of each layer
             positive_phase (bool): True if positive phase, False otherwise
         """
 
@@ -572,7 +571,7 @@ class AnalogEP2(nn.Module):
                 else:
                     submodule.negative_node = nodes.pop()
 
-        nodes.reverse()
+        nodes = list(reversed(vout.split(self.dims, dim=1)))
         self.model.apply(_set_nodes_layer)
         del nodes
 
@@ -583,26 +582,27 @@ class AnalogEPSym(AnalogEP2):
     Use 3rd nudge phase to compute gradients.
     """
 
-    @eqprop_util.interleave(type="both")
+    @eqprop_utils.interleave(type="both")
     @torch.no_grad()
     def forward(self, x):
         """Forward propagation."""
         # assert self.training is False
         self.reset_nodes()
-        nodes, _ = self.solver(x)
-        logits = nodes[0]
-        self.model.ypred = logits.clone().detach().requires_grad_(True)
-        return self.model.ypred
+        vout = self.solver(x)
+        # nodes = list(vout.split(self.dims, dim=1))
+        logits = vout[:, -self.dims[-1] :]
+        self.ypred = logits.clone().detach().requires_grad_(True)
+        return self.ypred
 
-    @eqprop_util.interleave(type="in")
+    @eqprop_utils.interleave(type="in")
     @torch.no_grad()
     def eqprop(self, x: torch.Tensor):
         """Nudge phases & grad calculation."""
-        nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(nodes, positive_phase=True)
+        vout = self.solver(x, grad=self.ypred.grad)
+        self.set_nodes(vout, positive_phase=True)
         self.solver.flip_beta()
-        nodes, _ = self.solver(x, nudge_phase=True)
-        self.set_nodes(nodes, positive_phase=False)
+        vout = self.solver(x, grad=self.ypred.grad)
+        self.set_nodes(vout, positive_phase=False)
         self.prev_positive = self.prev_negative = x
         self.model.apply(self._update)
         self.solver.flip_beta()
@@ -619,7 +619,7 @@ class DummyAnalogEP2(AnalogEP2):
         super().__init__(*args, **kwargs)
         self.model.insert(1, nn.ReLU())
 
-    @eqprop_util.interleave(type="both")
+    @eqprop_utils.interleave(type="both")
     def forward(self, x):
         return self.model(x)
 

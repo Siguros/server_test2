@@ -1,92 +1,24 @@
-from dataclasses import dataclass
-
 from hydra_zen import MISSING, builds, make_config, store
 
-from configs import full_builds, partial_builds
-from src._eqprop import AnalogEP2, EqPropBinaryLitModule, EqPropLitModule, EqPropMSELitModule
-from src.core.eqprop.python import eqprop_util, solver, strategy
-
-IdealRectifierConfig = full_builds(eqprop_util.IdealRectifier)
-OTSConfig = full_builds(eqprop_util.OTS, Is=1e-6, Vth=0.026, Vl=-0.5, Vr=0.5)
-P3OTSConfig = full_builds(eqprop_util.P3OTS, Is=1e-6, Vth=0.02, Vl=-0.5, Vr=0.5)
-p3ots_real = P3OTSConfig(Is=4.352e-6, Vth=0.026, Vl=0, Vr=0)
-symrelu = full_builds(eqprop_util.SymReLU, Vl=-0.6, Vr=0.6)
-
-ParamAdjusterConfig = full_builds(eqprop_util.AdjustParams)
-xor_adjuster = ParamAdjusterConfig(L=1e-7, clamp=True, normalize=False)
-
-AbstractStrategyConfig = full_builds(strategy.AbstractStrategy)
-
-GDStrategyConfig = full_builds(
-    strategy.GradientDescentStrategy,
-    alpha=1,
-    amp_factor="${model.net.solver.amp_factor}",
-    max_iter=50,
-    atol=1e-6,
-    activation=MISSING,
+from configs.eqprop.solver import AnalogEqPropSolverConfig, ParamAdjusterConfig, xor_adjuster
+from src._eqprop import (
+    AnalogEP2,
+    EqPropBackbone,
+    EqPropBinaryLitModule,
+    EqPropLitModule,
+    EqPropMSELitModule,
 )
 
-QPStrategyConfig = full_builds(
-    strategy.QPStrategy,
-    amp_factor="${model.net.solver.amp_factor}",
-    activation=MISSING,
-    solver_type="proxqp",
-    add_nonlin_last=False,
-)
+# Direct EqPropBackbone
 
-ProxQPStrategyConfig = full_builds(
-    strategy.ProxQPStrategy,
-    amp_factor="${model.net.solver.amp_factor}",
-    activation=MISSING,
-    add_nonlin_last=False,
-)
-
-
-NewtonStrategyConfig = full_builds(
-    strategy.NewtonStrategy,
-    clip_threshold=0.5,
-    amp_factor="${model.net.solver.amp_factor}",
-    eps=1e-6,
-    max_iter=25,
-    atol=1e-7,
-    activation=MISSING,
-    add_nonlin_last=False,
-    momentum=0.1,
-)
-
-XyceStrategyConfig = full_builds(
-    strategy.XyceStrategy,
-    amp_factor="${model.net.solver.amp_factor}",
-    SPICE_params={
-        "A": "${model.net.solver.amp_factor}",
-        "beta": "${model.net.beta}",
-        "Diode": {
-            "Path": "./src/core/spice/1N4148.lib",
-            "ModelName": "1N4148",
-            "Rectifier": "BidRectifier",
-        },
-        "noise": 0,
-    },
-    mpi_commands=["mpirun", "-use-hwthread-cpus", "-np", "1", "-cpu-set"],
-    activation=None,
-)
-
-
-AnalogEqPropSolverConfig = builds(
-    solver.AnalogEqPropSolver,
-    amp_factor=1.0,
-    beta="${model.net.beta}",
-    strategy=MISSING,
-)
-
-EqPropBackboneConfig = builds(
+DirectBackboneConfig = builds(
     AnalogEP2,
     batch_size="${data.batch_size}",
     beta=0.01,
     bias=False,
     positive_w=True,
     min_w=1e-6,
-    max_w_gain=0.28,
+    max_w_gain=0.08,
     scale_input=2,
     scale_output=2,
     cfg=MISSING,
@@ -96,11 +28,11 @@ EqPropBackboneConfig = builds(
 )
 
 
-eqprop_mnist = EqPropBackboneConfig(
+eqprop_mnist = DirectBackboneConfig(
     cfg="${eval:'[784*${.scale_input}, 128, 10*${.scale_output}]'}",
 )
 
-eqprop_xor = EqPropBackboneConfig(
+eqprop_xor = DirectBackboneConfig(
     beta=0.001,
     scale_input=1,
     scale_output=2,
@@ -110,7 +42,7 @@ eqprop_xor = EqPropBackboneConfig(
     cfg="${eval:'[3*${.scale_input}, 2, 1*${.scale_output}]'}",  # change to 2
 )
 
-eqprop_xor_onehot = EqPropBackboneConfig(
+eqprop_xor_onehot = DirectBackboneConfig(
     beta=0.001,
     scale_input=1,
     scale_output=2,
@@ -120,6 +52,29 @@ eqprop_xor_onehot = EqPropBackboneConfig(
     cfg="${eval:'[2*${.scale_input}, 10, 2*${.scale_output}]'}",
 )
 
+# EqPropBackbone
+
+EqPropBackboneConfig = builds(
+    EqPropBackbone,
+    cfg=MISSING,
+    bias=False,
+    scale_input=2,
+    scale_output=2,
+    param_adjuster=ParamAdjusterConfig(),
+    dummy=False,
+    populate_full_signature=True,
+    hydra_convert="partial",
+)
+
+ep_mnist = EqPropBackboneConfig(
+    cfg="${eval:'[int(784*${.scale_input}), 128, int(10*${.scale_output})]'}"
+)
+dummy_ep_mnist = EqPropBackboneConfig(
+    cfg="${eval:'[784*${.scale_input}, 128, 10*${.scale_output}]'}",
+    dummy=True,
+)
+
+# EqPropModuleConfig
 
 EqPropModuleConfig = make_config(
     scheduler=None,
@@ -133,7 +88,7 @@ EqPropModuleConfig = make_config(
 ep_defaults = [
     "_self_",
     {"optimizer": "sgd"},
-    {"net/solver/strategy": "newton"},
+    {"net/solver/strategy": "proxqp"},
     {"net/solver/strategy/activation": "ots"},
 ]
 EqPropXORModuleConfig = builds(
@@ -181,23 +136,13 @@ EqPropMNISTMSEModuleConfig = builds(
 
 
 def _register_configs():
-    activation_store = store(group="model/net/solver/strategy/activation")
-    activation_store(IdealRectifierConfig, name="ideal")
-    activation_store(OTSConfig, name="ots")
-    activation_store(P3OTSConfig, name="p3ots")
-    activation_store(p3ots_real, name="p3ots-real")
-    activation_store(symrelu, name="symrelu")
-
-    strategy_store = store(group="model/net/solver/strategy")
-    strategy_store(GDStrategyConfig, name="gd")
-    strategy_store(NewtonStrategyConfig, name="newton")
-    strategy_store(QPStrategyConfig, name="qp")
-    strategy_store(ProxQPStrategyConfig, name="proxqp")
-    strategy_store(XyceStrategyConfig, name="Xyce")
+    backbone_store = store(group="model/net")
+    backbone_store(ep_mnist, name="ep-mnist")
+    backbone_store(dummy_ep_mnist, name="dummy-ep-mnist")
 
     model_store = store(group="model")
-    model_store(EqPropXORModuleConfig, name="ep-xor")
-    model_store(EqPropXOROHModuleConfig, name="ep-xor-onehot")
-    model_store(EqPropMNISTModuleConfig, name="ep-mnist")
-    model_store(ep_mnist_adamw, name="ep-mnist-adamw")
-    model_store(EqPropMNISTMSEModuleConfig, name="ep-mnist-mse")
+    model_store(EqPropXORModuleConfig, name="dep-xor")
+    model_store(EqPropXOROHModuleConfig, name="dep-xor-onehot")
+    model_store(EqPropMNISTModuleConfig, name="dep-mnist")
+    model_store(ep_mnist_adamw, name="dep-mnist-adamw")
+    model_store(EqPropMNISTMSEModuleConfig, name="dep-mnist-mse")

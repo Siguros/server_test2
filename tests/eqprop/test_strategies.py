@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from src.core.eqprop.python import eqprop_util, strategy
+from src.core.eqprop.python import activation, strategy
 
 
 class TestSecondOrderStrategy:
@@ -70,7 +70,7 @@ def test_strategy_solve(toymodel, strategy_name, x, v):
     """Test if the strategy can solve the system."""
     # Define the input
     st: strategy.AbstractStrategy = getattr(strategy, strategy_name)(
-        activation=eqprop_util.SymReLU(Vl=-0.6, Vr=0.6),
+        activation=activation.SymReLU(Vl=-0.6, Vr=0.6),
         max_iter=20,
         clip_threshold=1,
         add_nonlin_last=False,
@@ -88,7 +88,7 @@ def test_strategy_solve(toymodel, strategy_name, x, v):
 #     # Define the solver
 #     dims = [2, 3, 1]
 #     strategy = TorchStrategy()
-#     activation = eqprop_util.OTS()
+#     activation = eqprop_utils.OTS()
 #     solver = EqPropSolver(strategy, activation)
 #     solver.set_dims(dims)
 
@@ -109,7 +109,7 @@ def test_strategy_solve(toymodel, strategy_name, x, v):
 #     # Define the solver
 #     dims = [2, 3, 1]
 #     strategy = TorchStrategy()
-#     activation = eqprop_util.OTS()
+#     activation = eqprop_utils.OTS()
 #     solver = AnalogEqPropSolver(strategy, activation)
 #     solver.set_dims(dims)
 

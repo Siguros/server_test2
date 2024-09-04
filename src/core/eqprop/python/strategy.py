@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import numpy as np
 import torch
@@ -16,7 +17,7 @@ if _QPSOLVERS_AVAILABLE:
 if _SPICE_AVAILABLE:
     from src.core.spice import circuits, xyce, spice_utils
 
-from src.core.eqprop.python import eqprop_util
+from src.core.eqprop.python import activation
 
 log = RankedLogger(__name__, rank_zero_only=True)
 
@@ -43,8 +44,7 @@ def cache_free_solution(func: callable):
         vout = func(self, x, i_ext, **kwargs)
         if i_ext is None:
             self.free_solution = vout
-        nodes = list(vout.split(self.dims, dim=1))
-        return nodes
+        return vout
 
     return wrapper
 
@@ -60,7 +60,7 @@ class AbstractStrategy(ABC):
 
     def __init__(
         self,
-        activation: eqprop_util.AbstractRectifier,
+        activation: activation.AbstractRectifier,
         max_iter: int = 30,
         atol: float = 1e-6,
         **kwargs,
@@ -68,12 +68,13 @@ class AbstractStrategy(ABC):
         self.activation = activation
         self.max_iter = max_iter
         self.atol = atol
-        self.dims = []  # hidden layer dimensions
+        # hidden layer dimensions, set by the solver.set_model() method
+        self.dims = []
         self.W = []
         self.B = []
 
     @abstractmethod
-    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network.
 
         Args:
@@ -128,7 +129,7 @@ class XyceStrategy(AbstractSPICEStrategy):
             pass
         self.sim = xyce.XyceSim(mpi_commands=self.mpi_commands)
 
-    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network with Xyce."""
         if i_ext is None:
             self.create_netlist(x)
@@ -152,8 +153,7 @@ class XyceStrategy(AbstractSPICEStrategy):
             nodes_list.append(combined_voltages)
 
         nodes_array = np.stack(nodes_list, axis=0)
-        nodes = torch.from_numpy(nodes_array).float()
-        nodes = [node.to(x.device) for node in nodes.split(self.dims, dim=1)]
+        nodes = torch.from_numpy(nodes_array).type_as(x)
         return nodes
 
     def create_netlist(self, x):
@@ -386,7 +386,7 @@ class ScipyStrategy(SecondOrderStrategy):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-    def solve(self, x: torch.Tensor, i_ext: torch.Tensor, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x: torch.Tensor, i_ext: torch.Tensor, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network.
 
         Currently only supports cpu. & does not support batched operation in parallel.
@@ -410,8 +410,7 @@ class ScipyStrategy(SecondOrderStrategy):
         vout = torch.from_numpy(vout).type_as(x)
         if i_ext is None:
             self._free_solution = vout.detach().clone()
-        nodes = list(vout.split(self.dims, dim=1))
-        return nodes
+        return vout
 
 
 class GradientDescentStrategy(FirstOrderStrategy):
@@ -427,7 +426,7 @@ class GradientDescentStrategy(FirstOrderStrategy):
 
     @cache_free_solution
     @torch.no_grad()
-    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network with gradient descent."""
         self.check_and_set_attrs(kwargs)
         v = self.lin_solve(x, i_ext)
@@ -453,7 +452,7 @@ class QPStrategy(FirstOrderStrategy):
         self.solver_type = solver_type
 
     @torch.no_grad()
-    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         self.check_and_set_attrs(kwargs)
         P = self.laplacian()
         R = self.rhs(x)
@@ -468,8 +467,7 @@ class QPStrategy(FirstOrderStrategy):
         # sgn = torch.sign(v_lin-v)
         # v_logdiff = 0.02*(v_lin-v).abs().log1p()
         # v += sgn*v_logdiff
-        nodes = list(v.split(self.dims, dim=1))
-        return nodes
+        return v
 
     def sparse_laplacian(self):
         """Compute the 2D Laplacian + bias matrix in bsr format and cache it.
@@ -487,16 +485,18 @@ class QPStrategy(FirstOrderStrategy):
 class ProxQPStrategy(QPStrategy):
     """Solve for the equilibrium point of the network with ProxQP."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, num_threads: Optional[int], **kwargs) -> None:
         super().__init__(solver_type="proxqp", **kwargs)
-        self.num_threads = proxsuite.proxqp.omp_get_max_threads() - 1
+        self.num_threads = (
+            proxsuite.proxqp.omp_get_max_threads() - 1 if num_threads is None else num_threads
+        )
 
     @torch.no_grad()
-    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         batch_size, _ = x.shape
-        g = self.rhs(x).numpy()
+        g = self.rhs(x).cpu().numpy()
         if i_ext is None:
-            H = self.laplacian().numpy()
+            H = self.laplacian().cpu().numpy()
             n = n_ineq = H.shape[0]
             A = b = C = lower = upper = None
             self.lb = self.OTS.Vl * np.ones(n)
@@ -507,7 +507,7 @@ class ProxQPStrategy(QPStrategy):
                 qp.init(H, g[i], A, b, C, lower, upper, self.lb, self.ub)
                 self.qps.append(qp)
         else:
-            g[:, -self.dims[-1] :] += i_ext.numpy()
+            g[:, -self.dims[-1] :] += i_ext.cpu().numpy()
             for idx, qp in enumerate(self.qps):
                 qp.settings.initial_guess = (
                     proxsuite.proxqp.InitialGuess.WARM_START_WITH_PREVIOUS_RESULT
@@ -519,8 +519,8 @@ class ProxQPStrategy(QPStrategy):
         for i in range(batch_size):
             vout = self.qps[i].results.x
             nodes_list.append(torch.from_numpy(vout).type_as(x))
-        nodes = torch.stack(nodes_list, dim=0).split(self.dims, dim=1)
-        return list(nodes)
+        nodes = torch.stack(nodes_list, dim=0)
+        return nodes
 
     def reset(self):
         super().reset()
@@ -545,7 +545,7 @@ class NewtonStrategy(SecondOrderStrategy):
 
     @cache_free_solution
     @torch.no_grad()
-    def solve(self, x: torch.Tensor, i_ext, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x: torch.Tensor, i_ext, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network.
 
         Args:
@@ -553,14 +553,14 @@ class NewtonStrategy(SecondOrderStrategy):
             i_ext (torch.Tensor): external current.
         KwArgs:
             params (tuple[list[torch.Tensor], list[torch.Tensor]]): weights and biases of the model.
-            OTS (eqprop_util.P3OTS): nonlinearity.
+            OTS (eqprop_utils.P3OTS): nonlinearity.
             dims (list): dimensions of the model.
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
         """
         self.check_and_set_attrs(kwargs)
-        if isinstance(self.OTS, eqprop_util.SymOTS):
+        if isinstance(self.OTS, activation.SymOTS):
             vout = self._densecholsol2(x, i_ext)
         else:
             vout = self._densecholsol(x, i_ext)
@@ -579,7 +579,7 @@ class NewtonStrategy(SecondOrderStrategy):
             W (list): List of weight matrices. Each element of the list size (dim, dim).
             B (list, optional): List of bias vectors. Defaults to None. Each element of the list size (batchsize, dim).
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -604,7 +604,6 @@ class NewtonStrategy(SecondOrderStrategy):
             dv.clamp_(min=-self.clip_threshold, max=self.clip_threshold)
             p = p * self.momentum + self.attn_factor * dv
             v_new = v + p
-            log.debug(v_new)
             residual_v_new = self.residual(v_new, x, i_ext).unsqueeze(-1)  # (batchsize, size, 1)
             if torch.any(residual_v_new.norm() > residual_v.norm()):
                 log.debug(f"residual increased, idx={idx}")
@@ -647,7 +646,7 @@ class NewtonStrategy(SecondOrderStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -738,7 +737,7 @@ class NewtonStrategy(SecondOrderStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -801,7 +800,7 @@ class NewtonStrategy(SecondOrderStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
@@ -952,7 +951,7 @@ class LMStrategy(PythonStrategy):
         self.lambda_factor = lambda_factor
 
     @torch.no_grad()
-    def solve(self, x, i_ext, **kwargs) -> list[torch.Tensor]:
+    def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network.
 
         Args:
@@ -960,7 +959,7 @@ class LMStrategy(PythonStrategy):
             i_ext (torch.Tensor): external current.
         KwArgs:
             params (tuple[list[torch.Tensor], list[torch.Tensor]]): weights and biases of the model.
-            OTS (eqprop_util.P3OTS): nonlinearity.
+            OTS (eqprop_utils.P3OTS): nonlinearity.
             dims (list): dimensions of the model.
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
@@ -973,8 +972,7 @@ class LMStrategy(PythonStrategy):
         vout = self._LMdensecholsol(x, W, B, i_ext)
         if i_ext is None:
             self.free_solution = vout
-        nodes = list(vout.split(self.dims, dim=1))
-        return nodes
+        return vout
 
     def _LMdensecholsol(
         self,
@@ -991,7 +989,7 @@ class LMStrategy(PythonStrategy):
             dims (list): List of dimensions.
             B (list, optional): List of bias vectors. Defaults to None.
             i_ext ([type], optional): External current. Defaults to None.
-            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_util.self.OTS().
+            self.OTS ([type], optional): Nonlinearity. Defaults to eqprop_utils.self.OTS().
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.

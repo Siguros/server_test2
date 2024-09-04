@@ -3,7 +3,6 @@ import importlib.util
 import os
 from typing import Any
 
-from hydra import compose, initialize
 from hydra_zen import MISSING, load_from_yaml, make_config, make_custom_builds_fn, store, to_yaml
 from hydra_zen.third_party.beartype import validates_with_beartype
 from omegaconf import OmegaConf

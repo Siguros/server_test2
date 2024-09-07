@@ -8,8 +8,14 @@ from src.utils import eqprop_utils
 
 
 class MultiplyActivation(nn.Module):
+    """Multiply Activation layer."""
 
     def __init__(self, scale: float = 1.0):
+        """Initialize MultiplyActivation layer.
+
+        Args:
+            scale (float, optional): _description_. Defaults to 1.0.
+        """
         super().__init__()
         self.scale = scale
 
@@ -42,8 +48,8 @@ class EqPropBackbone(nn.Module):
                 layers.append(nn.ReLU())
             else:
                 layers.append(enn.EqPropLinear(cfg[idx], cfg[idx + 1], bias=bias_idx))
-                layers.append(nn.Tanh())
-                layers.append(MultiplyActivation(scale=2))
+                # layers.append(nn.Tanh())
+                layers.append(MultiplyActivation(scale=4))
 
         self.model = nn.Sequential(*layers)
         self.param_adjuster = param_adjuster

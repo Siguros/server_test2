@@ -1,9 +1,20 @@
 from typing import Optional
 
 import torch.nn as nn
+from torch.nn import functional as F
 
 from src.core.eqprop import nn as enn
 from src.utils import eqprop_utils
+
+
+class MultiplyActivation(nn.Module):
+
+    def __init__(self, scale: float = 1.0):
+        super().__init__()
+        self.scale = scale
+
+    def forward(self, x):
+        return self.scale * x
 
 
 class EqPropBackbone(nn.Module):
@@ -26,10 +37,14 @@ class EqPropBackbone(nn.Module):
         layers = []
         for idx in range(len(cfg) - 1):
             bias_idx = bias if isinstance(bias, bool) else bias[idx]
-            if dummy:
+            if dummy:  # for testing
                 layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=bias_idx))
+                layers.append(nn.ReLU())
             else:
                 layers.append(enn.EqPropLinear(cfg[idx], cfg[idx + 1], bias=bias_idx))
+                layers.append(nn.Tanh())
+                layers.append(MultiplyActivation(scale=2))
+
         self.model = nn.Sequential(*layers)
         self.param_adjuster = param_adjuster
         eqprop_utils.interleave.set_num_input(scale_input)
@@ -37,5 +52,6 @@ class EqPropBackbone(nn.Module):
 
     @eqprop_utils.interleave(type="both")
     def forward(self, x):
-        self.model.apply(self.param_adjuster)
+        if self.param_adjuster is not None:
+            self.model.apply(self.param_adjuster)
         return self.model(x)

@@ -91,11 +91,8 @@ class CenteredEqPropFunc(PositiveEqPropFunc):
 class _EqPropMixin(ABC):
     """EqProp mixin class.
 
-    Wraps EqProp function and solver for nn.Module.
-
-    Args:
-        solver (EqPropSolver): EqProp solver
-        eqprop_fn (PositiveEqPropFunc): EqProp wrapper function
+    Wraps EqProp function and solver for nn.Module. All EqProp layers should inherit this class and
+    implement calc_n_set_param_grad_() and calc_x_grad().
     """
 
     IS_CONTAINER: bool = False
@@ -105,6 +102,13 @@ class _EqPropMixin(ABC):
         solver: EqPropSolver | None,
         eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
     ) -> None:
+        """Initialize EqPropMixin. If solver is not provided, default solver is AnalogEqPropSolver
+        with ProxQPStrategy.
+
+        Args:
+            solver (EqPropSolver | None): EqProp solver. Defaults to None.
+            eqprop_fn (torch.autograd.Function, optional): specific Eqprop algorithm. Defaults to PositiveEqPropFunc.
+        """
         self.eqprop_fn = eqprop_fn.apply
         if solver is None:
             # move import under here to avoid circular import
@@ -144,7 +148,10 @@ class _EqPropMixin(ABC):
 
 
 class EqPropLinear(_EqPropMixin, nn.Linear):
-    """EqProp wrapper for nn.Linear."""
+    """nn.Linear equivalent that uses Eqiuilibrium Propagation instead of backpropagation.
+
+    Utilizes EqPropMixin to wrap EqProp function and solver.
+    """
 
     def __init__(
         self,
@@ -157,14 +164,15 @@ class EqPropLinear(_EqPropMixin, nn.Linear):
         solver: EqPropSolver | None = None,
         param_init_args: dict = {"min_w": 1e-6, "max_w": None, "max_w_gain": 0.28},
     ):
-        """Initialize EqPropLinear.
+        """Initialize EqPropLinear. If solver is not provided, default solver is AnalogEqPropSolver
+        with ProxQPStrategy.
 
         Args:
             in_features (int): size of each input sample
             out_features (int): size of each output sample
             bias (bool, optional): If set to ``False``, the layer will not learn an additive bias. Defaults to ``True``.
             eqprop_fn (torch.autograd.Function, optional): specific Eqprop algorithm. Defaults to PositiveEqPropFunc.
-            solver (Optional[EqPropSolver], optional): _description_. Defaults to None.
+            solver (Optional[EqPropSolver], optional): EqProp solver. Defaults to None.
             param_init_args (dict, optional): args for set positive param init.
                 Defaults to {"min_w":1e-6, "max_w":None, "max_w_gain":0.28}.
         """

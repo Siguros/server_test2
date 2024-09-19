@@ -18,6 +18,7 @@ def gdp2(
     max_iter: int = 100,
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.01,
+    norm_type: str = "nuc",
 ) -> None:
     """Program the target weights into the conductances using the pulse update defined.
 
@@ -58,10 +59,10 @@ def gdp2(
         error = y - target
         err_normalized = error.abs().mean().item() / target_max
         mtx_diff = self.tile.get_weights() - target_weights
-        nuc_norm = torch.linalg.matrix_norm(mtx_diff, ord="nuc")
-        log.debug(f"Error: {nuc_norm}")
+        norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
+        log.debug(f"Error: {norm}")
         # log.debug(f"Error: {err_normalized}")
-        if tolerance is not None and nuc_norm < tolerance:
+        if tolerance is not None and norm < tolerance:
             break
         self.tile.update(x, error, False)  # type: ignore
 
@@ -89,6 +90,7 @@ def svd(
     w_init: Union[float, Tensor] = 0.0,
     rank_atol: Optional[float] = 1e-2,
     svd_once: bool = False,
+    norm_type: str = "nuc",
     **kwargs: Any,
 ) -> None:
     """Perform singular value decomposition (SVD) based weight programming.
@@ -101,6 +103,7 @@ def svd(
         rank_atol (float, optional): Absolute tolerance for numerical rank computation. Defaults to 1e-6.
         rank_rtol (float, optional): Relative tolerance for numerical rank computation. Defaults to 1e-6.
         svd_once (bool, optional): Flag indicating whether to perform SVD only once. Defaults to False.
+        norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
         **kwargs: Additional keyword arguments.
     Returns:
         None
@@ -144,14 +147,14 @@ def svd(
         # TODO: self.get_weights()
         diff = self.tile.get_weights() - target_weights
         U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
-        nuc_norm = S.sum() if svd_once else torch.linalg.matrix_norm(diff, ord="nuc")
-        log.debug(f"Error: {nuc_norm}")
+        norm = torch.linalg.matrix_norm(diff, ord=norm_type)
+        log.debug(f"Error: {norm}")
         # y = self.tile.forward(x_values, False)
         # # TODO: error와 weight 2norm 사이 관계 분석
         # error = y - target_values
         # err_normalized = error.abs().mean().item() / target_max
         # log.debug(f"Error: {err_normalized}")
-        if tolerance is not None and nuc_norm < tolerance:
+        if tolerance is not None and norm < tolerance:
             break
         elif svd_once:
             i += 1
@@ -169,6 +172,7 @@ def svd_ekf(
     w_init: Union[float, Tensor] = 0.0,
     process_noise_std: float = 0.1,
     measurement_noise_std: float = 0.1,
+    norm_type: str = "nuc",
     **kwargs: Any,
 ) -> None:
     target_weights = self.tile.get_weights()
@@ -217,7 +221,7 @@ def svd_ekf(
         diff = torch.tensor(estimated_weights) - target_weights
 
         # Perform SVD on the difference
-        U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
+        U, S, Vh = torch.linalg.svd(diff, full_matrices=False)
 
         # Use the first singular vectors for rank-1 update
         u = U[:, 0]
@@ -235,14 +239,14 @@ def svd_ekf(
 
         # Check for convergence
         current_weights = self.tile.get_weights()
-        nuc_norm = torch.linalg.norm(current_weights - target_weights, ord="nuc")
-        log.debug(f"Error: {nuc_norm}")
+        norm = torch.linalg.norm(current_weights - target_weights, ord=norm_type)
+        log.debug(f"Error: {norm}")
         # y = self.tile.forward(x_values, False)
         # # TODO: error와 weight 2norm 사이 관계 분석
         # error = y - target_values
         # err_normalized = error.abs().mean().item() / target_max
         # log.debug(f"Error: {err_normalized}")
-        if tolerance is not None and nuc_norm < tolerance:
+        if tolerance is not None and norm < tolerance:
             break
         else:
             pass

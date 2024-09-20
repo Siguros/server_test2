@@ -17,13 +17,16 @@ def gdp2(
     learning_rate: float = 1,
     max_iter: int = 100,
     tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.01,
+    w_init: Union[float, Tensor] = 0.0,
     norm_type: str = "nuc",
 ) -> None:
     """Program the target weights into the conductances using the pulse update defined.
 
     Variable batch version of the `program_weights_gdp` method.
     """
+
+    self.weight_update_log = []
+    self.desired_weight_update = []
     target_weights = self.tile.get_weights()
 
     input_size = self.tile.get_x_size()
@@ -39,10 +42,13 @@ def gdp2(
 
     lr_save = self.tile.get_learning_rate()  # type: ignore
     self.tile.set_learning_rate(learning_rate)  # type: ignore
+    self.initial_weights = self.tile.get_weights().clone()
 
     for i in range(max_iter):
+
         start_idx = i * batch_size
         end_idx = (i + 1) * batch_size
+        current_weight = self.tile.get_weights().clone()
 
         if end_idx > len(x_values):
             # Calculate how much we exceed the length
@@ -65,7 +71,10 @@ def gdp2(
         if tolerance is not None and norm < tolerance:
             break
         self.tile.update(x, error, False)  # type: ignore
+        updated_weight = self.tile.get_weights().clone()
 
+        self.weight_update_log.append(updated_weight - current_weight)
+        self.desired_weight_update.append(-torch.einsum("bi, bj -> ij", error, x))
     self.tile.set_learning_rate(lr_save)  # type: ignore
 
 
@@ -108,6 +117,9 @@ def svd(
     Returns:
         None
     """
+
+    self.weight_update_log = []
+    self.desired_weight_update = []
     target_weights = self.tile.get_weights()
     # target_weights = self.tile.get_weights() if target_weights is None else target_weights
 
@@ -115,6 +127,8 @@ def svd(
         self.tile.set_weights(w_init)
     else:
         self.tile.set_weights_uniform_random(-w_init, w_init)  # type: ignore
+
+    self.initial_weights = self.tile.get_weights().clone()
 
     lr_save = self.tile.get_learning_rate()  # type: ignore
     # x_values = torch.eye(self.tile.get_x_size())
@@ -134,6 +148,7 @@ def svd(
     i = 0
     max_iter = min(max_iter, rank) if use_rank_as_criterion else max_iter
     for _ in range(max_iter):
+        current_weight = self.tile.get_weights().clone()
         u = U[:, i]
         v = Vh[i, :]
         # uv_ratio = torch.sqrt(u/v)
@@ -154,6 +169,9 @@ def svd(
         # error = y - target_values
         # err_normalized = error.abs().mean().item() / target_max
         # log.debug(f"Error: {err_normalized}")
+        updated_weight = self.tile.get_weights().clone()
+        self.weight_update_log.append(updated_weight - current_weight)
+        # self.desired_weight_update.append(-torch.einsum('bi, bj -> ij', u1, v1))
         if tolerance is not None and norm < tolerance:
             break
         elif svd_once:

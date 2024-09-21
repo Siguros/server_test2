@@ -68,8 +68,10 @@ def gdp2(
         norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
         log.debug(f"Error: {norm}")
         # log.debug(f"Error: {err_normalized}")
+        """
         if tolerance is not None and norm < tolerance:
             break
+        """
         self.tile.update(x, error, False)  # type: ignore
         updated_weight = self.tile.get_weights().clone()
 
@@ -137,7 +139,7 @@ def svd(
     # target_max = target_values.abs().max().item()
     self.tile.set_learning_rate(1)  # type: ignore
     # since tile.update() updates w -= lr*delta_w so flip the sign
-    diff = self.tile.get_weights() - target_weights
+    diff = self.read_weights()[0] - target_weights
     # normalize diff matrix
     U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
     # rank = torch.linalg.matrix_rank(diff)
@@ -160,7 +162,7 @@ def svd(
         self.tile.update(v1.float(), u1.float(), False)
 
         # TODO: self.get_weights()
-        diff = self.tile.get_weights() - target_weights
+        diff = self.read_weights()[0] - target_weights
         U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
         norm = torch.linalg.matrix_norm(diff, ord=norm_type)
         log.debug(f"Error: {norm}")

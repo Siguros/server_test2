@@ -64,7 +64,7 @@ EqPropBackboneConfig = builds(
     EqPropBackbone,
     cfg=MISSING,
     bias=False,
-    beta=0.01,
+    beta=0.1,
     scale_input=2,
     scale_output=2,
     solver=AnalogEqPropSolverConfig(

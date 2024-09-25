@@ -35,7 +35,7 @@ class EqPropBackbone(nn.Module):
     def __init__(
         self,
         cfg: list[int] = [784 * 2, 128, 10 * 2],
-        beta: float = 0.01,
+        beta: float = 0.1,
         bias: bool | list[bool] = [True, False],
         scale_input: int = 2,
         scale_output: int = 2,
@@ -58,10 +58,17 @@ class EqPropBackbone(nn.Module):
             layer_scale (float, optional): Scaling factor between eqprop layers. Defaults to 4.0.
         """
         super().__init__()
+        layers = self._make_layers(cfg, bias, solver, dummy, layer_scale)
+        self.model = nn.Sequential(*layers)
+        self.param_adjuster = param_adjuster
+        eqprop_utils.interleave.set_num_input(scale_input)
+        eqprop_utils.interleave.set_num_output(scale_output)
+
+    def _make_layers(self, cfg, bias, solver, dummy, layer_scale) -> list[nn.Module]:
         layers = []
         for idx in range(len(cfg) - 1):
             bias_idx = bias if isinstance(bias, bool) else bias[idx]
-            if dummy:  # for testing
+            if dummy:
                 layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=bias_idx))
                 layers.append(nn.ReLU())
             else:
@@ -71,14 +78,34 @@ class EqPropBackbone(nn.Module):
                 )
                 # layers.append(nn.Tanh())
                 layers.append(MultiplyActivation(scale=layer_scale))
-
-        self.model = nn.Sequential(*layers)
-        self.param_adjuster = param_adjuster
-        eqprop_utils.interleave.set_num_input(scale_input)
-        eqprop_utils.interleave.set_num_output(scale_output)
+        return layers
 
     @eqprop_utils.interleave(type="both")
     def forward(self, x):
         if self.param_adjuster is not None:
             self.model.apply(self.param_adjuster)
         return self.model(x)
+
+
+class HybridEqPropBackbone(EqPropBackbone):
+    """Composite EqPropBackbone with Default EqPropLinear layers and Linear layers."""
+
+    def _make_layers(self, cfg, bias, solver, dummy, layer_scale) -> list[nn.Module]:
+        layers = []
+        for idx in range(len(cfg) - 1):
+            bias_idx = bias if isinstance(bias, bool) else bias[idx]
+            if dummy:
+                layers.append(nn.Linear(cfg[idx], cfg[idx + 1], bias=bias_idx))
+                layers.append(nn.ReLU())
+            else:
+                solver_ = deepcopy(solver) if solver else None
+                layers.extend(
+                    [
+                        layers.append(nn.Linear(cfg[idx], cfg[idx], bias=bias_idx)),
+                        layers.append(nn.ReLU()),
+                        enn.EqPropLinear(cfg[idx], cfg[idx + 1], bias=bias_idx, solver=solver_),
+                        MultiplyActivation(scale=layer_scale),
+                    ]
+                )
+
+        return layers

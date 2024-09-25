@@ -6,7 +6,7 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["mnist", "eqprop"]
+tags: ["mnist", "eqprop", "c-ep"]
 
 seed: 12345
 

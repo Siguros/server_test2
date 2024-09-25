@@ -1,6 +1,12 @@
 from hydra_zen import MISSING, builds, make_config, store
 
-from configs.eqprop.solver import AnalogEqPropSolverConfig, ParamAdjusterConfig, xor_adjuster
+from configs.eqprop.solver import (
+    AnalogEqPropSolverConfig,
+    IdealRectifierConfig,
+    ParamAdjusterConfig,
+    ProxQPStrategyConfig,
+    xor_adjuster,
+)
 from src._eqprop import (
     AnalogEP2,
     EqPropBackbone,
@@ -58,8 +64,12 @@ EqPropBackboneConfig = builds(
     EqPropBackbone,
     cfg=MISSING,
     bias=False,
+    beta=0.01,
     scale_input=2,
     scale_output=2,
+    solver=AnalogEqPropSolverConfig(
+        strategy=ProxQPStrategyConfig(activation=IdealRectifierConfig(Vl=0.1, Vr=0.9))
+    ),
     param_adjuster=ParamAdjusterConfig(),
     dummy=False,
     populate_full_signature=True,

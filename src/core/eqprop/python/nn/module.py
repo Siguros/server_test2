@@ -8,9 +8,11 @@ import torch.nn as nn
 from hydra_zen import instantiate
 
 from src.core.eqprop.python.solver import EqPropSolver
-from src.utils import eqprop_utils
+from src.utils import RankedLogger, eqprop_utils
 
 __all__ = ["EqPropLinear", "EqPropConv2d", "EqPropSequential", "to_eqprop"]
+
+log = RankedLogger(__name__)
 
 
 class PositiveEqPropFunc(torch.autograd.Function):
@@ -61,7 +63,7 @@ class AlteredEqPropFunc(PositiveEqPropFunc):
 class CenteredEqPropFunc(PositiveEqPropFunc):
     """Centered EqProp.
 
-    Use 2 opposite nudged phases to calculate gradient.
+    Use 2 opposite nudged phases (+\beta/2) and (-\beta/2) to calculate gradient.
     """
 
     @staticmethod
@@ -77,8 +79,12 @@ class CenteredEqPropFunc(PositiveEqPropFunc):
     @torch.autograd.function.once_differentiable
     def backward(ctx, grad_output):
         """Backward pass for centered EqProp."""
-        input = ctx.saved_tensors
+        (input,) = ctx.saved_tensors
         eqprop_layer: _EqPropMixin = ctx.eqprop_layer
+        grad_output /= (
+            2  # we need to divide by 2 to get the equivalent perturbation with the same magnitude
+        )
+        eqprop_layer.solver.flip_beta()
         positive_node = eqprop_layer.solver(input, grad=grad_output)
         eqprop_layer.solver.flip_beta()
         negative_node = eqprop_layer.solver(input, grad=grad_output)
@@ -100,7 +106,7 @@ class _EqPropMixin(ABC):
     def __init__(
         self,
         solver: EqPropSolver | None,
-        eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
+        eqprop_fn: torch.autograd.Function,
     ) -> None:
         """Initialize EqPropMixin. If solver is not provided, default solver is AnalogEqPropSolver
         with ProxQPStrategy.
@@ -122,6 +128,7 @@ class _EqPropMixin(ABC):
             strategy_cfg = ProxQPStrategyConfig(amp_factor=1.0, activation=rectifier_cfg)
             cfg = AnalogEqPropSolverConfig(beta=0.1, strategy=strategy_cfg)
             solver = instantiate(cfg)
+            log.info(f"Solver not provided. Using default solver: {solver}")
         self.solver = solver
         self.solver.set_model(self)
 
@@ -160,7 +167,7 @@ class EqPropLinear(_EqPropMixin, nn.Linear):
         bias: bool = True,
         device=None,
         dtype=None,
-        eqprop_fn: torch.autograd.Function = PositiveEqPropFunc,
+        eqprop_fn: torch.autograd.Function = CenteredEqPropFunc,
         solver: EqPropSolver | None = None,
         param_init_args: dict = {"min_w": 1e-6, "max_w": None, "max_w_gain": 0.28},
     ):

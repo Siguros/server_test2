@@ -454,11 +454,11 @@ class QPStrategy(FirstOrderStrategy):
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         self.check_and_set_attrs(kwargs)
-        P = self.laplacian()
+        P = self.laplacian().cpu().numpy()
         R = self.rhs(x)
         if i_ext is not None:
             R[:, -self.dims[-1] :] += i_ext * self.amp_factor
-        q = R.squeeze()
+        q = R.squeeze().cpu().numpy()
         lb = self.OTS.Vl * np.ones_like(q)
         ub = self.OTS.Vr * np.ones_like(q)
         v = solve_qp(P, q, lb=lb, ub=ub, solver=self.solver_type, **kwargs)

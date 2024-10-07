@@ -25,7 +25,7 @@ ep_xor_config = make_config(
     model=dict(optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=False)),
     hydra_defaults=[
         "_self_",
-        {"override /data": "xor"},
+        {"override /data": "xor2"},
         {"override /model": "dep-xor"},
         {"override /model/net/solver/strategy": "qp"},
     ],

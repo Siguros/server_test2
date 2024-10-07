@@ -13,7 +13,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 class AbstractRectifier(ABC):
     """Base class for rectifiers."""
 
-    def __init__(self, Is, Vth, Vl, Vr):
+    def __init__(self, Is: float, Vth: float, Vl: float, Vr: float):
         self.Is = Is
         self.Vth = Vth
         self.Vl = Vl
@@ -34,7 +34,7 @@ class AbstractRectifier(ABC):
 
 class IdealRectifier(AbstractRectifier):
 
-    def __init__(self, Vl=-1, Vr=1):
+    def __init__(self, Vl=-1.0, Vr=1.0):
         super().__init__(None, None, Vl, Vr)
 
     def i(self, V: torch.Tensor):

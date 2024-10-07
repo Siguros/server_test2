@@ -149,7 +149,7 @@ def _register_configs():
     backbone_store = store(group="model/net")
     backbone_store(ep_mnist, name="ep-mnist")
     backbone_store(dummy_ep_mnist, name="dummy-ep-mnist")
-
+    # direct eqprop
     model_store = store(group="model")
     model_store(EqPropXORModuleConfig, name="dep-xor")
     model_store(EqPropXOROHModuleConfig, name="dep-xor-onehot")

@@ -2,6 +2,8 @@ import re
 from enum import Enum
 
 import torch
+from aihwkit.simulator.configs.configs import MappableRPU
+from aihwkit.simulator.parameters.helpers import _PrintableMixin
 from aihwkit.simulator.tiles.base import BaseTile
 from matplotlib import pyplot as plt
 
@@ -28,19 +30,22 @@ def extract_error(log_list, prefix: str = "Error: ") -> list:
     return err_list
 
 
-def rpuconf2dict(rpuconfig, max_depth=2, current_depth=0):
+def rpuconf2dict(rpuconfig: MappableRPU, max_depth=2, current_depth=0):
     if current_depth > max_depth:
         return rpuconfig
     result = {}
     for key, val in rpuconfig.__dict__.items():
-        if isinstance(val, (float, int, str, bool)):
+        if type(val) in (float, int, str, bool, type(None)):  # primitive
             result[key] = val
-        elif isinstance(val, type):
+        elif isinstance(val, type):  # class
             result[key] = val.__name__
         elif isinstance(val, Enum):
             result[key] = val.name
-        else:
+        elif isinstance(val, _PrintableMixin):  # instance
             result[key] = rpuconf2dict(val, max_depth, current_depth + 1)
+            result[key]["is_default"] = True if val == val.__class__() else False
+        else:
+            raise ValueError(f"Unknown type {type(val)} for {key}")
     return result
 
 

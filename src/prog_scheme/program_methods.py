@@ -2,7 +2,7 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import torch
-from filterpy.kalman import MerweScaledSigmaPoints, UnscentedKalmanFilter
+from filterpy.kalman import ExtendedKalmanFilter, MerweScaledSigmaPoints, UnscentedKalmanFilter
 from torch import Tensor
 
 from src.utils.pylogger import RankedLogger
@@ -19,14 +19,15 @@ def gdp2(
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,
     norm_type: str = "nuc",
+    **kwargs: Any,
 ) -> None:
     """Program the target weights into the conductances using the pulse update defined.
 
     Variable batch version of the `program_weights_gdp` method.
     """
 
-    self.weight_update_log = []
-    self.desired_weight_update = []
+    self.actual_weight_updates = []
+    self.desired_weight_updates = []
     target_weights = self.tile.get_weights()
 
     input_size = self.tile.get_x_size()
@@ -74,9 +75,8 @@ def gdp2(
         """
         self.tile.update(x, error, False)  # type: ignore
         updated_weight = self.tile.get_weights().clone()
-
-        self.weight_update_log.append(updated_weight - current_weight)
-        self.desired_weight_update.append(-torch.einsum("bi, bj -> ij", error, x))
+        self.actual_weight_updates.append(updated_weight - current_weight)
+        self.desired_weight_updates.append(-error.T @ x)
     self.tile.set_learning_rate(lr_save)  # type: ignore
 
 
@@ -100,7 +100,7 @@ def svd(
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,
     rank_atol: Optional[float] = 1e-2,
-    svd_once: bool = False,
+    svd_every_k_iter: int = 1,
     norm_type: str = "nuc",
     **kwargs: Any,
 ) -> None:
@@ -112,17 +112,15 @@ def svd(
         tolerance (float, optional): Tolerance for convergence. Defaults to 0.01.
         w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
         rank_atol (float, optional): Absolute tolerance for numerical rank computation. Defaults to 1e-6.
-        rank_rtol (float, optional): Relative tolerance for numerical rank computation. Defaults to 1e-6.
-        svd_once (bool, optional): Flag indicating whether to perform SVD only once. Defaults to False.
+        svd_every_k_iter (bool, optional): indicating whether to perform SVD every k iterations. Defaults to 1.
         norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
         **kwargs: Additional keyword arguments.
     Returns:
         None
     """
-
-    self.weight_update_log = []
-    self.desired_weight_update = []
     target_weights = self.tile.get_weights()
+    self.actual_weight_updates = []
+    self.desired_weight_updates = []
     # target_weights = self.tile.get_weights() if target_weights is None else target_weights
 
     if isinstance(w_init, Tensor):
@@ -140,17 +138,15 @@ def svd(
     self.tile.set_learning_rate(1)  # type: ignore
     # since tile.update() updates w -= lr*delta_w so flip the sign
     diff = self.read_weights()[0] - target_weights
-    # normalize diff matrix
     U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
-    # rank = torch.linalg.matrix_rank(diff)
-    if rank_atol is None:
-        rank_atol = S.max() * max(diff.shape) * torch.finfo(S.dtype).eps
-
-    rank = torch.sum(S > rank_atol).item()
-    i = 0
+    rank = torch.linalg.matrix_rank(diff)
+    # if rank_atol is None:
+    #     rank_atol = S.max() * max(diff.shape) * torch.finfo(S.dtype).eps
+    # rank = torch.sum(S > rank_atol).item()
     max_iter = min(max_iter, rank) if use_rank_as_criterion else max_iter
-    for _ in range(max_iter):
+    for iter in range(max_iter):
         current_weight = self.tile.get_weights().clone()
+        i = iter % svd_every_k_iter
         u = U[:, i]
         v = Vh[i, :]
         # uv_ratio = torch.sqrt(u/v)
@@ -160,26 +156,26 @@ def svd(
         u *= sqrt_s / uv_ratio
         u1, v1 = compensate_half_selection(u), compensate_half_selection(v)
         self.tile.update(v1.float(), u1.float(), False)
+        updated_weight = self.tile.get_weights().clone()
 
-        # TODO: self.get_weights()
+        # realistic weight readout
         diff = self.read_weights()[0] - target_weights
-        U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
         norm = torch.linalg.matrix_norm(diff, ord=norm_type)
         log.debug(f"Error: {norm}")
+        self.actual_weight_updates.append(updated_weight - current_weight)
+        self.desired_weight_updates.append(-torch.outer(u1, v1))
         # y = self.tile.forward(x_values, False)
         # # TODO: error와 weight 2norm 사이 관계 분석
         # error = y - target_values
         # err_normalized = error.abs().mean().item() / target_max
         # log.debug(f"Error: {err_normalized}")
-        updated_weight = self.tile.get_weights().clone()
-        self.weight_update_log.append(updated_weight - current_weight)
-        # self.desired_weight_update.append(-torch.einsum('bi, bj -> ij', u1, v1))
+
         if tolerance is not None and norm < tolerance:
             break
-        elif svd_once:
-            i += 1
         else:
             pass
+        if (iter + 1) % svd_every_k_iter == 0:
+            U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
 
     self.tile.set_learning_rate(lr_save)  # type: ignore
 
@@ -212,30 +208,38 @@ def svd_ekf(
     R = np.eye(n) * measurement_noise_std**2
     Q = np.eye(n) * process_noise_std**2
 
-    def f(x):
+    def hx(x):
         return x
 
-    def h(x):
-        return self.tile.get_weights().flatten().numpy()
+    def fx(x, dt):
+        return x
+
+    def H_jacobian(x):
+        return np.eye(n)
+
+    def F_jacobian(x, dt):
+        return np.eye(n)
+
+    ekf = ExtendedKalmanFilter(dim_x=n, dim_z=n)
+    ekf.x = x
+    ekf.P = P
+    ekf.R = R
+    ekf.Q = Q
+    ekf.H = H_jacobian(x)
+    ekf.F = F_jacobian(x, 1)
 
     for _ in range(max_iter):
         # EKF prediction
-        x = f(x)
-        P = P + Q
+        ekf.predict()
 
         # Get measurement
         z = self.tile.get_weights().flatten().numpy()
 
         # EKF update
-        y = z - h(x)
-        H = np.eye(n)  # Jacobian of h(x) with respect to x
-        S = H @ P @ H.T + R
-        K = P @ H.T @ np.linalg.inv(S)
-        x = x + K @ y
-        P = (np.eye(n) - K @ H) @ P
+        ekf.update(z, HJacobian=H_jacobian, Hx=hx)
 
         # Reshape EKF estimate to weight matrix shape
-        estimated_weights = x.reshape(target_weights.shape)
+        estimated_weights = ekf.x.reshape(target_weights.shape)
 
         # Calculate the difference between estimated and target weights
         diff = torch.tensor(estimated_weights) - target_weights
@@ -261,15 +265,8 @@ def svd_ekf(
         current_weights = self.tile.get_weights()
         norm = torch.linalg.norm(current_weights - target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
-        # y = self.tile.forward(x_values, False)
-        # # TODO: error와 weight 2norm 사이 관계 분석
-        # error = y - target_values
-        # err_normalized = error.abs().mean().item() / target_max
-        # log.debug(f"Error: {err_normalized}")
         if tolerance is not None and norm < tolerance:
             break
-        else:
-            pass
 
     self.tile.set_learning_rate(lr_save)  # type: ignore
 

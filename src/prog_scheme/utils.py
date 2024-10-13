@@ -43,7 +43,7 @@ def rpuconf2dict(rpuconfig: MappableRPU, max_depth=2, current_depth=0):
             result[key] = val.name
         elif isinstance(val, _PrintableMixin):  # instance
             result[key] = rpuconf2dict(val, max_depth, current_depth + 1)
-            result[key]["is_default"] = True if val == val.__class__() else False
+            result[key]["is_default"] = True if val.__dict__ == val.__class__().__dict__ else False
         else:
             raise ValueError(f"Unknown type {type(val)} for {key}")
     return result

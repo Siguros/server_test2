@@ -1,4 +1,5 @@
 import re
+import time
 from enum import Enum
 
 import torch
@@ -56,7 +57,9 @@ def program_n_log(
     for tile in tiles:
         with LogCapture() as logc:
             tile.tile.set_weights(target_weight)
+            start = time.time()
             tile.program_weights(**method_kwargs)
+            print(f"Programming time: {time.time() - start:.2f}s")
             log = logc.get_log_list()
         err_list = extract_error(log)
         err_lists.append(err_list)

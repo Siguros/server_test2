@@ -113,15 +113,16 @@ def svd(
     # target_values = x_values @ target_weights.to(self.device).T
     # target_max = target_values.abs().max().item()
     # since tile.update() updates w -= lr*delta_w so flip the sign
-    diff = self.read_weights()[0] - self.target_weights
-    U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
-    rank = torch.linalg.matrix_rank(diff)
+    diff_realistic = self.read_weights()[0] - self.target_weights
+    U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
+    rank = torch.linalg.matrix_rank(diff_realistic)
     # if rank_atol is None:
-    #     rank_atol = S.max() * max(diff.shape) * torch.finfo(S.dtype).eps
+    #     rank_atol = S.max() * max(diff_realistic.shape) * torch.finfo(S.dtype).eps
     # rank = torch.sum(S > rank_atol).item()
     max_iter = min(max_iter, rank) if use_rank_as_criterion else max_iter
+    prev_weights = self.initial_weights
     for iter in range(max_iter):
-        current_weight = self.tile.get_weights().clone()
+
         i = iter % svd_every_k_iter
         u = U[:, i]
         v = Vh[i, :]
@@ -132,26 +133,26 @@ def svd(
         u *= sqrt_s / uv_ratio
         u1, v1 = compensate_half_selection(u), compensate_half_selection(v)
         self.tile.update(v1.float(), u1.float(), False)
-        updated_weight = self.tile.get_weights().clone()
 
-        # realistic weight readout
-        diff = self.read_weights()[0] - self.target_weights
-        norm = torch.linalg.matrix_norm(diff, ord=norm_type)
+        current_weights = self.tile.get_weights()
+        norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
-        self.actual_weight_updates.append(updated_weight - current_weight)
+
+        self.actual_weight_updates.append(current_weights - prev_weights)
         self.desired_weight_updates.append(-torch.outer(u1, v1))
+        prev_weights = current_weights
         # y = self.tile.forward(x_values, False)
         # # TODO: error와 weight 2norm 사이 관계 분석
         # error = y - target_values
         # err_normalized = error.abs().mean().item() / target_max
         # log.debug(f"Error: {err_normalized}")
-
         if tolerance is not None and norm < tolerance:
             break
         else:
             pass
         if (iter + 1) % svd_every_k_iter == 0:
-            U, S, Vh = torch.linalg.svd(diff.double(), full_matrices=False)
+            diff_realistic = self.read_weights()[0] - self.target_weights
+            U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
 
     self.tile.set_learning_rate(self.lr_save)  # type: ignore
 
@@ -180,19 +181,20 @@ def svd_kf(
     init_setup(self, w_init)
     state_size = self.tile.get_x_size() * self.tile.get_d_size()
     kf = BaseDeviceKF(state_size, read_noise_std, update_noise_std)
-    kf.x_est = self.tile.get_weights().clone().clone().flatten().numpy()
-
+    kf.x_est = self.tile.get_weights().clone().flatten().numpy()
+    prev_weights = self.initial_weights
     for iter in range(max_iter):
-        current_weight = self.tile.get_weights().clone().clone()
         z = self.read_weights()[0].flatten().numpy()
         kf.update(z)
-
         u_vec = -(kf.x_est - self.target_weights.flatten().numpy())
-        u_matrix = torch.tensor(
-            u_vec.reshape(self.tile.get_d_size(), self.tile.get_x_size()), dtype=torch.double
+        kf.predict(u_vec)
+
+        u_matrix = (
+            torch.from_numpy(u_vec)
+            .reshape(self.tile.get_d_size(), self.tile.get_x_size())
+            .double()
         )
         U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
-
         u = U[:, 0]
         v = Vh[0, :]
         s = S[0]
@@ -201,22 +203,16 @@ def svd_kf(
         u *= sqrt_s
         u1, v1 = compensate_half_selection(u), compensate_half_selection(v)
         self.tile.update(v1.float(), u1.float(), False)
-        updated_weight = self.tile.get_weights().clone().clone()
 
-        diff = (
-            torch.from_numpy(z).reshape(self.tile.get_d_size(), self.tile.get_x_size())
-            - self.target_weights
-        )
-        norm = torch.linalg.matrix_norm(diff, ord=norm_type)
+        current_weights = self.tile.get_weights()
+        norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
-        self.actual_weight_updates.append(updated_weight - current_weight)
+        self.actual_weight_updates.append(current_weights - prev_weights)
         self.desired_weight_updates.append(-torch.outer(v1, u1))
-
+        prev_weights = current_weights
         if tolerance is not None and norm < tolerance:
             break
-
-        kf.predict(u_vec)
 
     self.tile.set_learning_rate(self.lr_save)
 

@@ -69,18 +69,6 @@ def gdp2(
     self.tile.set_learning_rate(self.lr_save)  # type: ignore
 
 
-def compensate_half_selection(v: Tensor) -> Tensor:
-    """Compensate the half-selection effect for a vector.
-
-    Args:
-        v: Vector to compensate.
-
-    Returns:
-        Compensated vector.
-    """
-    return v
-
-
 @torch.no_grad()
 def svd(
     self,
@@ -187,7 +175,6 @@ def svd_kf(
         z = self.read_weights()[0].flatten().numpy()
         kf.update(z)
         u_vec = -(kf.x_est - self.target_weights.flatten().numpy())
-        kf.predict(u_vec)
 
         u_matrix = (
             torch.from_numpy(u_vec)
@@ -203,13 +190,15 @@ def svd_kf(
         u *= sqrt_s
         u1, v1 = compensate_half_selection(u), compensate_half_selection(v)
         self.tile.update(v1.float(), u1.float(), False)
+        u_rank1 = -torch.outer(u1, v1)
+        kf.predict(u_rank1.flatten().numpy())
 
         current_weights = self.tile.get_weights()
         norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
         self.actual_weight_updates.append(current_weights - prev_weights)
-        self.desired_weight_updates.append(-torch.outer(v1, u1))
+        self.desired_weight_updates.append(u_rank1)
         prev_weights = current_weights
         if tolerance is not None and norm < tolerance:
             break
@@ -217,8 +206,7 @@ def svd_kf(
     self.tile.set_learning_rate(self.lr_save)
 
 
-@torch.no_grad()
-def svd_ekf(
+def svd_ekf_lqg(
     self,
     device_ekf: BaseDeviceEKF,
     max_iter: int = 100,
@@ -229,9 +217,10 @@ def svd_ekf(
     update_noise_std: float = 0.1,
     **kwargs: Any,
 ) -> None:
-    """Perform LQG-based weight programming using SVD with EKF.
+    """Perform weight programming using Extended Kalman filter. SVD after LQG control is used.
 
     Args:
+        device_ekf (BaseDeviceEKF): Device-aware EKF instance.
         max_iter (int, optional): Maximum number of iterations. Defaults to 100.
         tolerance (Optional[float], optional): Tolerance for convergence. Defaults to 0.01.
         w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
@@ -241,59 +230,43 @@ def svd_ekf(
         **kwargs: Additional keyword arguments.
     """
     init_setup(self, w_init)
-    ekf = ExtendedKalmanFilter(
-        dim_x=self.tile.get_d_size() * self.tile.get_x_size(),
-        dim_z=self.tile.get_d_size() * self.tile.get_x_size(),
-        dim_u=self.tile.get_d_size(),
-    )
-    ekf.R *= read_noise_std**2
-    ekf.Q *= update_noise_std**2
-    ekf.x = self.tile.get_weights().clone().flatten().numpy()
-
+    state_size = self.tile.get_x_size() * self.tile.get_d_size()
+    device_ekf.x_est = self.tile.get_weights().clone().flatten().numpy()
+    prev_weights = self.initial_weights
+    u_prev = None
     for iter in range(max_iter):
-        current_weight = self.tile.get_weights().clone()
-        # Observation residual, y_res = y - Cx
-        z = self.read_weights()[0]
-        ekf.update()
-        y_res = z.flatten().numpy() - ekf.x
-        # State estimate, F@x + B@u + K(y - Cx)
-        ekf.x += ekf.K @ y_res
+        z = self.read_weights()[0].flatten().numpy()
+        device_ekf.update(z)
+        L_diag = device_ekf.get_lqg_gain(u_prev)  # ?
+        u_vec = -L_diag * (device_ekf.x_est - self.target_weights.flatten().numpy())
 
-        # u_vec = -L @ (ekf.x-target_weights.T.flatten().numpy()) # Control input
-        u_vec = -(ekf.x - self.target_weights.flatten().numpy())
-        # Reshape u into a matrix form
-        u_matrix = torch.tensor(
-            u_vec.reshape(self.tile.get_d_size(), self.tile.get_x_size()), dtype=torch.double
+        u_matrix = (
+            torch.from_numpy(u_vec)
+            .reshape(self.tile.get_d_size(), self.tile.get_x_size())
+            .double()
         )
-        # Perform SVD on the control input, invert the sign due to tile.update() convention
         U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
-
-        # Use the first singular vector for update
-        u = U[:, 0]
-        v = Vh[0, :]
+        u_svd = U[:, 0]
+        v_svd = Vh[0, :]
         s = S[0]
-
-        # Apply compensation for half-selection
-        u1, v1 = compensate_half_selection(u), compensate_half_selection(v)
-
-        # Update the weights
+        sqrt_s = torch.sqrt(s)
+        v_svd *= sqrt_s
+        u_svd *= sqrt_s
+        u1, v1 = compensate_half_selection(u_svd), compensate_half_selection(v_svd)
         self.tile.update(v1.float(), u1.float(), False)
-        updated_weight = self.tile.get_weights().clone()
+        u_rank1 = -torch.outer(u1, v1)
+        device_ekf.predict(u_rank1.flatten().numpy())
+        u_prev = u_rank1
 
-        # Realistic weight readout
-        diff = z - self.target_weights
-        norm = torch.linalg.matrix_norm(diff, ord=norm_type)
+        current_weights = self.tile.get_weights()
+        norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
-        self.actual_weight_updates.append(updated_weight - current_weight)
-        self.desired_weight_updates.append(-torch.outer(v1, u1))
-
-        # Check for convergence
+        self.actual_weight_updates.append(current_weights - prev_weights)
+        self.desired_weight_updates.append(u_rank1)
+        prev_weights = current_weights
         if tolerance is not None and norm < tolerance:
             break
-
-        # Update state estimate, ekf.x = F @ ekf.x + B @ u_vec
-        ekf.x += u_vec
 
     self.tile.set_learning_rate(self.lr_save)
 
@@ -312,3 +285,15 @@ def init_setup(self, w_init) -> None:
 
     self.lr_save = self.tile.get_learning_rate()
     self.tile.set_learning_rate(1)
+
+
+def compensate_half_selection(v: Tensor) -> Tensor:
+    """Compensate the half-selection effect for a vector.
+
+    Args:
+        v: Vector to compensate.
+
+    Returns:
+        Compensated vector.
+    """
+    return v

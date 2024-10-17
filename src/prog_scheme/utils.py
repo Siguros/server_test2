@@ -31,9 +31,7 @@ def extract_error(log_list, prefix: str = "Error: ") -> list:
     return err_list
 
 
-def rpuconf2dict(rpuconfig: MappableRPU, max_depth=2, current_depth=0):
-    if current_depth > max_depth:
-        return rpuconfig
+def rpuconf2dict(rpuconfig: MappableRPU, max_depth=2, current_depth=0) -> dict:
     result = {}
     for key, val in rpuconfig.__dict__.items():
         if type(val) in (float, int, str, bool, type(None)):  # primitive
@@ -43,7 +41,11 @@ def rpuconf2dict(rpuconfig: MappableRPU, max_depth=2, current_depth=0):
         elif isinstance(val, Enum):
             result[key] = val.name
         elif isinstance(val, _PrintableMixin):  # instance
-            result[key] = rpuconf2dict(val, max_depth, current_depth + 1)
+            result[key] = (
+                rpuconf2dict(val, max_depth, current_depth + 1)
+                if current_depth < max_depth
+                else str(val)
+            )
             result[key]["is_default"] = True if val.__dict__ == val.__class__().__dict__ else False
         else:
             raise ValueError(f"Unknown type {type(val)} for {key}")
@@ -56,7 +58,8 @@ def program_n_log(
     err_lists = []
     for tile in tiles:
         with LogCapture() as logc:
-            tile.tile.set_weights(target_weight)
+            # tile.tile.set_weights(target_weight)
+            tile.target_weights = target_weight
             start = time.time()
             tile.program_weights(**method_kwargs)
             print(f"Programming time: {time.time() - start:.2f}s")

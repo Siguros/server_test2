@@ -160,7 +160,7 @@ class BaseDeviceEKF(ABC):
         else:
             B_diag = self.f_jacobian_u(self.x_est, u)
             self.F_diag = self.f_jacobian_x(self.x_est, u)
-            return self.F_diag / (B_diag + 1e-6)
+            return self.F_diag / (B_diag + 1e-8)
 
     def predict(self, u):
         """Predict the next state(weight) of the device."""

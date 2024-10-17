@@ -59,7 +59,7 @@ def program_n_log(
     for tile in tiles:
         with LogCapture() as logc:
             # tile.tile.set_weights(target_weight)
-            tile.target_weights = target_weight
+            tile.target_weights = target_weight.clone()
             start = time.time()
             tile.program_weights(**method_kwargs)
             print(f"Programming time: {time.time() - start:.2f}s")

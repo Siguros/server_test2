@@ -256,7 +256,7 @@ def svd_ekf_lqg(
         self.tile.update(v1.float(), u1.float(), False)
         u_rank1 = -torch.outer(u1, v1)
         device_ekf.predict(u_rank1.flatten().numpy())
-        u_prev = u_rank1
+        u_prev = u_rank1.flatten().numpy()
 
         current_weights = self.tile.get_weights()
         norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)

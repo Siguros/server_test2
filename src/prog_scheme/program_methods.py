@@ -6,7 +6,7 @@ from filterpy.kalman import ExtendedKalmanFilter
 from scipy import linalg as sla
 from torch import Tensor
 
-from src.prog_scheme.estimate import BaseDeviceEKF, BaseDeviceKF
+from src.prog_scheme.kalman import BaseDeviceEKF, BaseDeviceKF
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(rank_zero_only=True)
@@ -153,6 +153,7 @@ def svd_kf(
     norm_type: str = "nuc",
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
+    svd_every_k_iter: int = 1,
     **kwargs: Any,
 ) -> None:
     """Perform weight programming using SVD and Kalman filter.
@@ -172,19 +173,20 @@ def svd_kf(
     kf.x_est = self.tile.get_weights().clone().flatten().numpy()
     prev_weights = self.initial_weights
     for iter in range(max_iter):
+        i = iter % svd_every_k_iter
         z = self.read_weights()[0].flatten().numpy()
         kf.update(z)
-        u_vec = -(kf.x_est - self.target_weights.flatten().numpy())
-
-        u_matrix = (
-            torch.from_numpy(u_vec)
-            .reshape(self.tile.get_d_size(), self.tile.get_x_size())
-            .double()
-        )
-        U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
-        u = U[:, 0]
-        v = Vh[0, :]
-        s = S[0]
+        if i == 0:
+            u_vec = -(kf.x_est - self.target_weights.flatten().numpy())
+            u_matrix = (
+                torch.from_numpy(u_vec)
+                .reshape(self.tile.get_d_size(), self.tile.get_x_size())
+                .double()
+            )
+            U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
+        u = U[:, i]
+        v = Vh[i, :]
+        s = S[i]
         sqrt_s = torch.sqrt(s)
         v *= sqrt_s
         u *= sqrt_s
@@ -215,6 +217,7 @@ def svd_ekf_lqg(
     norm_type: str = "nuc",
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
+    svd_every_k_iter: int = 1,
     **kwargs: Any,
 ) -> None:
     """Perform weight programming using Extended Kalman filter. SVD after LQG control is used.
@@ -235,20 +238,21 @@ def svd_ekf_lqg(
     prev_weights = self.initial_weights
     u_prev = None
     for iter in range(max_iter):
+        i = iter % svd_every_k_iter
         z = self.read_weights()[0].flatten().numpy()
         device_ekf.update(z)
-        L_diag = device_ekf.get_lqg_gain(u_prev)  # ?
-        u_vec = -L_diag * (device_ekf.x_est - self.target_weights.flatten().numpy())
-
-        u_matrix = (
-            torch.from_numpy(u_vec)
-            .reshape(self.tile.get_d_size(), self.tile.get_x_size())
-            .double()
-        )
-        U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
-        u_svd = U[:, 0]
-        v_svd = Vh[0, :]
-        s = S[0]
+        if i == 0:
+            L_diag = device_ekf.get_lqg_gain(u_prev)
+            u_vec = -L_diag * (device_ekf.x_est - self.target_weights.flatten().numpy())
+            u_matrix = (
+                torch.from_numpy(u_vec)
+                .reshape(self.tile.get_d_size(), self.tile.get_x_size())
+                .double()
+            )
+            U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
+        u_svd = U[:, i]
+        v_svd = Vh[i, :]
+        s = S[i]
         sqrt_s = torch.sqrt(s)
         v_svd *= sqrt_s
         u_svd *= sqrt_s

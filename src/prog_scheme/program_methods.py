@@ -21,6 +21,7 @@ def gdp2(
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,
     norm_type: str = "nuc",
+    over_sampling: int = 10,
     **kwargs: Any,
 ) -> None:
     """Program the target weights into the conductances using the pulse update defined.
@@ -79,6 +80,7 @@ def svd(
     rank_atol: Optional[float] = 1e-2,
     svd_every_k_iter: int = 1,
     norm_type: str = "nuc",
+    over_sampling: int = 10,
     **kwargs: Any,
 ) -> None:
     """Perform singular value decomposition (SVD) based weight programming.
@@ -101,7 +103,7 @@ def svd(
     # target_values = x_values @ target_weights.to(self.device).T
     # target_max = target_values.abs().max().item()
     # since tile.update() updates w -= lr*delta_w so flip the sign
-    diff_realistic = self.read_weights()[0] - self.target_weights
+    diff_realistic = self.read_weights_(over_sampling=over_sampling)[0] - self.target_weights
     U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
     rank = torch.linalg.matrix_rank(diff_realistic)
     # if rank_atol is None:
@@ -139,7 +141,9 @@ def svd(
         else:
             pass
         if (iter + 1) % svd_every_k_iter == 0:
-            diff_realistic = self.read_weights()[0] - self.target_weights
+            diff_realistic = (
+                self.read_weights_(over_sampling=over_sampling)[0] - self.target_weights
+            )
             U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
 
     self.tile.set_learning_rate(self.lr_save)  # type: ignore
@@ -154,6 +158,7 @@ def svd_kf(
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
     svd_every_k_iter: int = 1,
+    over_sampling: int = 10,
     **kwargs: Any,
 ) -> None:
     """Perform weight programming using SVD and Kalman filter.
@@ -174,7 +179,7 @@ def svd_kf(
     prev_weights = self.initial_weights
     for iter in range(max_iter):
         i = iter % svd_every_k_iter
-        z = self.read_weights()[0].flatten().numpy()
+        z = self.read_weights_(over_sampling=over_sampling)[0].flatten().numpy()
         kf.update(z)
         if i == 0:
             u_vec = -(kf.x_est - self.target_weights.flatten().numpy())
@@ -218,6 +223,7 @@ def svd_ekf_lqg(
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
     svd_every_k_iter: int = 1,
+    over_sampling: int = 10,
     **kwargs: Any,
 ) -> None:
     """Perform weight programming using Extended Kalman filter. SVD after LQG control is used.
@@ -239,7 +245,7 @@ def svd_ekf_lqg(
     u_prev = None
     for iter in range(max_iter):
         i = iter % svd_every_k_iter
-        z = self.read_weights()[0].flatten().numpy()
+        z = self.read_weights_(over_sampling=over_sampling)[0].flatten().numpy()
         device_ekf.update(z)
         if i == 0:
             L_diag = device_ekf.get_lqg_gain(u_prev)

@@ -123,6 +123,7 @@ class XyceStrategy(AbstractSPICEStrategy):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.mpi_commands = kwargs.get("mpi_commands") or ["mpirun", "-use-hwthread-cpus"]
+        self.circuit = None
 
         if self.mpi_commands[-1] == "-cpu-set":
             # self.mpi_commands.append(str(id + 1))
@@ -142,7 +143,7 @@ class XyceStrategy(AbstractSPICEStrategy):
             if i_ext is None:
                 spice_utils.SPICENNParser.clampLayer(self.circuit, x[i])
             else:
-                spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext)
+                spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext[0])
 
             raw_file = self.sim(spice_input=self.circuit)
             voltages = spice_utils.SPICENNParser.fastRawfileParser(
@@ -159,9 +160,12 @@ class XyceStrategy(AbstractSPICEStrategy):
     def create_netlist(self, x):
         """Convert input to netlist."""
         """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
+
+        assert x.size(0) == 1, "XyceStrategy does not support batched operation."
+
         if self.circuit is None:
             self.Pycircuit = circuits.create_circuit(
-                input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
+                input=x[0], bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
             )
             self.circuit = circuits.ShallowCircuit.copyFromCircuit(self.Pycircuit)
             del self.Pycircuit

@@ -197,7 +197,7 @@ class LinearDeviceEKF(BaseDeviceEKF):
             u_down = np.minimum(u, 0)
             x_up = u_up * (
                 1 + (x + 0.5 * u_up) * self._ghat_up
-            )  # [x + 0.5*self._ghat_up*x**2]|_x^{x+u}
+            )  # [x + self._ghat_up*x**2]|_x^{x+u}
             x_down = u_down * (1 + (x + 0.5 * u_down) * self._ghat_down)
             return x_up - x_down
 

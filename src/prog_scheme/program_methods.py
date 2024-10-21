@@ -21,6 +21,7 @@ def gdp2(
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,
     norm_type: str = "nuc",
+    x_rand: bool = False,
     over_sampling: int = 10,
     **kwargs: Any,
 ) -> None:
@@ -32,6 +33,8 @@ def gdp2(
     init_setup(self, w_init)
     input_size = self.tile.get_x_size()
     x_values = torch.eye(input_size).to(self.device)
+    if x_rand:
+        x_values = torch.rand(input_size, input_size).to(self.device)
     target_values = x_values @ self.target_weights.to(self.device).T
 
     target_max = target_values.abs().max().item()
@@ -52,7 +55,16 @@ def gdp2(
             x = x_values[start_idx:end_idx]
             target = target_values[start_idx:end_idx]
 
-        y = self.tile.forward(x, False)
+        yo = []
+        for j in range(over_sampling):
+            output = self.tile.forward(x, False)
+            yo.append(output)
+
+        # 리스트를 새로운 차원으로 스택(stack)
+        yo = torch.stack(yo, dim=0)
+
+        # oversampling 차원에 대해 평균 계산
+        y = yo.mean(dim=0)
         error = y - target
         err_normalized = error.abs().mean().item() / target_max
         mtx_diff = self.tile.get_weights() - self.target_weights
@@ -81,6 +93,7 @@ def svd(
     svd_every_k_iter: int = 1,
     norm_type: str = "nuc",
     over_sampling: int = 10,
+    x_rand: bool = False,
     **kwargs: Any,
 ) -> None:
     """Perform singular value decomposition (SVD) based weight programming.
@@ -103,7 +116,9 @@ def svd(
     # target_values = x_values @ target_weights.to(self.device).T
     # target_max = target_values.abs().max().item()
     # since tile.update() updates w -= lr*delta_w so flip the sign
-    diff_realistic = self.read_weights_(over_sampling=over_sampling)[0] - self.target_weights
+    diff_realistic = (
+        self.read_weights_(over_sampling=over_sampling, x_rand=x_rand)[0] - self.target_weights
+    )
     U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
     rank = torch.linalg.matrix_rank(diff_realistic)
     # if rank_atol is None:
@@ -142,7 +157,8 @@ def svd(
             pass
         if (iter + 1) % svd_every_k_iter == 0:
             diff_realistic = (
-                self.read_weights_(over_sampling=over_sampling)[0] - self.target_weights
+                self.read_weights_(over_sampling=over_sampling, x_rand=x_rand)[0]
+                - self.target_weights
             )
             U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
 
@@ -159,6 +175,7 @@ def svd_kf(
     update_noise_std: float = 0.1,
     svd_every_k_iter: int = 1,
     over_sampling: int = 10,
+    x_rand: bool = False,
     **kwargs: Any,
 ) -> None:
     """Perform weight programming using SVD and Kalman filter.
@@ -179,7 +196,7 @@ def svd_kf(
     prev_weights = self.initial_weights
     for iter in range(max_iter):
         i = iter % svd_every_k_iter
-        z = self.read_weights_(over_sampling=over_sampling)[0].flatten().numpy()
+        z = self.read_weights_(over_sampling=over_sampling, x_rand=x_rand)[0].flatten().numpy()
         kf.update(z)
         if i == 0:
             u_vec = -(kf.x_est - self.target_weights.flatten().numpy())
@@ -224,6 +241,7 @@ def svd_ekf_lqg(
     update_noise_std: float = 0.1,
     svd_every_k_iter: int = 1,
     over_sampling: int = 10,
+    x_rand: bool = False,
     **kwargs: Any,
 ) -> None:
     """Perform weight programming using Extended Kalman filter. SVD after LQG control is used.
@@ -245,7 +263,7 @@ def svd_ekf_lqg(
     u_prev = None
     for iter in range(max_iter):
         i = iter % svd_every_k_iter
-        z = self.read_weights_(over_sampling=over_sampling)[0].flatten().numpy()
+        z = self.read_weights_(over_sampling=over_sampling, x_rand=x_rand)[0].flatten().numpy()
         device_ekf.update(z)
         if i == 0:
             L_diag = device_ekf.get_lqg_gain(u_prev)

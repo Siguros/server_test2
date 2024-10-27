@@ -132,6 +132,7 @@ class XyceStrategy(AbstractSPICEStrategy):
 
     def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network with Xyce."""
+
         if i_ext is None:
             self.create_netlist(x)
             spice_utils.SPICENNParser.updateWeight(self.circuit, self.W)
@@ -143,7 +144,11 @@ class XyceStrategy(AbstractSPICEStrategy):
             if i_ext is None:
                 spice_utils.SPICENNParser.clampLayer(self.circuit, x[i])
             else:
-                spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext[0])
+                if batch_size != 1:
+                    spice_utils.SPICENNParser.clampLayer(self.circuit, x[i])
+                    spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext[i])
+                else:
+                    spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext[i])
 
             raw_file = self.sim(spice_input=self.circuit)
             voltages = spice_utils.SPICENNParser.fastRawfileParser(
@@ -161,7 +166,7 @@ class XyceStrategy(AbstractSPICEStrategy):
         """Convert input to netlist."""
         """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
 
-        assert x.size(0) == 1, "XyceStrategy does not support batched operation."
+        # assert x.size(0) == 1, "XyceStrategy does not support batched operation."
 
         if self.circuit is None:
             self.Pycircuit = circuits.create_circuit(

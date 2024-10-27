@@ -227,7 +227,7 @@ class MSELitModule(ClassifierLitModule):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.criterion = torch.nn.MSELoss(reduction="mean")
+        self.criterion = torch.nn.MSELoss(reduction="sum")
 
     def model_step(self, batch: tuple[torch.Tensor, torch.Tensor]):
         x, y = batch
@@ -249,7 +249,7 @@ class BinaryClassifierLitModule(ClassifierLitModule):
         scheduler: torch.optim.lr_scheduler.LRScheduler = None,
         compile: bool = False,
         num_classes: int = 1,
-        criterion: type[nn.modules.loss._Loss] = nn.BCEWithLogitsLoss,
+        criterion: nn.modules.loss._Loss = nn.BCEWithLogitsLoss,
     ) -> None:
         super(ClassifierLitModule, self).__init__()
 
@@ -258,7 +258,7 @@ class BinaryClassifierLitModule(ClassifierLitModule):
         self.net = net
 
         # loss function
-        self.criterion = criterion()
+        self.criterion = torch.nn.MSELoss(reduction="sum")
 
         # metric objects for calculating and averaging accuracy across batches
         self.train_acc = Accuracy(task="binary", num_classes=self.hparams.num_classes)
@@ -287,6 +287,7 @@ class BinaryClassifierLitModule(ClassifierLitModule):
         """
         x, y = batch
         logits = self.forward(x).squeeze(-1)
+
         loss = self.criterion(logits, y.float())
         preds = (logits > 0.5).int()
         return loss, preds, y

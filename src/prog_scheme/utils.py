@@ -13,7 +13,7 @@ from src.utils.logging_utils import LogCapture
 
 def plot_singular_values(Ws: tuple[torch.Tensor]):
     for w in Ws:
-        s = torch.linalg.svdvals(w)
+        s = torch.linalg.svdvals(w.squeeze())
         plt.plot(s)
     plt.yscale("log")
     plt.xlabel("Singular Value Index")

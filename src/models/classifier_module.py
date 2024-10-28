@@ -115,6 +115,9 @@ class ClassifierLitModule(LightningModule):
             - A tensor of target labels.
         """
         x, y = batch
+        if "AnalogLinear" in str(type(self.net[0])):
+            x = x.view(x.size(0), -1)  # Apply flatten operation
+        x = x.view(x.size(0), -1)
         logits = self.forward(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)

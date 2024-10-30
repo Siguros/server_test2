@@ -11,6 +11,15 @@ from matplotlib import pyplot as plt
 from src.utils.logging_utils import LogCapture
 
 
+def generate_target_weights(input_size: int, output_size: int, rank: int) -> torch.Tensor:
+    w_target = torch.randn(input_size, output_size).clamp_(-1, 1)
+    if rank < min(w_target.shape):
+        u, s, v = torch.svd(w_target)
+        w_target = torch.mm(u[:, :rank], torch.mm(torch.diag(s[:rank]), v[:, :rank].t()))
+    w_target /= w_target.abs().max()
+    return w_target
+
+
 def plot_singular_values(Ws: tuple[torch.Tensor]):
     for w in Ws:
         s = torch.linalg.svdvals(w.squeeze())

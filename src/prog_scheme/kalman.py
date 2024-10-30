@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-from filterpy.kalman import ExtendedKalmanFilter
 from joblib import Parallel, delayed
 from scipy import integrate
 

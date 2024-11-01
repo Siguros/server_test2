@@ -69,7 +69,6 @@ class ClassifierLitModule(LightningModule):
         self.hparams: AttributeDict
 
         self.net = net
-
         # loss function
         self.criterion = criterion()
 
@@ -115,9 +114,6 @@ class ClassifierLitModule(LightningModule):
             - A tensor of target labels.
         """
         x, y = batch
-        if "AnalogLinear" in str(type(self.net[0])):
-            x = x.view(x.size(0), -1)  # Apply flatten operation
-        x = x.view(x.size(0), -1)
         logits = self.forward(x)
         loss = self.criterion(logits, y)
         preds = torch.argmax(logits, dim=1)
@@ -212,6 +208,8 @@ class ClassifierLitModule(LightningModule):
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
         """
         optimizer = self.hparams.optimizer(params=self.net.parameters())
+        if hasattr(optimizer, "regroup_param_groups"):
+            optimizer.regroup_param_groups(self.net)
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {

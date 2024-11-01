@@ -39,5 +39,3 @@ ignore-semiprivate = false
 ignore-private = false
 ignore-setters = false
 exclude = ["setup.py", "docs", "build"]
-generate-badge = "."
-badge-format = "svg"

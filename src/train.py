@@ -65,6 +65,15 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = instantiate(cfg.model)
 
+    rpu_config = instantiate(cfg.rpu_config)
+
+    if cfg.is_analog:
+        from aihwkit.nn.conversion import convert_to_analog
+
+        model = convert_to_analog(
+            model, rpu_config=rpu_config, inplace=True, verbose=False, ensure_analog_root=False
+        )
+
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
 

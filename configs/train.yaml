@@ -12,6 +12,7 @@ defaults:
   - paths: default
   - extras: default
   - hydra: default
+  - rpu_config: constant_step
 
   # experiment configs allow for version control of specific hyperparameters
   # e.g. best hyperparameters for given model and datamodule
@@ -49,3 +50,5 @@ ckpt_path: null
 seed: 42
 
 compile: null
+
+is_analog: False

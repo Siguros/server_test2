@@ -53,14 +53,14 @@ class CIFAR10DataModule(LightningDataModule):
             [
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
-                transforms.Grayscale(num_output_channels=1),
+                # transforms.Grayscale(num_output_channels=1),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914,), (0.2023,)),
             ]
         )
         self.transforms_test = transforms.Compose(
             [
-                transforms.Grayscale(num_output_channels=1),
+                # transforms.Grayscale(num_output_channels=1),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914,), (0.2023,)),
             ]
@@ -100,6 +100,7 @@ class CIFAR10DataModule(LightningDataModule):
             )
 
     def train_dataloader(self):
+        """Return train dataloader."""
         return DataLoader(
             dataset=self.data_train,
             batch_size=self.hparams.batch_size,
@@ -109,6 +110,7 @@ class CIFAR10DataModule(LightningDataModule):
         )
 
     def val_dataloader(self):
+        """Return validation dataloader."""
         return DataLoader(
             dataset=self.data_val,
             batch_size=self.hparams.batch_size,
@@ -118,6 +120,7 @@ class CIFAR10DataModule(LightningDataModule):
         )
 
     def test_dataloader(self):
+        """Return test dataloader."""
         return DataLoader(
             dataset=self.data_test,
             batch_size=self.hparams.batch_size,

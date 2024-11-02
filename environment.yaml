@@ -1,245 +1,50 @@
-name: NMDL
+# reasons you might want to use `environment.yaml` instead of `requirements.txt`:
+# - pip installs packages in a loop, without ensuring dependencies across all packages
+#   are fulfilled simultaneously, but conda achieves proper dependency control across
+#   all packages
+# - conda allows for installing packages without requiring certain compilers or
+#   libraries to be available in the system, since it installs precompiled binaries
+
+name: ml
+
 channels:
+  - pytorch
   - conda-forge
   - defaults
+
+# it is strongly recommended to specify versions of packages installed through conda
+# to avoid situation when version-unspecified packages install their latest major
+# versions which can sometimes break things
+
+# current approach below keeps the dependencies in the same major versions across all
+# users, but allows for different minor and patch versions of packages where backwards
+# compatibility is usually guaranteed
+
 dependencies:
-  - _libgcc_mutex=0.1=conda_forge
-  - _openmp_mutex=4.5=2_kmp_llvm
-  - aihwkit-gpu=0.9.2=py310h7f34d2d_0
-  - asttokens=2.4.1=pyhd8ed1ab_0
-  - brotli-python=1.1.0=py310hf71b8c6_2
-  - bzip2=1.0.8=h5eee18b_5
-  - ca-certificates=2024.8.30=hbcca054_0
-  - comm=0.2.2=pyhd8ed1ab_0
-  - cuda-cudart=12.6.77=h5888daf_0
-  - cuda-cudart_linux-64=12.6.77=h3f2d84a_0
-  - cuda-nvrtc=12.6.77=hbd13f7d_0
-  - cuda-nvtx=12.6.77=hbd13f7d_0
-  - cuda-version=12.6=h7480c83_3
-  - cudnn=9.3.0.75=h93bb076_0
-  - debugpy=1.6.7=py310h6a678d5_0
-  - decorator=5.1.1=pyhd8ed1ab_0
-  - entrypoints=0.4=pyhd8ed1ab_0
-  - exceptiongroup=1.2.0=pyhd8ed1ab_2
-  - executing=2.0.1=pyhd8ed1ab_0
-  - freetype=2.12.1=h267a509_2
-  - giflib=5.2.2=hd590300_0
-  - gmp=6.3.0=hac33072_2
-  - gmpy2=2.1.5=py310he8512ff_2
-  - h2=4.1.0=pyhd8ed1ab_0
-  - hpack=4.0.0=pyh9f0ad1d_0
-  - hyperframe=6.0.1=pyhd8ed1ab_0
-  - icu=75.1=he02047a_0
-  - ipykernel=6.29.5=pyh3099207_0
-  - ipython=8.26.0=pyh707e725_0
-  - jedi=0.19.1=pyhd8ed1ab_0
-  - joblib=1.4.2=pyhd8ed1ab_0
-  - jupyter_client=7.3.4=pyhd8ed1ab_0
-  - jupyter_core=5.7.2=py310hff52083_0
-  - lcms2=2.16=hb7c19ff_0
-  - ld_impl_linux-64=2.38=h1181459_1
-  - lerc=4.0.0=h27087fc_0
-  - libabseil=20240722.0=cxx17_h5888daf_1
-  - libblas=3.9.0=20_linux64_mkl
-  - libcblas=3.9.0=20_linux64_mkl
-  - libcublas=12.6.3.3=hbd13f7d_1
-  - libcufft=11.3.0.4=hbd13f7d_0
-  - libcurand=10.3.7.77=hbd13f7d_0
-  - libcusolver=11.7.1.2=hbd13f7d_0
-  - libcusparse=12.5.4.2=hbd13f7d_0
-  - libdeflate=1.22=hb9d3cd8_0
-  - libffi=3.4.4=h6a678d5_0
-  - libgcc=14.2.0=h77fa898_1
-  - libgcc-ng=14.2.0=h69a702a_1
-  - libgfortran=14.2.0=h69a702a_1
-  - libgfortran5=14.2.0=hd5240d6_1
-  - libhwloc=2.11.1=default_hecaa2ac_1000
-  - libiconv=1.17=hd590300_2
-  - libjpeg-turbo=3.0.0=hd590300_1
-  - liblapack=3.9.0=20_linux64_mkl
-  - libmagma=2.8.0=h0af6554_0
-  - libmagma_sparse=2.8.0=h0af6554_0
-  - libnsl=2.0.1=hd590300_0
-  - libnvjitlink=12.6.77=hbd13f7d_1
-  - libnvjpeg=12.3.3.54=h5888daf_0
-  - libpng=1.6.44=hadc24fc_0
-  - libprotobuf=5.28.2=h5b01275_0
-  - libsodium=1.0.18=h36c2ea0_1
-  - libsqlite=3.47.0=hadc24fc_0
-  - libstdcxx=14.2.0=hc0a3c3a_1
-  - libstdcxx-ng=14.2.0=h4852527_1
-  - libtiff=4.7.0=he137b08_1
-  - libtorch=2.4.1=cuda120_hcf1373b_303
-  - libuuid=2.38.1=h0b41bf4_0
-  - libuv=1.49.2=hb9d3cd8_0
-  - libwebp-base=1.4.0=hd590300_0
-  - libxcb=1.17.0=h8a09558_0
-  - libxcrypt=4.4.36=hd590300_1
-  - libxml2=2.12.7=he7c6b58_4
-  - libzlib=1.3.1=hb9d3cd8_2
-  - llvm-openmp=19.1.2=h024ca30_0
-  - matplotlib-inline=0.1.7=pyhd8ed1ab_0
-  - mkl=2023.2.0=h84fe81f_50496
-  - mpc=1.3.1=h24ddda3_1
-  - mpfr=4.2.1=h90cbb55_3
-  - mpmath=1.3.0=pyhd8ed1ab_0
-  - nccl=2.23.4.1=h52f6c39_1
-  - ncurses=6.5=he02047a_1
-  - nest-asyncio=1.6.0=pyhd8ed1ab_0
-  - openjpeg=2.5.2=h488ebb8_0
-  - openssl=3.3.2=hb9d3cd8_0
-  - parso=0.8.4=pyhd8ed1ab_0
-  - pexpect=4.9.0=pyhd8ed1ab_0
-  - pickleshare=0.7.5=py_1003
-  - pip=23.3.1=py310h06a4308_0
-  - prompt-toolkit=3.0.47=pyha770c72_0
-  - pthread-stubs=0.4=hb9d3cd8_1002
-  - ptyprocess=0.7.0=pyhd3deb0d_0
-  - pure_eval=0.2.2=pyhd8ed1ab_0
-  - pysocks=1.7.1=pyha2e5f31_6
-  - python=3.10.15=h4a871b0_2_cpython
-  - python_abi=3.10=2_cp310
-  - pytorch=2.4.1=cuda120_py310hf7eb567_303
-  - pyzmq=25.1.2=py310h6a678d5_0
-  - readline=8.2=h5eee18b_0
-  - scikit-learn=1.5.2=py310h27f47ee_1
-  - setuptools=68.2.2=py310h06a4308_0
-  - six=1.16.0=pyh6c4a22f_0
-  - sleef=3.7=h1b44611_0
-  - stack_data=0.6.2=pyhd8ed1ab_0
-  - tbb=2021.13.0=h84d6215_0
-  - threadpoolctl=3.5.0=pyhc1e730c_0
-  - tk=8.6.13=noxft_h4845f30_101
-  - tornado=6.1=py310h5764c6d_3
-  - traitlets=5.14.3=pyhd8ed1ab_0
-  - typing_extensions=4.12.2=pyha770c72_0
-  - wcwidth=0.2.13=pyhd8ed1ab_0
-  - wheel=0.41.2=py310h06a4308_0
-  - xorg-libxau=1.0.11=hb9d3cd8_1
-  - xorg-libxdmcp=1.1.5=hb9d3cd8_0
-  - xz=5.4.6=h5eee18b_0
-  - zeromq=4.3.5=h6a678d5_0
-  - zstandard=0.23.0=py310ha39cb0e_1
-  - zstd=1.5.6=ha6fb4c9_0
+  - aihwkit-gpu
+  - python>=3.10
+  - pytorch=2.* #
+  - torchvision
+  - lightning=2.*
+  - torchmetrics
+  - hydra-core=1.3.*
+  - rich=13.*
+  - pre-commit=3.*
+  - pytest=7.*
+  - beartype
+  - numpy=2.*
+  - matplotlib
+
+  # --------- loggers --------- #
+  - wandb>=0.17.2 # no lower than 0.17.2, see https://github.com/wandb/wandb/issues/7810
+  # - neptune-client
+  # - mlflow
+  # - comet-ml
+  # - aim>=3.16.2 # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
+
+  - pip>=23
   - pip:
-      - aihwkit==0.9.2
-      - aiohttp==3.9.3
-      - aiosignal==1.3.1
-      - antlr4-python3-runtime==4.9.3
-      - appdirs==1.4.4
-      - async-timeout==4.0.3
-      - attrs==23.2.0
-      - beartype==0.18.4
-      - certifi==2024.2.2
-      - cffi==1.16.0
-      - cfgv==3.4.0
-      - charset-normalizer==3.3.2
-      - click==8.1.7
-      - cmake==3.30.2
-      - colorlog==6.8.2
-      - contourpy==1.2.0
-      - cycler==0.12.1
-      - distlib==0.3.8
-      - docker-pycreds==0.4.0
-      - filelock==3.13.1
-      - filterpy==1.4.5
-      - fonttools==4.50.0
-      - frozenlist==1.4.1
-      - fsspec==2024.3.0
-      - gitdb==4.0.11
-      - gitpython==3.1.42
-      - h5py==3.11.0
-      - hydra-colorlog==1.2.0
-      - hydra-core==1.3.2
-      - hydra-zen==0.11.0
-      - identify==2.5.35
-      - idna==3.6
-      - iniconfig==2.0.0
-      - jinja2==3.1.3
-      - jsonschema==4.21.1
-      - jsonschema-specifications==2023.12.1
-      - kiwisolver==1.4.5
-      - lightning==2.2.1
-      - lightning-utilities==0.10.1
-      - lit==18.1.8
-      - markdown-it-py==3.0.0
-      - markupsafe==2.1.5
-      - matplotlib==3.8.3
-      - mdurl==0.1.2
-      - msgpack==1.0.8
-      - multidict==6.0.5
-      - networkx==3.2.1
-      - nir==1.0.4
-      - nirtorch==1.0
-      - nodeenv==1.8.0
-      - numpy==1.26.4
-      - nvidia-cublas-cu11==11.10.3.66
-      - nvidia-cublas-cu12==12.1.3.1
-      - nvidia-cuda-cupti-cu11==11.7.101
-      - nvidia-cuda-cupti-cu12==12.1.105
-      - nvidia-cuda-nvrtc-cu11==11.7.99
-      - nvidia-cuda-nvrtc-cu12==12.1.105
-      - nvidia-cuda-runtime-cu11==11.7.99
-      - nvidia-cuda-runtime-cu12==12.1.105
-      - nvidia-cudnn-cu11==8.5.0.96
-      - nvidia-cudnn-cu12==9.1.0.70
-      - nvidia-cufft-cu11==10.9.0.58
-      - nvidia-cufft-cu12==11.0.2.54
-      - nvidia-curand-cu11==10.2.10.91
-      - nvidia-curand-cu12==10.3.2.106
-      - nvidia-cusolver-cu11==11.4.0.1
-      - nvidia-cusolver-cu12==11.4.5.107
-      - nvidia-cusparse-cu11==11.7.4.91
-      - nvidia-cusparse-cu12==12.1.0.106
-      - nvidia-nccl-cu11==2.14.3
-      - nvidia-nccl-cu12==2.20.5
-      - nvidia-nvjitlink-cu12==12.4.99
-      - nvidia-nvtx-cu11==11.7.91
-      - nvidia-nvtx-cu12==12.1.105
-      - omegaconf==2.3.0
-      - packaging==24.0
-      - pandas==2.2.2
-      - pillow==10.2.0
-      - platformdirs==4.2.0
-      - pluggy==1.4.0
-      - ply==3.11
-      - pre-commit==3.6.2
-      - protobuf==4.25.3
-      - psutil==5.9.8
-      - pycparser==2.21
-      - pygments==2.17.2
-      - pyparsing==3.1.2
-      - pyspice==1.5
-      - pytest==8.1.1
-      - python-dateutil==2.9.0.post0
-      - python-dotenv==1.0.1
-      - pytorch-lightning==2.2.1
-      - pytz==2024.1
-      - pyyaml==6.0.1
-      - ray==2.12.0
-      - referencing==0.35.0
-      - requests==2.31.0
-      - rich==13.7.1
-      - rootutils==1.0.7
-      - rpds-py==0.18.0
-      - scipy==1.12.0
-      - sentry-sdk==2.17.0
-      - setproctitle==1.3.3
-      - smmap==5.0.1
-      - snntorch==0.9.1
-      - spikingjelly==0.0.0.0.14
-      - sympy==1.12
-      - tomli==2.0.1
-      - torch==2.4.1
-      - torchmetrics==1.3.1
-      - torchvision==0.19.1
-      - tqdm==4.66.2
-      - triton==3.0.0
-      - typing-extensions==4.10.0
-      - tzdata==2024.1
-      - unzip==1.0.0
-      - urllib3==2.2.1
-      - virtualenv==20.25.1
-      - wandb==0.18.5
-      - yarl==1.9.4
-prefix: /home/minsik/anaconda3/envs/NMDL
+      - hydra-optuna-sweeper
+      - hydra-colorlog
+      - rootutils
+      - hydra_zen

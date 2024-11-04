@@ -6,7 +6,6 @@ import torch
 from aihwkit.simulator.configs.configs import MappableRPU
 from aihwkit.simulator.parameters.helpers import _PrintableMixin
 from aihwkit.simulator.tiles.base import BaseTile
-from matplotlib import pyplot as plt
 
 from src.utils.logging_utils import LogCapture
 
@@ -18,17 +17,6 @@ def generate_target_weights(input_size: int, output_size: int, rank: int) -> tor
         w_target = torch.mm(u[:, :rank], torch.mm(torch.diag(s[:rank]), v[:, :rank].t()))
     w_target /= w_target.abs().max()
     return w_target
-
-
-def plot_singular_values(Ws: tuple[torch.Tensor]):
-    for w in Ws:
-        s = torch.linalg.svdvals(w.squeeze())
-        plt.plot(s)
-    plt.yscale("log")
-    plt.xlabel("Singular Value Index")
-    plt.ylabel("Singular Value")
-    plt.title("Singular Values of Weight Matrix")
-    plt.show()
 
 
 def extract_error(log_list, prefix: str = "Error: ") -> list:

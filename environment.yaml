@@ -33,7 +33,6 @@ dependencies:
   - pytest=7.*
   - beartype
   - numpy=2.*
-  - matplotlib
 
   # --------- loggers --------- #
   - wandb>=0.17.2 # no lower than 0.17.2, see https://github.com/wandb/wandb/issues/7810

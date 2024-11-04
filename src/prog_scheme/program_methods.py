@@ -2,7 +2,6 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import torch
-from filterpy.kalman import ExtendedKalmanFilter
 from scipy import linalg as sla
 from torch import Tensor
 

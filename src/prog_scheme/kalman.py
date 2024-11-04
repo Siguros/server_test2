@@ -50,15 +50,20 @@ class BaseDeviceEKF(ABC):
     :math:`z_k = x_k + v_k`
     """
 
-    def __init__(self, dim, read_noise_std: float, update_noise_std: float):
+    def __init__(
+        self, dim, read_noise_std: float, update_noise_std: float, use_integral: bool = True
+    ):
         self.dim = dim
         self.q = read_noise_std**2  # covariance of observation noise
         self.r = update_noise_std**2  # covariance of process noise
-        self.P_diag = np.ones(dim)  # diagonal entries of P(Initial covariance matrix)
+        # diagonal entries of P(Initial covariance matrix)
+        self.P_diag = np.ones(dim)
         self.F_diag = np.ones(dim)
         self.S_diag = None
         self.K_diag = None
         self.x_est = None
+
+        self.use_integral = use_integral
 
     @abstractmethod
     def f_jacobian_x(self, x, u):
@@ -83,9 +88,9 @@ class BaseDeviceEKF(ABC):
         else:
             return x + self.device_update(x, u)
 
-    def device_update(self, x: np.ndarray, u, use_integral: bool = True):
+    def device_update(self, x: np.ndarray, u: np.ndarray):
         """Return difference after program device."""
-        if use_integral:
+        if self.use_integral:
             return self._integral_update(x, u)
         else:
             return self._summation_update(x, u)
@@ -178,7 +183,8 @@ class LinearDeviceEKF(BaseDeviceEKF):
         # device parameters. See below for details
         # https://aihwkit.readthedocs.io/en/stable/api/aihwkit.simulator.configs.devices.html#aihwkit.simulator.configs.devices.ConstantStepDevice
         self.dw_min = kwargs.get("dw_min")
-        self.up_down = kwargs.get("up_down")  # Step size difference between up and down pulses
+        # Step size difference between up and down pulses
+        self.up_down = kwargs.get("up_down")
         self.gamma_up = kwargs.get("gamma_up")
         self.gamma_down = kwargs.get("gamma_down")
 
@@ -231,7 +237,8 @@ class ExpDeviceEKF(BaseDeviceEKF):
         # device parameters. See below for details
         # https://aihwkit.readthedocs.io/en/stable/api/aihwkit.simulator.configs.devices.html#aihwkit.simulator.configs.devices.ConstantStepDevice
         self.dw_min = kwargs.get("dw_min")
-        self.up_down = kwargs.get("up_down")  # Step size difference between up and down pulses
+        # Step size difference between up and down pulses
+        self.up_down = kwargs.get("up_down")
         self.A_up = kwargs.get("A_up")
         self.A_down = kwargs.get("A_down")
         self.gamma_up = kwargs.get("gamma_up")

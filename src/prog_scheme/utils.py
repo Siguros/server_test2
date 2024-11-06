@@ -5,7 +5,7 @@ from enum import Enum
 import torch
 from aihwkit.simulator.configs.configs import MappableRPU
 from aihwkit.simulator.parameters.helpers import _PrintableMixin
-from aihwkit.simulator.tiles.base import BaseTile
+from aihwkit.simulator.tiles.base import BaseTile, SimulatorTile
 
 from src.utils.logging_utils import LogCapture
 
@@ -17,6 +17,16 @@ def generate_target_weights(input_size: int, output_size: int, rank: int) -> tor
         w_target = torch.mm(u[:, :rank], torch.mm(torch.diag(s[:rank]), v[:, :rank].t()))
     w_target /= w_target.abs().max()
     return w_target
+
+
+def get_persistent_weights(tile: SimulatorTile) -> torch.Tensor:
+    name_list = tile.get_hidden_parameter_names()
+    if "persistent_weights" in name_list:
+        idx = name_list.index("persistent_weights")
+        return tile.get_hidden_parameters()[idx]
+    else:
+        # Already noiseless
+        return tile.get_weights()
 
 
 def extract_error(log_list, prefix: str = "Error: ") -> list:

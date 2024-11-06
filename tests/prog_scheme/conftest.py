@@ -96,7 +96,7 @@ def const_rpu_config_idealized():
     device = ConstantStepDevice()
     update = UpdateParameters(
         pulse_type=PulseType.MEAN_COUNT,
-        desired_bl=127,
+        desired_bl=2**11 - 1,
         update_bl_management=False,
         update_management=False,
     )
@@ -113,7 +113,9 @@ def const_rpu_config_idealized():
     rpu_config.device.w_max_dtod = 0.0
     rpu_config.device.w_min_dtod = 0.0
     rpu_config.device.dw_min_std = 0.0
+    rpu_config.device.dw_min = 1e-5
     rpu_config.device.dw_min_dtod = 0.0
+    rpu_config.device.up_down = 0.0
     rpu_config.device.up_down_dtod = 0.0
     return rpu_config
 
@@ -145,7 +147,7 @@ def ideal_analogtile(ideal_rpu_config, prog_cfg):
 @pytest.fixture(scope="session")
 def idealized_analogtile(const_rpu_config_idealized):
     """Return an AnalogTile set with target weights for ideal rpu configuration."""
-    atile = AnalogTile(out_size=1, in_size=1, rpu_config=const_rpu_config_idealized)
+    atile = AnalogTile(out_size=2, in_size=2, rpu_config=const_rpu_config_idealized)
     atile.tile.set_learning_rate(1)
     return atile
 

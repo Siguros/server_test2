@@ -6,6 +6,7 @@ from scipy import linalg as sla
 from torch import Tensor
 
 from src.prog_scheme.kalman import BaseDeviceEKF, BaseDeviceKF
+from src.prog_scheme.utils import get_persistent_weights
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(rank_zero_only=True)
@@ -41,7 +42,7 @@ def gdp2(
 
         start_idx = i * batch_size
         end_idx = (i + 1) * batch_size
-        current_weight = self.tile.get_weights().clone()
+        current_weight = get_persistent_weights(self.tile)
 
         if end_idx > len(x_values):
             # Calculate how much we exceed the length
@@ -75,7 +76,7 @@ def gdp2(
             break
         """
         self.tile.update(x, error, False)  # type: ignore
-        updated_weight = self.tile.get_weights().clone()
+        updated_weight = get_persistent_weights(self.tile)
         self.actual_weight_updates.append(updated_weight - current_weight)
         self.desired_weight_updates.append(-error.T @ x)
     self.tile.set_learning_rate(self.lr_save)  # type: ignore
@@ -138,7 +139,7 @@ def svd(
         u1, v1 = compensate_half_selection(u), compensate_half_selection(v)
         self.tile.update(v1.float(), u1.float(), False)
 
-        current_weights = self.tile.get_weights()
+        current_weights = get_persistent_weights(self.tile)
         norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
@@ -216,7 +217,7 @@ def svd_kf(
         u_rank1 = -torch.outer(u1, v1)
         kf.predict(u_rank1.flatten().numpy())
 
-        current_weights = self.tile.get_weights()
+        current_weights = get_persistent_weights(self.tile)
         norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
@@ -285,7 +286,7 @@ def svd_ekf_lqg(
         device_ekf.predict(u_rank1.flatten().numpy())
         u_prev = u_rank1.flatten().numpy()
 
-        current_weights = self.tile.get_weights()
+        current_weights = get_persistent_weights(self.tile)
         norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
@@ -308,7 +309,7 @@ def init_setup(self, w_init) -> None:
     else:
         self.tile.set_weights_uniform_random(-w_init, w_init)
 
-    self.initial_weights = self.tile.get_weights().clone()
+    self.initial_weights = get_persistent_weights(self.tile)
 
     self.lr_save = self.tile.get_learning_rate()
     self.tile.set_learning_rate(1)

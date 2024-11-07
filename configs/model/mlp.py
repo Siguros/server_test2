@@ -7,7 +7,6 @@ from torch.nn import MSELoss, ReLU, Sigmoid
 
 from configs import full_builds
 from src.models.classifier_module import BinaryClassifierLitModule, ClassifierLitModule
-from src.models.components.resnet import resnet
 from src.models.components.simple_dense_net import SimpleDenseNet
 
 rpu_config = full_builds(SingleRPUConfig, device=builds(ConstantStepDevice))
@@ -19,7 +18,7 @@ AnalogBackboneConfig = builds(
     builds(AnalogLinear, in_features=128, out_features=64, bias=True, rpu_config="${rpu_config}"),
     builds(ReLU),
     builds(AnalogLinear, in_features=64, out_features=10, bias=True, rpu_config="${rpu_config}"),
-)
+)  # analogconfig for test, use analog_rpu.py in rpu_config
 
 MLPBackboneConfig = builds(SimpleDenseNet, populate_full_signature=True)
 
@@ -28,10 +27,6 @@ mnist_wide_backbone = MLPBackboneConfig(cfg=[784, 256, 256, 10])
 xor_backbone = MLPBackboneConfig(
     cfg=[2, 10, 1], batch_norm=False, bias=False
 )  # , activation=Sigmoid)
-
-resnet_backboneconfig = builds(
-    resnet, in_ch=3, hidden_ch=16, num_layer=3, num_classes=10, populate_full_signature=True
-)
 
 xor_onehot_backbone = MLPBackboneConfig(cfg=[2, 10, 2], batch_norm=False, bias=False)
 
@@ -45,16 +40,6 @@ MNISTModuleConfig = builds(
     builds_bases=(ModuleConfig,),
     hydra_defaults=[{"optimizer": "adam"}, "_self_"],
 )  # beartype not supported, so we use builds instead of full_builds
-
-CIFAR10ModuleConfig = builds(
-    ClassifierLitModule,
-    net=resnet_backboneconfig,
-    scheduler=None,
-    num_classes=10,
-    builds_bases=(ModuleConfig,),
-    hydra_defaults=[{"optimizer": "adam"}, "_self_"],
-)  # beartype not supported, so we use builds instead of full_builds
-
 
 XORModuleConfig = builds(
     BinaryClassifierLitModule,
@@ -104,7 +89,6 @@ xor_module = XORModuleConfig()
 xor_oh_module = XOROneHotModuleConfig()
 
 analog_mnist_module = AnalogMNISTModuleConfig()
-CIFAR10Module = CIFAR10ModuleConfig()
 
 
 def _register_configs():
@@ -112,4 +96,3 @@ def _register_configs():
     model_store(mnist_module, name="mnist")
     model_store(MNISTModuleConfig(net=mnist_wide_backbone), name="mnist-wide")
     model_store(analog_mnist_module, name="analog-mnist")
-    model_store(CIFAR10Module, name="resnet_cifar10")

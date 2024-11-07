@@ -46,7 +46,7 @@ def concatenate_layer_blocks(in_ch, hidden_ch, num_layer, first_layer=False):
     return layers
 
 
-class resnet(nn.Module):
+class ResNet(nn.Module):
     """Residual network model."""
 
     def __init__(self, in_ch, hidden_ch, num_layer, num_classes):

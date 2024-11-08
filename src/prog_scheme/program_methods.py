@@ -33,8 +33,12 @@ def gdp2(
     init_setup(self, w_init)
     input_size = self.tile.get_x_size()
     x_values = torch.eye(input_size).to(self.device)
+    
+    num_rows = max_iter * batch_size
+
+    
     if x_rand:
-        x_values = torch.rand(input_size, input_size).to(self.device)
+        x_values = torch.rand(num_rows, input_size).to(self.device)
     target_values = x_values @ self.target_weights.to(self.device).T
 
     target_max = target_values.abs().max().item()

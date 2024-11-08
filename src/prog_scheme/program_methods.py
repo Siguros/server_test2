@@ -33,20 +33,19 @@ def gdp2(
     init_setup(self, w_init)
     input_size = self.tile.get_x_size()
     x_values = torch.eye(input_size).to(self.device)
-    
+
     num_rows = max_iter * batch_size
 
-    
     if x_rand:
         x_values = torch.rand(num_rows, input_size).to(self.device)
     target_values = x_values @ self.target_weights.to(self.device).T
 
     target_max = target_values.abs().max().item()
+    prev_weights = self.initial_weights
     for i in range(max_iter):
 
         start_idx = i * batch_size
         end_idx = (i + 1) * batch_size
-        current_weight = get_persistent_weights(self.tile)
 
         if end_idx > len(x_values):
             # Calculate how much we exceed the length
@@ -80,9 +79,11 @@ def gdp2(
             break
         """
         self.tile.update(x, error, False)  # type: ignore
-        updated_weight = get_persistent_weights(self.tile)
-        self.actual_weight_updates.append(updated_weight - current_weight)
+        current_weights = get_persistent_weights(self.tile)
+        self.actual_weight_updates.append(current_weights - prev_weights)
         self.desired_weight_updates.append(-error.T @ x)
+        prev_weights = current_weights
+
     self.tile.set_learning_rate(self.lr_save)  # type: ignore
 
 

@@ -5,8 +5,8 @@ import torch
 from scipy import linalg as sla
 from torch import Tensor
 
+from src.core.aihwkit.utils import get_persistent_weights
 from src.prog_scheme.kalman import BaseDeviceEKF, BaseDeviceKF
-from src.prog_scheme.utils import get_persistent_weights
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(rank_zero_only=True)

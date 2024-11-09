@@ -28,8 +28,8 @@ def prog_cfg() -> DictConfig:
     cfg.max_iter = 100
     # method wise config
     cfg.svd_every_k_iter = 1
-    cfg.read_noise_std = 0.001
-    cfg.update_noise_std = 0.001
+    cfg.read_noise_std = 0.01
+    cfg.update_noise_std = 0.01
     return cfg
 
 
@@ -70,6 +70,8 @@ def kf_rpu_config(lin_rpu_config, prog_cfg):
     lin_rpu_config.forward.inp_noise = 0.0
     lin_rpu_config.forward.inp_res = 0
     lin_rpu_config.forward.out_res = 0
+    # update Attributes
+    lin_rpu_config.update.desired_bl = 2**11 - 1
     # LinearStepDevice Attributes
     lin_rpu_config.device.apply_write_noise_on_set = False
     lin_rpu_config.device.gamma_down = 0.1
@@ -82,6 +84,7 @@ def kf_rpu_config(lin_rpu_config, prog_cfg):
     lin_rpu_config.device.w_min = -1
     lin_rpu_config.device.w_max_dtod = 0.0
     lin_rpu_config.device.w_min_dtod = 0.0
+    lin_rpu_config.device.dw_min = 1e-5
     lin_rpu_config.device.dw_min_std = 0.0
     lin_rpu_config.device.dw_min_dtod = 0.0
     lin_rpu_config.device.mult_noise = False

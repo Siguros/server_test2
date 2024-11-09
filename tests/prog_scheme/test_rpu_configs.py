@@ -1,8 +1,10 @@
 import pytest
 import torch
 
+from src.core.aihwkit.utils import get_persistent_weights
 
-def test_const_idealized_rpu(idealized_analogtile) -> None:
+
+def test_idealized_rpu_update(idealized_analogtile) -> None:
     """Test whether the idealized rpu configuration behaves ideal."""
     atile = idealized_analogtile
     prev_weights = atile.tile.get_weights()
@@ -12,3 +14,9 @@ def test_const_idealized_rpu(idealized_analogtile) -> None:
     atile.tile.update(x, e, False)
     current_weights = atile.tile.get_weights()
     assert current_weights - prev_weights == pytest.approx(-torch.outer(e, x), abs=1e-5)
+
+
+def test_idealized_rpu_read(idealized_analogtile) -> None:
+    """Test whether the idealized rpu configuration reads the correct value."""
+    atile = idealized_analogtile
+    assert torch.all(get_persistent_weights(atile.tile) == atile.tile.get_weights())

@@ -271,7 +271,8 @@ def svd_ekf_lqg(
         z = self.read_weights_(over_sampling=over_sampling, x_rand=x_rand)[0].flatten().numpy()
         device_ekf.update(z)
         if i == 0:
-            L_diag = device_ekf.get_lqg_gain(u_prev)
+            # L_diag = device_ekf.get_lqg_gain(u_prev)
+            L_diag = 1
             u_vec = -L_diag * (device_ekf.x_est - self.target_weights.flatten().numpy())
             u_matrix = (
                 torch.from_numpy(u_vec)

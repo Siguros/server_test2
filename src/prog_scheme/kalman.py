@@ -13,8 +13,8 @@ class BaseDeviceKF:
 
     def __init__(self, dim: int, read_noise_std: float, update_noise_std: float):
         self.dim = dim
-        self.q = read_noise_std**2
-        self.r = update_noise_std**2
+        self.q = update_noise_std**2
+        self.r = read_noise_std**2
         self.P_scale = 1
         self.S_scale = None
         self.K_scale = None
@@ -42,7 +42,7 @@ class BaseDeviceKF:
 
 
 class BaseDeviceEKF(ABC):
-    """Extended Kalman filter for device programming.
+    """Extended Kalman filter for pusled device programming.
 
     Model:
 
@@ -51,11 +51,12 @@ class BaseDeviceEKF(ABC):
     """
 
     def __init__(
-        self, dim, read_noise_std: float, update_noise_std: float, use_integral: bool = True
+        self, dim, read_noise_std: float, update_noise_std: float, iterative_update: bool
     ):
         self.dim = dim
-        self.q = read_noise_std**2  # covariance of observation noise
-        self.r = update_noise_std**2  # covariance of process noise
+        self.q = update_noise_std**2  # covariance of process noise
+        self.r = read_noise_std**2  # covariance of measurement noise
+        self.iterative_update = iterative_update
         # diagonal entries of P(Initial covariance matrix)
         self.P_diag = np.ones(dim)
         self.F_diag = np.ones(dim)
@@ -63,7 +64,7 @@ class BaseDeviceEKF(ABC):
         self.K_diag = None
         self.x_est = None
 
-        self.use_integral = use_integral
+        self._f_out = None
 
     @abstractmethod
     def f_jacobian_x(self, x, u):
@@ -84,27 +85,16 @@ class BaseDeviceEKF(ABC):
     def f(self, x, u: np.ndarray | None):
         """Transition function."""
         if u is None:
-            return x
+            self._f_out = x
         else:
-            return x + self.device_update(x, u)
+            if self.iterative_update:
+                self._f_out = self._iterative_update(x, u)
+            else:
+                self._f_out = self._summation_update(x, u)
+        return self._f_out
 
-    def device_update(self, x: np.ndarray, u: np.ndarray):
-        """Return difference after program device."""
-        if self.use_integral:
-            return self._integral_update(x, u)
-        else:
-            return self._summation_update(x, u)
-
-    def _integral_update(self, x, u):
-        u_up = np.maximum(u, 0)
-        u_down = np.minimum(u, 0)
-        raise NotImplementedError
-        # return (
-        #     integrate.quad(self.step_device_update, a=x, b=x + u_up)[0]
-        #     - integrate.quad(self.step_device_downdate, a=x + u_down, b=x)[0]
-        # )
-
-    def _summation_update(self, x: np.ndarray, u: np.ndarray):
+    def _iterative_update(self, x: np.ndarray, u: np.ndarray):
+        """Iteratively updates device state."""
         u_up = np.maximum(u, 0)
         u_down = np.minimum(u, 0)
         dw_up = self.dw_min * (1 + self.up_down)
@@ -115,12 +105,12 @@ class BaseDeviceEKF(ABC):
 
         def update_step(idx, i_it, x, x_up):
             for _ in range(i_it):
-                x_up[idx] += self.step_device_update(x[idx] + x_up[idx])
+                x_up[idx] += self.device_update_once(x[idx] + x_up[idx])
             return x_up[idx]
 
         def downdate_step(idx, j_it, x, x_down):
             for _ in range(j_it):
-                x_down[idx] += self.step_device_downdate(x[idx] - x_down[idx])
+                x_down[idx] += self.device_downdate_once(x[idx] - x_down[idx])
             return x_down[idx]
 
         x_up = Parallel(n_jobs=-1)(
@@ -130,10 +120,14 @@ class BaseDeviceEKF(ABC):
             delayed(downdate_step)(idx, j_it, x, x_down) for idx, j_it in enumerate(down_iters)
         )
 
-        return np.array(x_up) - np.array(x_down)
+        return np.array(x_up) + np.array(x_down) + x
+
+    def _summation_update(self, x: np.ndarray, u: np.ndarray):
+        """Updates device state at once."""
+        raise NotImplementedError
 
     @abstractmethod
-    def step_device_update(self, x: np.ndarray):
+    def device_update_once(self, x: np.ndarray):
         """Update the device state for a single pulse.
 
         Returns the difference after the pulse.
@@ -141,14 +135,14 @@ class BaseDeviceEKF(ABC):
         pass
 
     @abstractmethod
-    def step_device_downdate(self, x: np.ndarray):
+    def device_downdate_once(self, x: np.ndarray):
         """Downdate the device state for a single pulse.
 
         Returns the absolute difference after the pulse.
         """
         pass
 
-    def update(self, z):
+    def update(self, z: np.ndarray):
         """Update the state(weight) estimation of the device."""
         y_res = z - self.x_est
         # H_diag = np.ones(self.dim)
@@ -157,7 +151,9 @@ class BaseDeviceEKF(ABC):
         self.x_est += self.K_diag * y_res
         self.P_diag = (1 - self.K_diag) * self.P_diag
 
+    # TODO: VALIDATE THIS FUNCTION
     def get_lqg_gain(self, u: np.ndarray | None):
+        raise NotImplementedError
         """Return diagonal entries of Linear Quadratic Gaussian(LQG) control gain matrix."""
         if u is None:
             return np.ones(self.dim)
@@ -166,7 +162,7 @@ class BaseDeviceEKF(ABC):
             self.F_diag = self.f_jacobian_x(self.x_est, u)
             return self.F_diag / (B_diag + 1e-8)
 
-    def predict(self, u):
+    def predict(self, u: np.ndarray):
         """Predict the next state(weight) of the device."""
         self.x_est = self.f(self.x_est, u)
         # self.P = F @ self.P @ F.T + self.Q
@@ -177,8 +173,10 @@ class LinearDeviceEKF(BaseDeviceEKF):
 
     # TODO: Add drift, lifetime(decay rate), clipping, reverse_down
     # TODO: Consider parameter variation
-    def __init__(self, dim, read_noise_std: float, update_noise_std: float, **kwargs):
-        super().__init__(dim, read_noise_std, update_noise_std)
+    def __init__(
+        self, dim, read_noise_std: float, update_noise_std: float, iterative_update: bool, **kwargs
+    ):
+        super().__init__(dim, read_noise_std, update_noise_std, iterative_update)
         self.update_x_plus_u = None
         # device parameters. See below for details
         # https://aihwkit.readthedocs.io/en/stable/api/aihwkit.simulator.configs.devices.html#aihwkit.simulator.configs.devices.ConstantStepDevice
@@ -191,48 +189,76 @@ class LinearDeviceEKF(BaseDeviceEKF):
         self.w_min = kwargs.get("w_min")
         self.w_max = kwargs.get("w_max")
 
-        self._ghat_up = -abs(self.gamma_up) / self.w_max
-        self._ghat_down = -abs(self.gamma_down) / self.w_min
+        self._scale_up = (self.up_down + 1) * self.dw_min  # step size for up pulse
+        self._scale_down = (-self.up_down + 1) * self.dw_min
+        self._slope_up = -abs(self.gamma_up) * self._scale_up / self.w_max
+        self._slope_down = -abs(self.gamma_down) * self._scale_down / self.w_min
 
     def _integral_update(self, x, u):
+        raise DeprecationWarning
         if self.gamma_down == 0 and self.gamma_up == 0:
             return u
         else:
             u_up = np.maximum(u, 0)
             u_down = np.minimum(u, 0)
-            x_up = u_up * (
-                1 + (x + 0.5 * u_up) * self._ghat_up
-            )  # [x + self._ghat_up*x**2]|_x^{x+u}
-            x_down = u_down * (1 + (x + 0.5 * u_down) * self._ghat_down)
-            return x_up - x_down
+            # integrate w += slope_up * w + scale_up from x to x + u
+            dx_up = u_up * (self._slope_up * (0.5 * u_up + x) + 1)
+            dx_down = u_down * (self._slope_down * (0.5 * u_down + x) + 1)
+            return dx_up + dx_down
 
-    def step_device_update(self, x: np.ndarray):
+    def _summation_update(self, x: np.ndarray, u: np.ndarray):
+        if self.gamma_down == 0 and self.gamma_up == 0:
+            return u
+        else:
+            # w_0 = x
+            # w_{k+1} = (1+slope_up) * w_k + scale_up
+            # Arithmetic progression:
+            # w_k = x * r^k + scale * (r^k - 1) / (r - 1)
+            u_up = np.maximum(u, 0)
+            r_up = 1 + self._slope_up
+            n_up = np.floor(u_up / self._scale_up)
+            x_up = x * r_up**n_up + self._scale_up * (r_up**n_up - 1) / self._slope_up
+            u_down = np.minimum(u, 0)
+            r_down = 1 + self._slope_down
+            n_down = np.floor(u_down / self._scale_down)
+            x_down = (
+                x * r_down**n_down + self._scale_down * (r_down**n_down - 1) / self._slope_down
+            )
+            return x_up + x_down
+
+    def device_update_once(self, x: np.ndarray):
         """Update the device state for a single pulse."""
-        dw = 1 + self._ghat_up * x
+        dw = self._slope_up * x + self._scale_up
         return dw
 
-    def step_device_downdate(self, x: np.ndarray):
+    def device_downdate_once(self, x: np.ndarray):
         """Downdate the device state for a single pulse."""
-        dw = 1 + self._ghat_down * x
+        dw = self._slope_down * x + self._scale_down
         return dw
 
     def f_jacobian_u(self, x, u):
-        self.update_x_plus_u = (
-            self.step_device_update(x + u) + self.step_device_downdate(x + u)
-        ) / 2
-        return self.update_x_plus_u
+        # since f(x,u)=w_n_up + w_n_down, where n_up = max(u,0)/scale_up, n_down = min(u,0)/scale_down
+        # below is equivalent to df/du = (step_device_update_once(f(x,u))/self._scale_up + step_device_downdate_once(f(x,u))/self._scale_down)/2
+        return (self._slope_up / self._scale_up + self._slope_down / self._scale_down) / 2 * (
+            self._f_out
+        ) + 1
 
     def f_jacobian_x(self, x, u):
-        update_x = (self.step_device_update(x) + self.step_device_downdate(x)) / 2
-        return np.ones(self.dim) + self.update_x_plus_u - update_x
+        # df/dx = 1 + f_jacobian_u(x,u) - f_jacobian_u(x,0)
+        update_xpu_minus_x = (
+            self._slope_up / self._scale_up + self._slope_down / self._scale_down
+        ) / 2 * (self._f_out - x) + 1
+        return np.ones(self.dim) + update_xpu_minus_x
 
 
 class ExpDeviceEKF(BaseDeviceEKF):
 
     # TODO: Add drift, lifetime(decay rate), clipping
     # TODO: Consider parameter variation
-    def __init__(self, dim, read_noise_std: float, update_noise_std: float, **kwargs):
-        super().__init__(dim, read_noise_std, update_noise_std)
+    def __init__(
+        self, dim, read_noise_std: float, update_noise_std: float, iterative_update: bool, **kwargs
+    ):
+        super().__init__(dim, read_noise_std, update_noise_std, iterative_update)
         self.update_x_plus_u = None
         # device parameters. See below for details
         # https://aihwkit.readthedocs.io/en/stable/api/aihwkit.simulator.configs.devices.html#aihwkit.simulator.configs.devices.ConstantStepDevice
@@ -249,14 +275,14 @@ class ExpDeviceEKF(BaseDeviceEKF):
         self.w_max = kwargs.get("w_max")
         self._slope = 2 * self.a / (self.w_max - self.w_min)
 
-    def step_device_update(self, x: np.ndarray):
+    def device_update_once(self, x: np.ndarray):
         """Update the device state for a single pulse."""
         z = self._slope * x + self.b
         y = 1 - self.A_up * np.exp(self.gamma_up * z)
         dw = np.maximum(y, 0)
         return dw
 
-    def step_device_downdate(self, x: np.ndarray):
+    def device_downdate_once(self, x: np.ndarray):
         """Downdate the device state for a single pulse."""
         z = self._slope * x + self.b
         y = 1 - self.A_down * np.exp(self.gamma_down * z)
@@ -265,10 +291,10 @@ class ExpDeviceEKF(BaseDeviceEKF):
 
     def f_jacobian_u(self, x, u):
         self.update_x_plus_u = (
-            self.step_device_update(x + u) + self.step_device_downdate(x + u)
+            self.device_update_once(self._f_out) + self.device_downdate_once(self._f_out)
         ) / 2
         return self.update_x_plus_u
 
     def f_jacobian_x(self, x, u):
-        update_x = (self.step_device_update(x) + self.step_device_downdate(x)) / 2
+        update_x = (self.device_update_once(x) + self.device_downdate_once(x)) / 2
         return np.ones(self.dim) + self.update_x_plus_u - update_x

@@ -20,8 +20,8 @@ from src.prog_scheme.utils import generate_target_weights
 def prog_cfg() -> DictConfig:
     """Return a programming method related configuration."""
     cfg = OmegaConf.create()
-    cfg.input_size = 10
-    cfg.output_size = 5
+    cfg.input_size = 5
+    cfg.output_size = 3
     cfg.rank = 2
     cfg.batch_size = 1
     cfg.tol = 1e-8
@@ -135,7 +135,7 @@ def analogtile(rpu_config, prog_cfg):
     return atile
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="class")
 def ideal_analogtile(ideal_rpu_config, prog_cfg):
     """Return an AnalogTile set with target weights for ideal rpu configuration."""
     atile = AnalogTile(
@@ -147,7 +147,7 @@ def ideal_analogtile(ideal_rpu_config, prog_cfg):
     return atile
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="class")
 def idealized_analogtile(const_rpu_config_idealized):
     """Return an AnalogTile set with target weights for ideal rpu configuration."""
     atile = AnalogTile(out_size=2, in_size=2, rpu_config=const_rpu_config_idealized)
@@ -155,7 +155,7 @@ def idealized_analogtile(const_rpu_config_idealized):
     return atile
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="class")
 def kf_analogtile(kf_rpu_config, prog_cfg):
     """Return an AnalogTile set with target weights for Kalman Filter rpu configuration."""
     atile = AnalogTile(
@@ -167,7 +167,7 @@ def kf_analogtile(kf_rpu_config, prog_cfg):
     return atile
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def base_kf(prog_cfg):
     dim = prog_cfg.input_size * prog_cfg.output_size
     return BaseDeviceKF(
@@ -175,7 +175,7 @@ def base_kf(prog_cfg):
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def linear_ekf(kf_rpu_config, prog_cfg):
     device_params = kf_rpu_config.device.__dict__
     dim = prog_cfg.input_size * prog_cfg.output_size
@@ -183,5 +183,6 @@ def linear_ekf(kf_rpu_config, prog_cfg):
         dim=dim,
         read_noise_std=prog_cfg.read_noise_std,
         update_noise_std=prog_cfg.update_noise_std,
+        iterative_update=False,
         **device_params
     )

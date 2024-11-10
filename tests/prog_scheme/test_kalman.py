@@ -32,3 +32,14 @@ def test_linear_ekf(kf_analogtile, linear_ekf) -> None:
     assert get_persistent_weights(tile).flatten().numpy() == pytest.approx(
         linear_ekf.x_est, abs=1e-3
     )
+
+
+def test_linear_ekf_jacobian(linear_ekf) -> None:
+    """Test if the jacobian is correctly implemented."""
+    dim = linear_ekf.dim
+    x = torch.randn(dim).numpy()
+    u = torch.randn(dim).numpy()
+    linear_ekf.x_est = x
+    x_new = linear_ekf.f(x, u)
+    x_new_taylor = x + linear_ekf.f_jacobian_x(x, u) @ x + linear_ekf.f_jacobian_u(x, u) @ u
+    assert x_new == pytest.approx(x_new_taylor, abs=1e-3)

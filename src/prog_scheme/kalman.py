@@ -210,21 +210,50 @@ class LinearDeviceEKF(BaseDeviceEKF):
         if self.gamma_down == 0 and self.gamma_up == 0:
             return u
         else:
-            # w_0 = x
-            # w_{k+1} = (1+slope_up) * w_k + scale_up
-            # Arithmetic progression:
-            # w_k = x * r^k + scale * (r^k - 1) / (r - 1)
+            
+            # u_up 계산 (u ≥ 0)
             u_up = np.maximum(u, 0)
-            r_up = 1 + self._slope_up
-            n_up = np.floor(u_up / self._scale_up)
-            x_up = x * r_up**n_up + self._scale_up * (r_up**n_up - 1) / self._slope_up
+            r_up = 1 - self._slope_down  # slope_down 사용
+            b_up = self._scale_down      # scale_down 사용
+            n_up = np.floor(u_up / b_up).astype(int)  # 정수 부분 계산
+
+            # n_up이 0보다 큰 경우에만 계산
+            mask_up = n_up > 0
+
+            x_up = np.zeros_like(u)
+
+            if np.any(mask_up):
+                # 필요한 요소들만 선택하여 계산
+                x_selected = x[mask_up]
+                n_selected = n_up[mask_up]
+                x_up_part = (x_selected - b_up / (1 - r_up)) * r_up ** n_selected + b_up / (1 - r_up)
+                x_up[mask_up] = x_up_part
+
+            # u_down 계산 (u ≤ 0)
             u_down = np.minimum(u, 0)
-            r_down = 1 + self._slope_down
-            n_down = np.floor(u_down / self._scale_down)
-            x_down = (
-                x * r_down**n_down + self._scale_down * (r_down**n_down - 1) / self._slope_down
-            )
-            return x_up + x_down
+            r_down = 1 + self._slope_up  # slope_up 사용
+            b_down = self._scale_up      # scale_up 사용
+            n_down = np.floor(-u_down / b_down).astype(int)  # 정수 부분 계산 (u_down은 음수이므로 부호 변경)
+
+            # n_down이 0보다 큰 경우에만 계산
+            mask_down = n_down > 0
+
+            x_down = np.zeros_like(u)
+
+            if np.any(mask_down):
+                # 필요한 요소들만 선택하여 계산
+                x_selected_down = x[mask_down]
+                x_selected = x[mask_down]
+                n_selected = n_down[mask_down]
+                x_down_part = (x_selected - b_down / (1 - r_down)) * r_down ** n_selected + b_down / (1 - r_down)
+                x_down[mask_down] = 2*x_selected_down- x_down_part
+
+            # 최종 결과 계산
+            result = x.copy()
+            result[mask_up] = x_up[mask_up]
+            result[mask_down] = x_down[mask_down]
+            
+        return result
 
     def device_update_once(self, x: np.ndarray):
         """Update the device state for a single pulse."""

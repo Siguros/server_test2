@@ -84,7 +84,7 @@ def kf_rpu_config(lin_rpu_config, prog_cfg):
     lin_rpu_config.device.w_min = -1
     lin_rpu_config.device.w_max_dtod = 0.0
     lin_rpu_config.device.w_min_dtod = 0.0
-    lin_rpu_config.device.dw_min = 1e-5
+    lin_rpu_config.device.dw_min = 1e-4
     lin_rpu_config.device.dw_min_std = 0.0
     lin_rpu_config.device.dw_min_dtod = 0.0
     lin_rpu_config.device.mult_noise = False

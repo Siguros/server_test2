@@ -39,7 +39,8 @@ def test_linear_ekf_jacobian(linear_ekf) -> None:
     dim = linear_ekf.dim
     x = torch.randn(dim).numpy()
     u = torch.randn(dim).numpy()
-    dx = du = (linear_ekf._scale_up + linear_ekf._scale_down) / 2
+    ones = torch.ones(dim).numpy()
+    dx = du = ones * (linear_ekf._scale_up + linear_ekf._scale_down) * 100
     linear_ekf.x_est = x
     x_new = linear_ekf.f(x + dx, u + du)
     x_new_taylor = (

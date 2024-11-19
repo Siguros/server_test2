@@ -210,49 +210,25 @@ class LinearDeviceEKF(BaseDeviceEKF):
         if self.gamma_down == 0 and self.gamma_up == 0:
             return u
         else:
-            
+            # w_k+1 = r*w_k + b, where r = 1 + slope_up, b = scale_up
+            # w_k = (w_0 - b/(1-r)) * r^k + b/(1-r)
             # u_up 계산 (u ≥ 0)
             u_up = np.maximum(u, 0)
             r_up = 1 - self._slope_down  # slope_down 사용
-            b_up = self._scale_down      # scale_down 사용
+            b_up = self._scale_down  # scale_down 사용
             n_up = np.floor(u_up / b_up).astype(int)  # 정수 부분 계산
 
-            # n_up이 0보다 큰 경우에만 계산
-            mask_up = n_up > 0
-
-            x_up = np.zeros_like(u)
-
-            if np.any(mask_up):
-                # 필요한 요소들만 선택하여 계산
-                x_selected = x[mask_up]
-                n_selected = n_up[mask_up]
-                x_up_part = (x_selected - b_up / (1 - r_up)) * r_up ** n_selected + b_up / (1 - r_up)
-                x_up[mask_up] = x_up_part
+            x_up = (x - b_up / (1 - r_up)) * r_up**n_up + b_up / (1 - r_up)
 
             # u_down 계산 (u ≤ 0)
             u_down = np.minimum(u, 0)
             r_down = 1 + self._slope_up  # slope_up 사용
-            b_down = self._scale_up      # scale_up 사용
-            n_down = np.floor(-u_down / b_down).astype(int)  # 정수 부분 계산 (u_down은 음수이므로 부호 변경)
+            b_down = self._scale_up  # scale_up 사용
+            n_down = np.floor(u_down / b_down).astype(int)
 
-            # n_down이 0보다 큰 경우에만 계산
-            mask_down = n_down > 0
+            x_down = (x - b_down / (1 - r_down)) * r_down**n_down + b_down / (1 - r_down)
+            result = x_up + x_down - x
 
-            x_down = np.zeros_like(u)
-
-            if np.any(mask_down):
-                # 필요한 요소들만 선택하여 계산
-                x_selected_down = x[mask_down]
-                x_selected = x[mask_down]
-                n_selected = n_down[mask_down]
-                x_down_part = (x_selected - b_down / (1 - r_down)) * r_down ** n_selected + b_down / (1 - r_down)
-                x_down[mask_down] = 2*x_selected_down- x_down_part
-
-            # 최종 결과 계산
-            result = x.copy()
-            result[mask_up] = x_up[mask_up]
-            result[mask_down] = x_down[mask_down]
-            
         return result
 
     def device_update_once(self, x: np.ndarray):
@@ -263,21 +239,178 @@ class LinearDeviceEKF(BaseDeviceEKF):
     def device_downdate_once(self, x: np.ndarray):
         """Downdate the device state for a single pulse."""
         dw = self._slope_down * x + self._scale_down
+
         return dw
 
+    def compute_jacobians(self, x: np.ndarray, u: np.ndarray):
+        """Computes the Jacobian matrices df/dx and df/du of the _summation_update function with
+        respect to x and u.
+
+        Parameters:
+        - x: np.ndarray, state vector
+        - u: np.ndarray, control input vector
+
+        Returns:
+        - df_dx_matrix: np.ndarray, Jacobian matrix of shape (n, n) with respect to x
+        - df_du_matrix: np.ndarray, Jacobian matrix of shape (n, n) with respect to u
+        """
+        # f(x, u) = x + _summation_update(x, u)
+        # f(x,u) = (x - b/(1-r)) * r^k + b/(1-r), k = n_up & n_down, r = 1 + slope_up, b = scale_up
+        # df/dx = r^k, df/du = A * r^k * ln(r) / b, A = x - b/(1-r)
+        # u > 0, u <0 case로 나누어 계산
+        # Number of states/inputs
+        n = x.size
+
+        # Constants
+        r_up = 1 - self._slope_down  # Using self._slope_down
+        b_up = self._scale_down  # Using self._scale_down
+        ln_r_up = np.log(r_up)
+
+        r_down = 1 + self._slope_up  # Using self._slope_up
+        b_down = self._scale_up  # Using self._scale_up
+        ln_r_down = np.log(r_down)
+
+        # Precompute constants
+        denom_up = 1 - r_up
+        denom_down = 1 - r_down
+        A_up = x - b_up / denom_up
+        A_down = x - b_down / denom_down
+
+        # Compute u_up and u_down
+        u_up = np.maximum(u, 0)
+        u_down = np.minimum(u, 0)
+
+        # Approximate n_up and n_down
+        n_up = np.floor(u_up / b_up).astype(int)
+        n_down = np.floor(u_down / b_down).astype(int)
+
+        # Compute r_up ** n_up and r_down ** n_down
+        r_up_pow_n_up = np.power(r_up, n_up)
+        r_down_pow_n_down = np.power(r_down, n_down)
+
+        # Initialize df_dx_vector and df_du_vector
+        df_dx_vector = np.zeros(n)
+        df_du_vector = np.zeros(n)
+
+        # Indices for u ≥ 0 and u ≤ 0
+        indices_up = u >= 0
+        indices_down = u <= 0
+
+        # Compute df/dx and df/du for u ≥ 0
+        if np.any(indices_up):
+            # df/dx
+            df_dx_vector[indices_up] = r_up_pow_n_up[indices_up]
+
+            # df/du
+            df_du_vector[indices_up] = (
+                A_up[indices_up] * r_up_pow_n_up[indices_up] * ln_r_up / b_up
+            )
+
+        # Compute df/dx and df/du for u ≤ 0
+        if np.any(indices_down):
+            # df/dx
+            df_dx_vector[indices_down] += r_down_pow_n_down[indices_down]
+
+            # df/du
+            df_du_vector[indices_down] = (
+                A_down[indices_down] * r_down_pow_n_down[indices_down] * ln_r_down / b_down
+            )
+
+        # Subtract 1 from df_dx_vector (from df/dx = derivative of x_up + x_down - x)
+        df_dx_vector -= 1
+
+        # Construct the Jacobian matrices as diagonal matrices
+        df_dx_matrix = np.diag(df_dx_vector)
+        df_du_matrix = np.diag(df_du_vector)
+
+        return df_dx_matrix, df_du_matrix
+
     def f_jacobian_u(self, x, u):
-        # since f(x,u)=w_n_up + w_n_down, where n_up = max(u,0)/scale_up, n_down = min(u,0)/scale_down
-        # below is equivalent to df/du = (step_device_update_once(f(x,u))/self._scale_up + step_device_downdate_once(f(x,u))/self._scale_down)/2
-        return (self._slope_up / self._scale_up + self._slope_down / self._scale_down) / 2 * (
-            self._f_out
-        ) + 1
+        # f(x, u) = x + _summation_update(x, u)
+        # f(x,u) = (x - b/(1-r)) * r^k + b/(1-r), k = n_up & n_down, r = 1 + slope_up, b = scale_up
+        # df/du = A * r^k * ln(r) / b, A = x - b/(1-r)
+        # Initialize df_du
+        df_du = np.zeros_like(u)
+
+        # Constants
+        r_up = 1 - self._slope_down  # Using self._slope_down
+        b_up = self._scale_down  # Using self._scale_down
+        ln_r_up = np.log(r_up)
+
+        r_down = 1 + self._slope_up  # Using self._slope_up
+        b_down = self._scale_up  # Using self._scale_up
+        ln_r_down = np.log(r_down)
+
+        A_up = x - b_up / (1 - r_up)
+        A_down = x - b_down / (1 - r_down)
+
+        # Compute u_up and u_down
+        u_up = np.maximum(u, 0)
+        u_down = np.minimum(u, 0)
+
+        # Approximate n_up and n_down
+        n_up = np.floor(u_up / b_up).astype(int)
+        n_down = np.floor(u_down / b_down).astype(int)
+
+        # Compute r_up ** n_up and r_down ** n_down
+        r_up_pow_n_up = np.power(r_up, n_up)
+        r_down_pow_n_down = np.power(r_down, n_down)
+
+        # Initialize df_du
+        df_du = np.zeros_like(u)
+
+        # Compute df/du for u ≥ 0
+        indices_up = u >= 0
+        if np.any(indices_up):
+            df_du[indices_up] = A_up[indices_up] * r_up_pow_n_up[indices_up] * ln_r_up / b_up
+
+        # Compute df/du for u ≤ 0
+        indices_down = u <= 0
+        if np.any(indices_down):
+            df_du[indices_down] = (
+                A_down[indices_down] * r_down_pow_n_down[indices_down] * ln_r_down / b_down
+            )
+
+        # The final derivative df_du combines both cases
+
+        df_du_matrix = np.diag(df_du)
+        return df_du_matrix
 
     def f_jacobian_x(self, x, u):
-        # df/dx = 1 + f_jacobian_u(x,u) - f_jacobian_u(x,0)
-        update_xpu_minus_x = (
-            self._slope_up / self._scale_up + self._slope_down / self._scale_down
-        ) / 2 * (self._f_out - x) + 1
-        return np.ones(self.dim) + update_xpu_minus_x
+        # Constants
+        r_up = 1 - self._slope_down  # Using self._slope_down
+        b_up = self._scale_down  # Using self._scale_down
+
+        r_down = 1 + self._slope_up  # Using self._slope_up
+        b_down = self._scale_up  # Using self._scale_up
+
+        # Compute u_up and u_down
+        u_up = np.maximum(u, 0)
+        u_down = np.minimum(u, 0)
+
+        # Approximate n_up and n_down
+        n_up = u_up / b_up
+        n_down = u_down / b_down
+
+        # Compute r_up ** n_up and r_down ** n_down
+        r_up_pow_n_up = np.power(r_up, n_up)
+        r_down_pow_n_down = np.power(r_down, n_down)
+
+        # Initialize df_dx
+        df_dx = np.zeros_like(u)
+
+        # Compute df/dx for u ≥ 0
+        indices_up = u >= 0
+        if np.any(indices_up):
+            df_dx[indices_up] = r_up_pow_n_up[indices_up]
+
+        # Compute df/dx for u ≤ 0
+        indices_down = u <= 0
+        if np.any(indices_down):
+            df_dx[indices_down] = r_down_pow_n_down[indices_down]
+
+        df_dx_matrix = np.diag(df_dx)
+        return df_dx_matrix
 
 
 class ExpDeviceEKF(BaseDeviceEKF):

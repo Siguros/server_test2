@@ -47,3 +47,4 @@ dependencies:
       - hydra-colorlog
       - rootutils
       - hydra_zen
+      - jaxtyping     # type hints for torch & numpy

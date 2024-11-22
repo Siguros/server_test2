@@ -155,7 +155,7 @@ class _EqPropMixin(ABC):
 
 
 class EqPropLinear(_EqPropMixin, nn.Linear):
-    """nn.Linear equivalent that uses Eqiuilibrium Propagation instead of backpropagation.
+    """nn.Linear equivalent that uses Equilibrium Propagation instead of backpropagation.
 
     Utilizes EqPropMixin to wrap EqProp function and solver.
     """

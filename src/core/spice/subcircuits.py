@@ -10,7 +10,6 @@ from PySpice.Spice.Netlist import Circuit, SubCircuitFactory
 from PySpice.Unit import u_Ohm, u_V
 
 
-# relu bid rectifier
 class ReluRectifier(SubCircuitFactory):
     """Relu Rectifier."""
 
@@ -24,7 +23,6 @@ class ReluRectifier(SubCircuitFactory):
         self.R("1", "n2", self.gnd, R1)
 
 
-# sigmoidal bidirectional rectifier
 class BidRectifier(SubCircuitFactory):
     """Bidirectional Rectifier."""
 
@@ -39,7 +37,6 @@ class BidRectifier(SubCircuitFactory):
         self.V("in2", self.gnd, "n2", V2)
 
 
-# bidirectional Amplifier
 class BidAmplifier(SubCircuitFactory):
     """Bidirectional Amplifier."""
 
@@ -53,7 +50,6 @@ class BidAmplifier(SubCircuitFactory):
         self.V(1, "n1", "Out", 0)
 
 
-# neuron
 class Neuron(SubCircuitFactory):
     """Neuron."""
 
@@ -84,7 +80,6 @@ class Neuron(SubCircuitFactory):
         self.X(2, "bidirectional_amplifier", "n1", "n2")
 
 
-# n-by-m resistor array
 class Rarray(SubCircuitFactory):
     """Resistor Array."""
 

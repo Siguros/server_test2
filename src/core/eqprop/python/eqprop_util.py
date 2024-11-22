@@ -1,7 +1,8 @@
 import functools
 import math
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Literal, Sequence, Union
+from typing import Any, Literal, Union
+from collections.abc import Callable, Sequence
 
 import torch
 import torch.nn as nn
@@ -85,7 +86,7 @@ class interleave:
 class type_as:
     """Decorator class for match output tensor type as input tensor type."""
 
-    def __init__(self, func: Callable[..., Union[Sequence[torch.Tensor], torch.Tensor]]):
+    def __init__(self, func: Callable[..., Sequence[torch.Tensor] | torch.Tensor]):
         self.func = func
         raise DeprecationWarning("Use torch.Tensor.to(self.device) instead.")
 
@@ -124,7 +125,6 @@ class AbstractRectifier(ABC):
 
 
 class IdealRectifier(AbstractRectifier):
-
     def __init__(self, Vl=-1, Vr=1):
         super().__init__(None, None, Vl, Vr)
 
@@ -285,6 +285,7 @@ def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
     Returns:
         torch.Tensor: (B x) O x I
+
     """
     assert len(n.shape) in [1, 2], "n must be 1D or 2D"
     if len(n.shape) == 2:
@@ -305,8 +306,8 @@ def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 class AdjustParams:
     def __init__(
         self,
-        L: Union[float, None] = 1e-7,
-        U: Union[float, None] = None,
+        L: float | None = 1e-7,
+        U: float | None = None,
         clamp: bool = True,
         normalize: bool = False,
     ) -> None:
@@ -321,11 +322,7 @@ class AdjustParams:
         for name, param in submodule.named_parameters():
             if name in ["weight", "bias"]:
                 if self.clamp:
-                    (
-                        log.debug(f"Clamping {name}...")
-                        if torch.any(param.min() < self.min)
-                        else ...
-                    )
+                    (log.debug(f"Clamping {name}...") if torch.any(param.min() < self.min) else ...)
                     param.clamp_(self.min, self.max)
                 if self.normalize:
                     nn.functional.normalize(param, dim=1, p=2)

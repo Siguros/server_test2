@@ -1,3 +1,6 @@
+[project]
+requires-python = ">=3.10"
+
 [tool.pytest.ini_options]
 addopts = [
   "--color=yes",
@@ -24,12 +27,28 @@ exclude_lines = [
     "if __name__ == .__main__.:",
 ]
 
-[tool.isort]
-profile = "black"
-line_length = 100
-
-[tool.black]
+[tool.ruff]
 line-length = 100
+
+[tool.ruff.format]
+docstring-code-format = true
+exclude = [
+  "logs/*",
+  "data/*",
+]
+
+[tool.ruff.lint]
+ignore = ["E203","E402","E501","F401","F841"]
+extend-select = [
+  "UP",  # pyupgrade
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/prog_scheme/kalman.py" = ["F821"]
+
+[tool.ruff.lint.mccabe]
+# Unlike Flake8, default to a complexity level of 10.
+max-complexity = 10
 
 [tool.interrogate]
 ignore-init-method = true

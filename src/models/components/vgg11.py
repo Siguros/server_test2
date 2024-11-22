@@ -12,7 +12,7 @@ class VGG11(nn.Module):
         kernel_size=3,
         hidden_channels=(64, 128, 256, 512, 512),
         classifier_hidden=4096,
-        sample_x_size: Optional[torch.Size] = (1, 3, 32, 32),
+        sample_x_size: torch.Size | None = (1, 3, 32, 32),
     ):
         h1, h2, h3, h4, h5 = hidden_channels
         super().__init__()
@@ -104,7 +104,7 @@ class VGG11Im2Col(VGG11avg):
         self,
         num_classes=10,
         in_channels=3,
-        kernel_size: Optional[int] = 3,
+        kernel_size: int | None = 3,
         hidden_channels: tuple | None = None,
         sample_x_size: tuple = (1, 3, 32, 32),
         classifier_hidden=4096,

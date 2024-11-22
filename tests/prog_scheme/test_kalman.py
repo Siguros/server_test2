@@ -44,8 +44,6 @@ def test_linear_ekf_jacobian(linear_ekf) -> None:
     linear_ekf.x_est = x
     x_new = linear_ekf.f(x + dx, u + du)
     x_new_taylor = (
-        linear_ekf.f(x, u)
-        + linear_ekf.f_jacobian_x(x, u) @ dx
-        + linear_ekf.f_jacobian_u(x, u) @ du
+        linear_ekf.f(x, u) + linear_ekf.f_jacobian_x(x, u) @ dx + linear_ekf.f_jacobian_u(x, u) @ du
     )
     assert x_new == pytest.approx(x_new_taylor, abs=1e-3)

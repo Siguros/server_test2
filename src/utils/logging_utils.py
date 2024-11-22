@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import OmegaConf
@@ -11,7 +11,7 @@ log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
 
 @rank_zero_only
-def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
+def log_hyperparameters(object_dict: dict[str, Any]) -> None:
     """Controls which config parts are saved by Lightning loggers.
 
     Additionally saves:
@@ -60,7 +60,6 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 
 
 class LogCapture:
-
     def __init__(self, logger_name: str = None, level=logging.DEBUG):
         """Capture log messages to a list.
 
@@ -69,12 +68,12 @@ class LogCapture:
             level (int, optional): Log level. Defaults to logging.DEBUG.
 
         Example:
-
             >>> with LogCapture("eqprop.strategy") as logc:
             >>>    logger = logc.logger
             >>>    logger.info("Hello")
             >>>    logger.info("World")
             >>>    log_list = logc.get_log_list()
+
         """
         self.log_stream = io.StringIO()
         self.logger = logging.getLogger(logger_name)

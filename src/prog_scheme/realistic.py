@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Tuple, Type
+from typing import Any, Optional
+from collections.abc import Callable
 
 import torch
 from aihwkit.exceptions import AnalogBiasConfigError, TileError, TorchTileConfigError
@@ -34,12 +35,12 @@ class _HalfSelectMixin:
 
 
 class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
-
     def set_weights(self, weight: torch.Tensor, **kwargs) -> None:
         """Set the tile weights.
 
         Args:
             weight: ``[out_size, in_size]`` weight matrix.
+
         """
         super().set_weights(weight, **kwargs)
 
@@ -50,6 +51,7 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
             a tuple where the first item is the ``[out_size, in_size]`` weight
             matrix; and the second item is either the ``[out_size]`` bias vector
             or ``None`` if the tile is set not to use bias.
+
         """
         super().get_weights()
 
@@ -69,6 +71,7 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
 
         Raises:
             TileError: in case transposed input / output or bias is requested
+
         """
         super().update(x_input, d_input, bias, in_trans, out_trans, non_blocking)
         self.half_selection()
@@ -92,9 +95,7 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
         ...
 
     @staticmethod
-    def modify_weight(
-        inp_weight: torch.Tensor, modifier: WeightModifierParameter, batch_size: int
-    ):
+    def modify_weight(inp_weight: torch.Tensor, modifier: WeightModifierParameter, batch_size: int):
         pass
 
     def set_config(self, rpu_config: "TorchInferenceRPUConfig") -> None:
@@ -102,6 +103,7 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
 
         Args:
             rpu_config: configuration to use in the next forward passes.
+
         """
         self._f_io = rpu_config.forward
         self._modifier = rpu_config.modifier
@@ -116,8 +118,8 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
         Raises:
             NotImplementedError: For unsupported WeightClipTypes
             ConfigError: If unknown WeightClipType used.
-        """
 
+        """
         if clip.type == WeightClipType.FIXED_VALUE:
             self.weight.data = torch.clamp(self.weight, -clip.fixed_value, clip.fixed_value)
         elif clip.type == WeightClipType.LAYER_GAUSSIAN:
@@ -182,11 +184,14 @@ class RealisticTile(TileModule, InferenceTileWithPeriphery, SimulatorTileWrapper
 
         Returns:
             a simulator tile based on the specified configuration.
+
         """
         return rpu_config.simulator_tile_class(x_size=x_size, d_size=d_size, rpu_config=rpu_config)
 
     def forward(
-        self, x_input: torch.Tensor, tensor_view: Optional[Tuple] = None  # type: ignore
+        self,
+        x_input: torch.Tensor,
+        tensor_view: tuple | None = None,  # type: ignore
     ) -> torch.Tensor:
         """Torch forward function that calls the analog context forward."""
         # pylint: disable=arguments-differ
@@ -215,10 +220,10 @@ class RPUConfigwithProgram(CustomRPUConfig):
     program_weights: Callable[[Any], None] = None
     """Method to program the weights."""
 
-    tile_class: Type = RealisticTile
+    tile_class: type = RealisticTile
     """Tile class that corresponds to this RPUConfig."""
 
-    simulator_tile_class: Type = HalfSelectedSimulatorTile
+    simulator_tile_class: type = HalfSelectedSimulatorTile
     """Simulator tile class implementing the analog forward / backward / update."""
 
     clip: WeightClipParameter = field(

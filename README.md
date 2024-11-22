@@ -59,7 +59,7 @@ conda activate ml
 python -m setup develop
 ```
 
-#### \[Optional\] eqprop
+#### [Optional] eqprop
 
 ```bash
 #you can create environment for specific project with additional packages
@@ -74,7 +74,7 @@ conda activate ml
 src/core/eqprop/build_proxsuite_w_openmp.sh
 ```
 
-#### \[Optional\] SPICE
+#### [Optional] SPICE
 
 ```bash
 conda install -c conda-forge pyspice

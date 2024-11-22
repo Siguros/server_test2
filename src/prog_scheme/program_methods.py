@@ -18,8 +18,8 @@ NormType = Literal["nuc", "fro", "inf", "1", "-inf", "2"]  # codespell:ignore fr
 def iterative_compressed(
     self,
     max_iter: int = 100,
-    tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.0,
+    tolerance: float | None = 0.01,
+    w_init: float | Tensor = 0.0,
     norm_type: NormType = "nuc",
     **kwargs: Any,
 ) -> None:
@@ -31,6 +31,7 @@ def iterative_compressed(
         w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
         norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
         **kwargs: Additional keyword arguments.
+
     """
     init_setup(self, w_init)
     prev_weights = self.initial_weights
@@ -56,8 +57,8 @@ def gdp2(
     batch_size: int = 5,
     learning_rate: float = 1,
     max_iter: int = 100,
-    tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.0,
+    tolerance: float | None = 0.01,
+    w_init: float | Tensor = 0.0,
     norm_type: NormType = "nuc",
     x_rand: bool = False,
     over_sampling: int = 10,
@@ -67,7 +68,6 @@ def gdp2(
 
     Variable batch version of the `program_weights_gdp` method.
     """
-
     init_setup(self, w_init)
     input_size = self.tile.get_x_size()
     x_values = torch.eye(input_size).to(self.device)
@@ -81,7 +81,6 @@ def gdp2(
     target_max = target_values.abs().max().item()
     prev_weights = self.initial_weights
     for i in range(max_iter):
-
         start_idx = i * batch_size
         end_idx = (i + 1) * batch_size
 
@@ -130,9 +129,9 @@ def svd(
     self,
     max_iter: int = 100,
     use_rank_as_criterion: bool = False,
-    tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.0,
-    rank_atol: Optional[float] = 1e-2,
+    tolerance: float | None = 0.01,
+    w_init: float | Tensor = 0.0,
+    rank_atol: float | None = 1e-2,
     svd_every_k_iter: int = 1,
     norm_type: NormType = "nuc",
     over_sampling: int = 10,
@@ -150,8 +149,10 @@ def svd(
         svd_every_k_iter (int, optional): indicating whether to perform SVD every k iterations. Defaults to 1.
         norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
         **kwargs: Additional keyword arguments.
+
     Returns:
         None
+
     """
     init_setup(self, w_init)
     # x_values = torch.eye(self.tile.get_x_size())
@@ -170,7 +171,6 @@ def svd(
     max_iter = min(max_iter, rank) if use_rank_as_criterion else max_iter
     prev_weights = self.initial_weights
     for iter in range(max_iter):
-
         i = iter % svd_every_k_iter
         u = U[:, i]
         v = Vh[i, :]
@@ -211,8 +211,8 @@ def svd(
 def svd_kf(
     self,
     max_iter: int = 100,
-    tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.0,
+    tolerance: float | None = 0.01,
+    w_init: float | Tensor = 0.0,
     norm_type: NormType = "nuc",
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
@@ -231,6 +231,7 @@ def svd_kf(
         read_noise_std (float, optional): Standard deviation of read noise. Defaults to 0.1.
         update_noise_std (float, optional): Standard deviation of update noise. Defaults to 0.1.
         **kwargs: Additional keyword arguments.
+
     """
     init_setup(self, w_init)
     state_size = self.tile.get_x_size() * self.tile.get_d_size()
@@ -277,8 +278,8 @@ def svd_ekf_lqg(
     self,
     fnc: AbstractDeviceFilternCtrl,
     max_iter: int = 100,
-    tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.0,
+    tolerance: float | None = 0.01,
+    w_init: float | Tensor = 0.0,
     norm_type: NormType = "nuc",
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
@@ -298,6 +299,7 @@ def svd_ekf_lqg(
         read_noise_std (float, optional): Standard deviation of read noise. Defaults to 0.1.
         update_noise_std (float, optional): Standard deviation of update noise. Defaults to 0.1.
         **kwargs: Additional keyword arguments.
+
     """
     init_setup(self, w_init)
     state_size = self.tile.get_x_size() * self.tile.get_d_size()
@@ -367,5 +369,6 @@ def compensate_half_selection(v: Tensor) -> Tensor:
 
     Returns:
         Compensated vector.
+
     """
     return v

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
+from jaxtyping import Float
 from joblib import Parallel, delayed
 from scipy import sparse
 from scipy.optimize import minimize
@@ -13,17 +14,17 @@ class AbstractDeviceFilternCtrl(ABC):
     def __init__(self, dim: int, read_noise_std: float, update_noise_std: float, **kwargs): ...
 
     @abstractmethod
-    def predict(self, u_vec: np.ndarray) -> None:
+    def predict(self, u: Float[np.ndarray, "dim1"]) -> None:
         """Predict the next state of the device."""
         ...
 
     @abstractmethod
-    def update(self, z: np.ndarray) -> None:
+    def update(self, z: Float[np.ndarray, "dim1"]) -> None:
         """Update the state estimation of the device after reading the device state."""
         ...
 
     @abstractmethod
-    def get_lqg_gain(self, u) -> np.ndarray | int:
+    def get_lqg_gain(self, u) -> Float[np.ndarray, "dim1"] | int:
         """Return diagonal entries of Linear Quadratic Gaussian(LQG) control gain matrix."""
         ...
 
@@ -47,12 +48,12 @@ class DeviceKF(AbstractDeviceFilternCtrl):
         # self.K_scale = self.S_scale / (self.S_scale + q)
         self.x_est = None
 
-    def predict(self, u_vec: np.ndarray):
+    def predict(self, u: Float[np.ndarray, "dim1"]):
         """Predict the next state of the device."""
-        self.x_est += u_vec
+        self.x_est += u
         self.P_scale += self.q
 
-    def update(self, z: np.ndarray):
+    def update(self, z: Float[np.ndarray, "dim1"]):
         """Update the state estimation of the device after reading the device state."""
         y_res = z - self.x_est
         self.S_scale = self.P_scale + self.r
@@ -105,7 +106,12 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
         """
         pass
 
-    def f(self, x, u: np.ndarray | None, store_f_out: bool = False):
+    def f(
+        self,
+        x: Float[np.ndarray, "dim1"],
+        u: Float[np.ndarray, "dim1"] | None,
+        store_f_out: bool = False,
+    ):
         """Transition function.
 
         Optionally store the output of the function for jacobian calculation until the next call.
@@ -117,11 +123,11 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
                 out = self._iterative_update(x, u)
             else:
                 out = self._summation_update(x, u)
-        assert out != self._f_out, "f(x,u) is not updated. Maybe you called f(x,u) before."
+        assert np.all(out != self._f_out), "f(x,u) is not updated. Maybe you called f(x,u) before."
         self._f_out = out if store_f_out else None
         return out
 
-    def _iterative_update(self, x: np.ndarray, u: np.ndarray):
+    def _iterative_update(self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]):
         """Iteratively updates device state."""
         u_up = np.maximum(u, 0)
         u_down = np.minimum(u, 0)
@@ -150,12 +156,12 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
 
         return np.array(x_up) + np.array(x_down) + x
 
-    def _summation_update(self, x: np.ndarray, u: np.ndarray):
+    def _summation_update(self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]):
         """Updates device state at once."""
         raise NotImplementedError
 
     @abstractmethod
-    def device_update_once(self, x: np.ndarray):
+    def device_update_once(self, x: Float[np.ndarray, "dim1"]):
         """Update the device state for a single pulse.
 
         Returns the difference after the pulse.
@@ -163,26 +169,18 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
         pass
 
     @abstractmethod
-    def device_downdate_once(self, x: np.ndarray):
+    def device_downdate_once(self, x: Float[np.ndarray, "dim1"]):
         """Downdate the device state for a single pulse.
 
         Returns the absolute difference after the pulse.
         """
         pass
 
-    def get_lqg_gain(self, u: np.ndarray | None):
+    def get_lqg_gain(self, u: Float[np.ndarray, "dim1"] | None):
         """Return Linear Quadratic Gaussian (LQG) control gain using Direct Collocation."""
         if u is None:
             return np.ones(self.dim)
         else:
-
-            # Number of collocation points
-            N = 50
-            dt = 1.0 / N
-
-            # Initial state
-            x0 = self.x_est
-
             # Cost function weights
             # Q = np.eye(self.dim) # State cost
             # R = np.zeros(len(u))
@@ -217,7 +215,12 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
             return K
 
     def _solve_dre(
-        self, S: np.ndarray, x: np.ndarray, u: np.ndarray, Q_perf: float, R_perf: float
+        self,
+        S: Float[np.ndarray, "dim1"],
+        x: Float[np.ndarray, "dim1"],
+        u: Float[np.ndarray, "dim1"],
+        Q_perf: float,
+        R_perf: float,
     ):
         """Solve Discrete Riccati Equation for LQG control gain.
 
@@ -238,13 +241,13 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
             + Q_perf
         )
 
-    def predict(self, u: np.ndarray):
+    def predict(self, u: Float[np.ndarray, "dim1"]):
         """Predict the next state(weight) of the device."""
         self.x_est = self.f(self.x_est, u, store_f_out=True)
         # self.P = F @ self.P @ F.T + self.Q
         self.P_diag = self.P_diag * self.F_diag**2 + self.q
 
-    def update(self, z: np.ndarray):
+    def update(self, z: Float[np.ndarray, "dim1"]):
         """Update the state(weight) estimation of the device."""
         y_res = z - self.x_est
         # H_diag = np.ones(self.dim)
@@ -279,30 +282,18 @@ class LinearDeviceEKF(BaseDeviceEKF):
         self._slope_up = -abs(self.gamma_up) * self._scale_up / self.w_max
         self._slope_down = -abs(self.gamma_down) * self._scale_down / self.w_min
 
-    def _integral_update(self, x, u):
-        raise DeprecationWarning
-        if self.gamma_down == 0 and self.gamma_up == 0:
-            return u
-        else:
-            u_up = np.maximum(u, 0)
-            u_down = np.minimum(u, 0)
-            # integrate w += slope_up * w + scale_up from x to x + u
-            dx_up = u_up * (self._slope_up * (0.5 * u_up + x) + 1)
-            dx_down = u_down * (self._slope_down * (0.5 * u_down + x) + 1)
-            return dx_up + dx_down
-
-    def _summation_update(self, x: np.ndarray, u: np.ndarray):
+    def _summation_update(self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]):
         if self.gamma_down == 0 and self.gamma_up == 0:
             return u
         else:
             # w_k+1 = r*w_k + b, where r = 1 + slope_up, b = scale_up
             # w_k = (w_0 - b/(1-r)) * r^k + b/(1-r)
+
             # u_up 계산 (u ≥ 0)
             u_up = np.maximum(u, 0)
             r_up = 1 - self._slope_down  # slope_down 사용
             b_up = self._scale_down  # scale_down 사용
             n_up = np.floor(u_up / b_up).astype(int)  # 정수 부분 계산
-
             x_up = (x - b_up / (1 - r_up)) * r_up**n_up + b_up / (1 - r_up)
 
             # u_down 계산 (u ≤ 0)
@@ -310,36 +301,37 @@ class LinearDeviceEKF(BaseDeviceEKF):
             r_down = 1 + self._slope_up  # slope_up 사용
             b_down = self._scale_up  # scale_up 사용
             n_down = np.floor(u_down / b_down).astype(int)
-
             x_down = (x - b_down / (1 - r_down)) * r_down**n_down + b_down / (1 - r_down)
             result = x_up + x_down - x
 
         return result
 
-    def device_update_once(self, x: np.ndarray):
+    def device_update_once(self, x: Float[np.ndarray, "dim1"]):
         """Update the device state for a single pulse."""
         dw = self._slope_up * x + self._scale_up
         return dw
 
-    def device_downdate_once(self, x: np.ndarray):
+    def device_downdate_once(self, x: Float[np.ndarray, "dim1"]):
         """Downdate the device state for a single pulse."""
         dw = self._slope_down * x + self._scale_down
 
         return dw
 
-    def compute_jacobians(self, x: np.ndarray, u: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def compute_jacobians(
+        self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]
+    ) -> tuple[np.ndarray, Float[np.ndarray, "dim1"]]:
         """Computes the Jacobian matrices df/dx and df/du of the _summation_update function with
         respect to x and u.
 
         Parameters:
-        - x: np.ndarray, state vector
-        - u: np.ndarray, control input vector
+        - x: Float[np.ndarray,"dim1"], state vector
+        - u: Float[np.ndarray,"dim1"], control input vector
 
         Returns:
-        - df_dx_matrix: np.ndarray, Jacobian matrix of shape (n, n) with respect to x
-        - df_du_matrix: np.ndarray, Jacobian matrix of shape (n, n) with respect to u
+        - df_dx_matrix: Float[np.ndarray,"dim1"], Jacobian matrix of shape (n, n) with respect to x
+        - df_du_matrix: Float[np.ndarray,"dim1"], Jacobian matrix of shape (n, n) with respect to u
         """
-        # f(x, u) = x + _summation_update(x, u)
+        # f(x, u) = _summation_update(x, u)
         # f(x,u) = (x - b/(1-r)) * r^k + b/(1-r), k = n_up & n_down, r = 1 + slope_up, b = scale_up
         # df/dx = r^k, df/du = A * r^k * ln(r) / b, A = x - b/(1-r)
         # u > 0, u <0 case로 나누어 계산
@@ -410,7 +402,7 @@ class LinearDeviceEKF(BaseDeviceEKF):
 
         return df_dx_matrix, df_du_matrix
 
-    def f_jacobian_u(self, x, u):
+    def f_jacobian_u(self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]):
         # f(x, u) = x + _summation_update(x, u)
         # f(x,u) = (x - b/(1-r)) * r^k + b/(1-r), k = n_up & n_down, r = 1 + slope_up, b = scale_up
         # df/du = A * r^k * ln(r) / b, A = x - b/(1-r)
@@ -461,7 +453,7 @@ class LinearDeviceEKF(BaseDeviceEKF):
         df_du_matrix = np.diag(df_du)
         return df_du_matrix
 
-    def f_jacobian_x(self, x, u):
+    def f_jacobian_x(self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]):
         # Constants
         r_up = 1 - self._slope_down  # Using self._slope_down
         b_up = self._scale_down  # Using self._scale_down
@@ -522,26 +514,26 @@ class ExpDeviceEKF(BaseDeviceEKF):
         self.w_max = kwargs.get("w_max")
         self._slope = 2 * self.a / (self.w_max - self.w_min)
 
-    def device_update_once(self, x: np.ndarray):
+    def device_update_once(self, x: Float[np.ndarray, "dim1"]):
         """Update the device state for a single pulse."""
         z = self._slope * x + self.b
         y = 1 - self.A_up * np.exp(self.gamma_up * z)
         dw = np.maximum(y, 0)
         return dw
 
-    def device_downdate_once(self, x: np.ndarray):
+    def device_downdate_once(self, x: Float[np.ndarray, "dim1"]):
         """Downdate the device state for a single pulse."""
         z = self._slope * x + self.b
         y = 1 - self.A_down * np.exp(self.gamma_down * z)
         dw = np.maximum(y, 0)
         return dw
 
-    def f_jacobian_u(self, x, u):
+    def f_jacobian_u(self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]):
         self.update_x_plus_u = (
             self.device_update_once(self._f_out) + self.device_downdate_once(self._f_out)
         ) / 2
         return self.update_x_plus_u
 
-    def f_jacobian_x(self, x, u):
+    def f_jacobian_x(self, x: Float[np.ndarray, "dim1"], u: Float[np.ndarray, "dim1"]):
         update_x = (self.device_update_once(x) + self.device_downdate_once(x)) / 2
         return np.ones(self.dim) + self.update_x_plus_u - update_x

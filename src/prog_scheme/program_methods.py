@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import torch
@@ -6,10 +6,48 @@ from scipy import linalg as sla
 from torch import Tensor
 
 from src.core.aihwkit.utils import get_persistent_weights
-from src.prog_scheme.kalman import BaseDeviceEKF, BaseDeviceKF
+from src.prog_scheme.kalman import AbstractDeviceFilternCtrl, DeviceKF
 from src.utils.pylogger import RankedLogger
 
 log = RankedLogger(rank_zero_only=True)
+
+NormType = Literal["nuc", "fro", "inf", "1", "-inf", "2"]  # codespell:ignore fro
+
+
+@torch.no_grad()
+def iterative_compressed(
+    self,
+    max_iter: int = 100,
+    tolerance: Optional[float] = 0.01,
+    w_init: Union[float, Tensor] = 0.0,
+    norm_type: NormType = "nuc",
+    **kwargs: Any,
+) -> None:
+    """Iterative weight programming per row. The target weights are programmed row by row.
+
+    Args:
+        max_iter (int, optional): Maximum number of iterations. Defaults to 100.
+        tolerance (Optional[float], optional): Tolerance for convergence. Defaults to 0.01.
+        w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
+        norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
+        **kwargs: Additional keyword arguments.
+    """
+    init_setup(self, w_init)
+    prev_weights = self.initial_weights
+    ncol, nrow = self.tile.get_d_size(), self.tile.get_x_size()
+    for iter in range(max_iter):
+        self.tile.update(self.target_weights, self.target_weights - prev_weights, False)
+        current_weights = get_persistent_weights(self.tile)
+        norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
+        log.debug(f"Error: {norm}")
+
+        self.actual_weight_updates.append(current_weights - prev_weights)
+        self.desired_weight_updates.append(self.target_weights - current_weights)
+        prev_weights = current_weights
+        if tolerance is not None and norm < tolerance:
+            break
+
+    self.tile.set_learning_rate(self.lr_save)
 
 
 @torch.no_grad()
@@ -20,7 +58,7 @@ def gdp2(
     max_iter: int = 100,
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,
-    norm_type: str = "nuc",
+    norm_type: NormType = "nuc",
     x_rand: bool = False,
     over_sampling: int = 10,
     **kwargs: Any,
@@ -96,7 +134,7 @@ def svd(
     w_init: Union[float, Tensor] = 0.0,
     rank_atol: Optional[float] = 1e-2,
     svd_every_k_iter: int = 1,
-    norm_type: str = "nuc",
+    norm_type: NormType = "nuc",
     over_sampling: int = 10,
     x_rand: bool = False,
     **kwargs: Any,
@@ -175,7 +213,7 @@ def svd_kf(
     max_iter: int = 100,
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,
-    norm_type: str = "nuc",
+    norm_type: NormType = "nuc",
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
     svd_every_k_iter: int = 1,
@@ -196,7 +234,7 @@ def svd_kf(
     """
     init_setup(self, w_init)
     state_size = self.tile.get_x_size() * self.tile.get_d_size()
-    kf = BaseDeviceKF(state_size, read_noise_std, update_noise_std)
+    kf = DeviceKF(state_size, read_noise_std, update_noise_std)
     kf.x_est = self.tile.get_weights().clone().flatten().numpy()
     prev_weights = self.initial_weights
     for iter in range(max_iter):
@@ -237,11 +275,11 @@ def svd_kf(
 
 def svd_ekf_lqg(
     self,
-    device_ekf: BaseDeviceEKF,
+    fnc: AbstractDeviceFilternCtrl,
     max_iter: int = 100,
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,
-    norm_type: str = "nuc",
+    norm_type: NormType = "nuc",
     read_noise_std: float = 0.1,
     update_noise_std: float = 0.1,
     svd_every_k_iter: int = 1,
@@ -252,7 +290,7 @@ def svd_ekf_lqg(
     """Perform weight programming using Extended Kalman filter. SVD after LQG control is used.
 
     Args:
-        device_ekf (BaseDeviceEKF): Device-aware EKF instance.
+        fnc (AbstractDeviceFilternCtrl): Device-aware EKF instance.
         max_iter (int, optional): Maximum number of iterations. Defaults to 100.
         tolerance (Optional[float], optional): Tolerance for convergence. Defaults to 0.01.
         w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
@@ -263,17 +301,17 @@ def svd_ekf_lqg(
     """
     init_setup(self, w_init)
     state_size = self.tile.get_x_size() * self.tile.get_d_size()
-    device_ekf.x_est = self.tile.get_weights().clone().flatten().numpy()
+    fnc.x_est = self.tile.get_weights().clone().flatten().numpy()
     prev_weights = self.initial_weights
     u_prev = None
     for iter in range(max_iter):
         i = iter % svd_every_k_iter
         z = self.read_weights_(over_sampling=over_sampling, x_rand=x_rand)[0].flatten().numpy()
-        device_ekf.update(z)
+        fnc.update(z)
         if i == 0:
-            # L_diag = device_ekf.get_lqg_gain(u_prev)
+            # L_diag = fnc.get_lqg_gain(u_prev)
             L_diag = 1
-            u_vec = -L_diag * (device_ekf.x_est - self.target_weights.flatten().numpy())
+            u_vec = -L_diag * (fnc.x_est - self.target_weights.flatten().numpy())
             u_matrix = (
                 torch.from_numpy(u_vec)
                 .reshape(self.tile.get_d_size(), self.tile.get_x_size())
@@ -289,7 +327,7 @@ def svd_ekf_lqg(
         u1, v1 = compensate_half_selection(u_svd), compensate_half_selection(v_svd)
         self.tile.update(v1.float(), u1.float(), False)
         u_rank1 = -torch.outer(u1, v1)
-        device_ekf.predict(u_rank1.flatten().numpy())
+        fnc.predict(u_rank1.flatten().numpy())
         u_prev = u_rank1.flatten().numpy()
 
         current_weights = get_persistent_weights(self.tile)

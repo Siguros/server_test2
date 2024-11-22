@@ -12,7 +12,7 @@ from aihwkit.simulator.parameters.enums import PulseType
 from aihwkit.simulator.tiles.analog import AnalogTile
 from omegaconf import DictConfig, OmegaConf
 
-from src.prog_scheme.kalman import BaseDeviceKF, LinearDeviceEKF
+from src.prog_scheme.kalman import DeviceKF, LinearDeviceEKF
 from src.prog_scheme.utils import generate_target_weights
 
 
@@ -71,7 +71,7 @@ def kf_rpu_config(lin_rpu_config, prog_cfg):
     lin_rpu_config.forward.inp_res = 0
     lin_rpu_config.forward.out_res = 0
     # update Attributes
-    lin_rpu_config.update.desired_bl = 2**11 - 1
+    lin_rpu_config.update.desired_bl = 2**11
     # LinearStepDevice Attributes
     lin_rpu_config.device.apply_write_noise_on_set = False
     lin_rpu_config.device.gamma_down = 0.1
@@ -170,7 +170,7 @@ def kf_analogtile(kf_rpu_config, prog_cfg):
 @pytest.fixture(scope="function")
 def base_kf(prog_cfg):
     dim = prog_cfg.input_size * prog_cfg.output_size
-    return BaseDeviceKF(
+    return DeviceKF(
         dim=dim, read_noise_std=prog_cfg.read_noise_std, update_noise_std=prog_cfg.update_noise_std
     )
 

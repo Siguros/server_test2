@@ -70,44 +70,29 @@ def gdp2(
 
     init_setup(self, w_init)
     input_size = self.tile.get_x_size()
-    x_values = torch.eye(input_size).to(self.device)
 
-    num_rows = max_iter * batch_size
-
-    if x_rand:
-        x_values = torch.rand(num_rows, input_size).to(self.device)
-    target_values = x_values @ self.target_weights.to(self.device).T
-
-    target_max = target_values.abs().max().item()
     prev_weights = self.initial_weights
+    x = torch.zeros(batch_size, input_size).to(self.device)
     for i in range(max_iter):
 
-        start_idx = i * batch_size
-        end_idx = (i + 1) * batch_size
+        start_idx = i * batch_size  # 현재 배치의 시작 인덱스
 
-        if end_idx > len(x_values):
-            # Calculate how much we exceed the length
-            exceed_length = end_idx - len(x_values)
+        # 행(row)과 열(column)의 위치 설정
+        row_indices = torch.arange(batch_size)  # k = 0, 1, 2, ..., batch_size-1
+        col_indices = (start_idx + row_indices) % input_size  # (start_idx + k) % input_size
 
-            # Slice the arrays and concatenate the exceeded part from the beginning
-            x = torch.concatenate((x_values[start_idx:], x_values[:exceed_length]))
-            target = torch.concatenate((target_values[start_idx:], target_values[:exceed_length]))
-        else:
-            x = x_values[start_idx:end_idx]
-            target = target_values[start_idx:end_idx]
-
+        # 해당 위치에 1 설정
+        x[row_indices, col_indices] = 1
+        target = x @ self.target_weights.T
         yo = []
         for j in range(over_sampling):
             output = self.tile.forward(x, False)
             yo.append(output)
 
-        # 리스트를 새로운 차원으로 스택(stack)
+        # 리스트를 새로운 차원으로 스택(stack) ,평균 계산
         yo = torch.stack(yo, dim=0)
-
-        # oversampling 차원에 대해 평균 계산
         y = yo.mean(dim=0)
         error = y - target
-        err_normalized = error.abs().mean().item() / target_max
         mtx_diff = self.tile.get_weights() - self.target_weights
         norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
         log.debug(f"Error: {norm}")
@@ -117,6 +102,8 @@ def gdp2(
             break
         """
         self.tile.update(x, error, False)  # type: ignore
+        x[row_indices, col_indices] = 0  # 다음 반복을 위해 0으로 초기화
+
         current_weights = get_persistent_weights(self.tile)
         self.actual_weight_updates.append(current_weights - prev_weights)
         self.desired_weight_updates.append(-error.T @ x)
@@ -275,7 +262,7 @@ def svd_kf(
 
 def svd_ekf_lqg(
     self,
-    fnc: AbstractDeviceFilternCtrl,
+    fnc: Optional[AbstractDeviceFilternCtrl] = None,
     max_iter: int = 100,
     tolerance: Optional[float] = 0.01,
     w_init: Union[float, Tensor] = 0.0,

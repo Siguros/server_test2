@@ -123,7 +123,9 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
                 out = self._iterative_update(x, u)
             else:
                 out = self._summation_update(x, u)
-        assert np.all(out != self._f_out), "f(x,u) is not updated. Maybe you called f(x,u) before."
+        assert not np.all(
+            out == self._f_out
+        ), "f(x,u) is not updated. Maybe you called f(x,u) before."
         self._f_out = out if store_f_out else None
         return out
 

@@ -1,7 +1,9 @@
-from typing import Any, Literal, Optional, Union
+from abc import ABC, abstractmethod
+from typing import Any, Literal, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from jaxtyping import Float
 from scipy import linalg as sla
 from torch import Tensor
 
@@ -12,6 +14,252 @@ from src.utils.pylogger import RankedLogger
 log = RankedLogger(rank_zero_only=True)
 
 NormType = Literal["nuc", "fro", "inf", "1", "-inf", "2"]  # codespell:ignore fro
+
+
+class AbstractProgramMethods(ABC):
+    """Abstract class for programming methods."""
+
+    @abstractmethod
+    def __init__(self): ...
+
+    @abstractmethod
+    def __call__(self) -> None:
+        """Program the target weights into the conductances using the pulse update defined."""
+        ...
+
+    @staticmethod
+    def init_setup(atile, w_init: Union[float, Tensor]) -> None:
+        """Initialize the setup for programming methods."""
+
+        if isinstance(w_init, Tensor):
+            atile.tile.set_weights(w_init)
+        else:
+            atile.tile.set_weights_uniform_random(-w_init, w_init)
+
+        atile.initial_weights = get_persistent_weights(atile.tile)
+
+        atile.lr_save = atile.tile.get_learning_rate()
+        atile.tile.set_learning_rate(1)
+
+    @staticmethod
+    def read_weights_(
+        self,
+        apply_weight_scaling: bool = False,
+        x_values: Optional[Tensor] = None,
+        x_rand: bool = False,
+        over_sampling: int = 10,
+    ) -> Tuple[Tensor, Optional[Tensor]]:
+        """Reads the weights (and biases) in a realistic manner by using the forward pass for
+        weights readout.
+
+            If the tile includes digital periphery (e.g. out scaling),
+            these will be applied. Thus this weight is the logical
+            weights that correspond to the weights in an FP network.
+
+        Note:
+            weights are estimated using the ``lstsq`` solver from torch.
+
+        Args:
+            apply_weight_scaling: Whether to rescale the given weight matrix
+                and populate the digital output scaling factors as
+                specified in the configuration
+                new ``weight_scaling_omega`` can be given. Note that
+                this will overwrite the existing digital out scaling
+                factors.
+
+            x_values: Values to use for estimating the matrix. If
+                not given, inputs are standard normal vectors.
+
+            over_sampling: If ``x_values`` is not given,
+                ``over_sampling * in_size`` random vectors are used
+                for the estimation
+
+        Returns:
+            a tuple where the first item is the ``[out_size, in_size]`` weight
+            matrix; and the second item is either the ``[out_size]`` bias vector
+            or ``None`` if the tile is set not to use bias.
+
+        Raises:
+            TileError: in case wrong code usage of TileWithPeriphery
+        """
+        dtype = self.get_dtype()
+        if x_values is None:
+            x_values = torch.eye(self.in_size, self.in_size, device=self.device, dtype=dtype)
+            if x_rand:
+                x_values = torch.rand(self.in_size, self.in_size, device=self.device, dtype=dtype)
+        else:
+            x_values = x_values.to(self.device)
+
+        x_values = x_values.repeat(over_sampling, 1)
+
+        # forward pass in eval mode
+        was_training = self.training
+        is_indexed = self.is_indexed()
+        self.eval()
+        if is_indexed:
+            self.analog_ctx.set_indexed(False)
+        y_values = self.forward(x_values)
+        if was_training:
+            self.train()
+        if is_indexed:
+            self.analog_ctx.set_indexed(True)
+
+        if self.bias is not None:
+            y_values -= self.bias
+
+        est_weight = torch.linalg.lstsq(x_values, y_values).solution.T.cpu()
+        weight, bias = self._separate_weights(est_weight)
+
+        if self.digital_bias:
+            bias = self.bias.detach().cpu()
+
+        if not apply_weight_scaling:
+            # we de-apply all scales
+            alpha = self.get_scales()
+            if alpha is not None:
+                alpha = alpha.detach().cpu()
+                return (weight / alpha.view(-1, 1), bias / alpha if self.analog_bias else bias)
+        return weight, bias
+
+
+class GDP(AbstractProgramMethods):
+    """Program the target weights into the conductances using the pulse update defined."""
+
+    @classmethod
+    def call_Program_Method(
+        cls,
+        atile,
+        batch_size: int = 5,
+        learning_rate: float = 1,
+        max_iter: int = 100,
+        tolerance: Optional[float] = 0.01,
+        w_init: Union[float, Tensor] = 0.0,
+        norm_type: str = "nuc",
+        x_rand: bool = False,
+        over_sampling: int = 10,
+        **kwargs: Any,
+    ) -> None:
+        """Program the target weights into the conductances using the pulse update defined."""
+        # Ensure self has required methods and attributes
+        if not hasattr(atile, "init_setup") or not hasattr(atile, "tile"):
+            raise AttributeError("Instance must have 'init_setup' and 'tile' attributes")
+
+        # Initialize with the given weight
+        cls.init_setup(atile, w_init)
+        input_size = atile.tile.get_x_size()
+
+        x = torch.zeros(batch_size, input_size).to(atile.device)
+        for i in range(max_iter):
+            start_idx = i * batch_size  # Current batch start index
+
+            # Set row and column indices
+            row_indices = torch.arange(batch_size)
+            col_indices = (start_idx + row_indices) % input_size
+
+            # Set the corresponding indices in x
+            x[row_indices, col_indices] = 1
+            target = x @ atile.target_weights.T
+            yo = []
+            for j in range(over_sampling):
+                output = atile.tile.forward(x, False)
+                yo.append(output)
+
+            # Calculate the average over-sampled outputs
+            yo = torch.stack(yo, dim=0)
+            y = yo.mean(dim=0)
+
+            # Calculate error and norm
+            error = y - target
+            mtx_diff = atile.tile.get_weights() - atile.target_weights
+            norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
+            log.debug(f"Error: {norm}")
+
+            # Optionally break if tolerance is met
+            if tolerance is not None and norm < tolerance:
+                log.debug("Tolerance reached, stopping early.")
+                break
+
+            # Update the tile with the error
+            atile.tile.update(x, error, False)  # type: ignore
+
+            # Reset x for the next iteration
+            x[row_indices, col_indices] = 0
+
+        # Restore learning rate
+        atile.tile.set_learning_rate(atile.lr_save)  # type: ignore
+
+    @classmethod
+    def make_callable(cls):
+        # 클래스를 호출처럼 동작하게 만드는 메서드
+        def callable_method(*args, **kwargs):
+            return cls.call_as_classmethod(*args, **kwargs)
+
+        return callable_method
+
+
+class SVD(AbstractProgramMethods):
+    """Perform singular value decomposition (SVD) based weight programming."""
+
+    @classmethod
+    def call_Program_Method(
+        cls,
+        atile,
+        max_iter: int = 100,
+        use_rank_as_criterion: bool = False,
+        tolerance: Optional[float] = 0.01,
+        w_init: Union[float, Tensor] = 0.0,
+        rank_atol: Optional[float] = 1e-2,
+        svd_every_k_iter: int = 1,
+        norm_type: NormType = "nuc",
+        over_sampling: int = 10,
+        x_rand: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        """Perform singular value decomposition (SVD) based weight programming.
+
+        Args:
+            use_rank_as_criterion (bool, optional): Use rank as stopping criterion. If False, use max_iter. Defaults to False.
+            max_iter (int, optional): Maximum number of iterations. Defaults to 100.
+            tolerance (float, optional): Tolerance for convergence. Defaults to 0.01.
+            w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
+            rank_atol (float, optional): Absolute tolerance for numerical rank computation. Defaults to 1e-6.
+            svd_every_k_iter (int, optional): indicating whether to perform SVD every k iterations. Defaults to 1.
+            norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
+            **kwargs: Additional keyword arguments.
+        """
+        cls.init_setup(atile, w_init)
+        diff_realistic = (
+            cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
+            - atile.target_weights
+        )
+        U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
+        rank = torch.linalg.matrix_rank(diff_realistic)
+        max_iter = min(max_iter, rank) if use_rank_as_criterion else max_iter
+        for iter in range(max_iter):
+
+            i = iter % svd_every_k_iter
+            u = U[:, i]
+            v = Vh[i, :]
+            sqrt_s = torch.sqrt(S[i])
+            v *= sqrt_s
+            u *= sqrt_s
+            u1, v1 = compensate_half_selection(u), compensate_half_selection(v)
+            atile.tile.update(v1.float(), u1.float(), False)
+
+            current_weights = get_persistent_weights(atile.tile)
+            norm = torch.linalg.matrix_norm(current_weights - atile.target_weights, ord=norm_type)
+            log.debug(f"Error: {norm}")
+
+            if tolerance is not None and norm < tolerance:
+                break
+            if (iter + 1) % svd_every_k_iter == 0:
+                diff_realistic = (
+                    cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
+                    - atile.target_weights
+                )
+                U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
+
+        atile.tile.set_learning_rate(atile.lr_save)  # type: ignore
 
 
 @torch.no_grad()
@@ -48,68 +296,6 @@ def iterative_compressed(
             break
 
     self.tile.set_learning_rate(self.lr_save)
-
-
-@torch.no_grad()
-def gdp2(
-    self,
-    batch_size: int = 5,
-    learning_rate: float = 1,
-    max_iter: int = 100,
-    tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.0,
-    norm_type: NormType = "nuc",
-    x_rand: bool = False,
-    over_sampling: int = 10,
-    **kwargs: Any,
-) -> None:
-    """Program the target weights into the conductances using the pulse update defined.
-
-    Variable batch version of the `program_weights_gdp` method.
-    """
-
-    init_setup(self, w_init)
-    input_size = self.tile.get_x_size()
-
-    prev_weights = self.initial_weights
-    x = torch.zeros(batch_size, input_size).to(self.device)
-    for i in range(max_iter):
-
-        start_idx = i * batch_size  # 현재 배치의 시작 인덱스
-
-        # 행(row)과 열(column)의 위치 설정
-        row_indices = torch.arange(batch_size)  # k = 0, 1, 2, ..., batch_size-1
-        col_indices = (start_idx + row_indices) % input_size  # (start_idx + k) % input_size
-
-        # 해당 위치에 1 설정
-        x[row_indices, col_indices] = 1
-        target = x @ self.target_weights.T
-        yo = []
-        for j in range(over_sampling):
-            output = self.tile.forward(x, False)
-            yo.append(output)
-
-        # 리스트를 새로운 차원으로 스택(stack) ,평균 계산
-        yo = torch.stack(yo, dim=0)
-        y = yo.mean(dim=0)
-        error = y - target
-        mtx_diff = self.tile.get_weights() - self.target_weights
-        norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
-        log.debug(f"Error: {norm}")
-        # log.debug(f"Error: {err_normalized}")
-        """
-        if tolerance is not None and norm < tolerance:
-            break
-        """
-        self.tile.update(x, error, False)  # type: ignore
-        x[row_indices, col_indices] = 0  # 다음 반복을 위해 0으로 초기화
-
-        current_weights = get_persistent_weights(self.tile)
-        self.actual_weight_updates.append(current_weights - prev_weights)
-        self.desired_weight_updates.append(-error.T @ x)
-        prev_weights = current_weights
-
-    self.tile.set_learning_rate(self.lr_save)  # type: ignore
 
 
 @torch.no_grad()

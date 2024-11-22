@@ -34,7 +34,7 @@ def program_n_log(
             # tile.tile.set_weights(target_weight)
             tile.target_weights = target_weight.clone()
             start = time.time()
-            tile.program_weights(**method_kwargs)
+            tile.program_weights(tile, **method_kwargs)
             print(f"Programming time: {time.time() - start:.2f}s")
             log = logc.get_log_list()
         err_list = extract_error(log)

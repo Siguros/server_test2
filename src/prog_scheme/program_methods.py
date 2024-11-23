@@ -48,6 +48,7 @@ class AbstractProgramMethods(ABC):
         x_values: Tensor | None = None,
         x_rand: bool = False,
         over_sampling: int = 10,
+        input_percent: float = 1.0,
     ) -> tuple[Tensor, Tensor | None]:
         """Reads the weights (and biases) in a realistic manner by using the forward pass for
         weights readout.
@@ -84,9 +85,16 @@ class AbstractProgramMethods(ABC):
         """
         dtype = self.get_dtype()
         if x_values is None:
-            x_values = torch.eye(self.in_size, self.in_size, device=self.device, dtype=dtype)
+            x_values = torch.eye(
+                round(self.in_size * input_percent), self.in_size, device=self.device, dtype=dtype
+            )
             if x_rand:
-                x_values = torch.rand(self.in_size, self.in_size, device=self.device, dtype=dtype)
+                x_values = torch.rand(
+                    round(self.in_size * input_percent),
+                    self.in_size,
+                    device=self.device,
+                    dtype=dtype,
+                )
         else:
             x_values = x_values.to(self.device)
 

@@ -29,6 +29,26 @@ class AbstractDeviceFilternCtrl(ABC):
         ...
 
 
+class NoFilter(AbstractDeviceFilternCtrl):
+    """Class for device programming without any filtering."""
+
+    def __init__(self, dim: int, read_noise_std: float = 0.0, update_noise_std: float = 0.0):
+        self.dim = dim
+        self.x_est = None
+
+    def predict(self, u: Float[np.ndarray, "dim1"]) -> None:
+        """Predict the next state of the device without any filtering."""
+        self.x_est += u
+
+    def update(self, z: Float[np.ndarray, "dim1"]) -> None:
+        """Update the state estimation of the device without any filtering."""
+        self.x_est = z
+
+    def get_lqg_gain(self, u) -> Float[np.ndarray, "dim1"] | int:
+        """Return a default gain of 1."""
+        return 1
+
+
 class DeviceKF(AbstractDeviceFilternCtrl):
     """Class for device programming with Kalman filter.
 

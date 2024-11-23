@@ -36,6 +36,7 @@ def concatenate_layer_blocks(in_ch, hidden_ch, num_layer, first_layer=False):
 
     Returns:
        List: list of layer blocks
+
     """
     layers = []
     for i in range(num_layer):

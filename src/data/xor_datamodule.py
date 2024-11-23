@@ -18,6 +18,7 @@ class XORDataModule(LightningDataModule):
             num_workers (int, optional): _description_. Defaults to 0.
             pin_memory (bool, optional): _description_. Defaults to False.
             transform (_type_, optional): transform inputs. If set to None, input values become {-1,1} Defaults to None.
+
         """
         super().__init__()
         self.save_hyperparameters(logger=False)
@@ -41,6 +42,7 @@ class XORDataModule(LightningDataModule):
 
         Returns:
             _type_: _description_
+
         """
         # Create the dataloader
         dataloader = DataLoader(
@@ -57,6 +59,7 @@ class XORDataModule(LightningDataModule):
 
         Returns:
             _type_: _description_
+
         """
         dataloader = DataLoader(
             self.dataset,
@@ -73,6 +76,7 @@ class XORwithBiasDataModule(XORDataModule):
 
     Args:
         XORDataModule (_type_): _description_
+
     """
 
     def __init__(
@@ -85,6 +89,7 @@ class XORwithBiasDataModule(XORDataModule):
             num_workers (int, optional): _description_. Defaults to 0.
             pin_memory (bool, optional): _description_. Defaults to False.
             transform (_type_, optional): transform inputs. If set to None, input values become {-1,1} Defaults to None.
+
         """
         super().__init__()
         self.save_hyperparameters(logger=False)

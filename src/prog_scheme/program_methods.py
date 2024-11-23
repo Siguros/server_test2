@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Literal, Optional, Tuple, Union
+from typing import Any, Literal, Optional
 
 import numpy as np
 import torch
@@ -28,7 +28,7 @@ class AbstractProgramMethods(ABC):
         ...
 
     @staticmethod
-    def init_setup(atile, w_init: Union[float, Tensor]) -> None:
+    def init_setup(atile, w_init: float | Tensor) -> None:
         """Initialize the setup for programming methods."""
 
         if isinstance(w_init, Tensor):
@@ -45,10 +45,10 @@ class AbstractProgramMethods(ABC):
     def read_weights_(
         self,
         apply_weight_scaling: bool = False,
-        x_values: Optional[Tensor] = None,
+        x_values: Tensor | None = None,
         x_rand: bool = False,
         over_sampling: int = 10,
-    ) -> Tuple[Tensor, Optional[Tensor]]:
+    ) -> tuple[Tensor, Tensor | None]:
         """Reads the weights (and biases) in a realistic manner by using the forward pass for
         weights readout.
 
@@ -133,8 +133,8 @@ class GDP(AbstractProgramMethods):
         batch_size: int = 5,
         learning_rate: float = 1,
         max_iter: int = 100,
-        tolerance: Optional[float] = 0.01,
-        w_init: Union[float, Tensor] = 0.0,
+        tolerance: float | None = 0.01,
+        w_init: float | Tensor = 0.0,
         norm_type: str = "nuc",
         x_rand: bool = False,
         over_sampling: int = 10,
@@ -200,7 +200,7 @@ class GDP(AbstractProgramMethods):
             fnc.update(z)
 
             # Compute the control input
-            if isinstance(fnc, (NoFilter, DeviceKF)):
+            if isinstance(fnc, NoFilter | DeviceKF):
                 u_vec = -(fnc.x_est - atile.target_weights.flatten().numpy())
             elif isinstance(fnc, BaseDeviceEKF):
                 L_diag = fnc.get_lqg_gain(None)
@@ -219,11 +219,11 @@ class SVD(AbstractProgramMethods):
     def call_Program_Method(
         cls,
         atile,
-        fnc: Optional[AbstractDeviceFilternCtrl] = None,
+        fnc: AbstractDeviceFilternCtrl | None = None,
         max_iter: int = 100,
-        tolerance: Optional[float] = 0.01,
-        w_init: Union[float, Tensor] = 0.0,
-        rank_atol: Optional[float] = 1e-2,
+        tolerance: float | None = 0.01,
+        w_init: float | Tensor = 0.0,
+        rank_atol: float | None = 1e-2,
         svd_every_k_iter: int = 1,
         norm_type: NormType = "nuc",
         over_sampling: int = 10,
@@ -278,7 +278,7 @@ class SVD(AbstractProgramMethods):
 
             if i == 0:
                 # Compute the control input
-                if isinstance(fnc, (NoFilter, DeviceKF)):
+                if isinstance(fnc, NoFilter | DeviceKF):
                     u_vec = -(fnc.x_est - atile.target_weights.flatten().numpy())
                 elif isinstance(fnc, BaseDeviceEKF):
                     # L_diag = fnc.get_lqg_gain(u_prev)
@@ -324,8 +324,8 @@ class SVD(AbstractProgramMethods):
 def iterative_compressed(
     self,
     max_iter: int = 100,
-    tolerance: Optional[float] = 0.01,
-    w_init: Union[float, Tensor] = 0.0,
+    tolerance: float | None = 0.01,
+    w_init: float | Tensor = 0.0,
     norm_type: NormType = "nuc",
     **kwargs: Any,
 ) -> None:
@@ -337,6 +337,7 @@ def iterative_compressed(
         w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
         norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
         **kwargs: Additional keyword arguments.
+
     """
     init_setup(self, w_init)
     prev_weights = self.initial_weights
@@ -380,5 +381,6 @@ def compensate_half_selection(v: Tensor) -> Tensor:
 
     Returns:
         Compensated vector.
+
     """
     return v

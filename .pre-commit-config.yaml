@@ -3,7 +3,7 @@ default_language_version:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
       # list of supported hooks: https://pre-commit.com/hooks.html
       - id: trailing-whitespace
@@ -17,41 +17,16 @@ repos:
       - id: check-case-conflict
       - id: check-added-large-files
       - id: no-commit-to-branch
-
-  # python code formatting
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
+  # python code formatting & linting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.8.0
     hooks:
-      - id: black
-        args: [--line-length, "99"]
-
-  # python import sorting
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: ["--profile", "black", "--filter-files"]
-
-  # python upgrading syntax to newer version
-  - repo: https://github.com/asottile/pyupgrade
-    rev: v3.16.0
-    hooks:
-      - id: pyupgrade
-        args: [--py38-plus]
-
-  # python docstring formatting
-  - repo: https://github.com/myint/docformatter
-    rev: v1.7.5
-    hooks:
-      - id: docformatter
-        args:
-          [
-            --in-place,
-            --wrap-summaries=99,
-            --wrap-descriptions=99,
-            --style=sphinx,
-            --black,
-          ]
+      # Run the linter.
+      - id: ruff
+        args: [--fix]
+      # Run the formatter.
+      - id: ruff-format
 
   # python docstring coverage checking
   - repo: https://github.com/econchick/interrogate
@@ -71,24 +46,9 @@ repos:
           ]
         files: ^src/(core|data|models|utils)/.*\.py$|^tests/.*\.py$
 
-  # python check (PEP8), programming errors and code complexity
-  - repo: https://github.com/PyCQA/flake8
-    rev: 7.1.0
-    hooks:
-      - id: flake8
-        args:
-          [
-            "--extend-ignore",
-            "E203,E402,E501,F401,F841,RST2,RST301",
-            "--exclude",
-            "logs/*,data/*",
-            "--per-file-ignores=src/prog_scheme/kalman.py:F821",
-          ]
-        additional_dependencies: [flake8-rst-docstrings==0.3.0]
-
   # python security linter
   - repo: https://github.com/PyCQA/bandit
-    rev: "1.7.9"
+    rev: "1.7.10"
     hooks:
       - id: bandit
         args: ["-s", "B101"]
@@ -109,7 +69,7 @@ repos:
 
   # md formatting
   - repo: https://github.com/executablebooks/mdformat
-    rev: 0.7.17
+    rev: 0.7.19
     hooks:
       - id: mdformat
         args: ["--number"]
@@ -127,17 +87,17 @@ repos:
       - id: codespell
         args:
           - --skip=logs/**,data/**,*.ipynb
-          # - --ignore-words-list=abc,def
+          - --ignore-words-list=astroid
 
   # jupyter notebook cell output clearing
   - repo: https://github.com/kynan/nbstripout
-    rev: 0.7.1
+    rev: 0.8.1
     hooks:
       - id: nbstripout
 
   # jupyter notebook linting
   - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.8.5
+    rev: 1.9.1
     hooks:
       - id: nbqa-black
         args: ["--line-length=100"]

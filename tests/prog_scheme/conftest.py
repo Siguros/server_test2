@@ -184,5 +184,5 @@ def linear_ekf(kf_rpu_config, prog_cfg):
         read_noise_std=prog_cfg.read_noise_std,
         update_noise_std=prog_cfg.update_noise_std,
         iterative_update=False,
-        **device_params
+        **device_params,
     )

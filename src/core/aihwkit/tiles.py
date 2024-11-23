@@ -13,7 +13,8 @@ class ProgramOverrideMeta(type):
 
     def __new__(cls, name, bases, namespace, override_func):
         """Create a new class with the overridden program_weights function with singltone
-        pattern."""
+        pattern.
+        """
         new_cls_name = bases[0].__name__ + "_" + override_func.__name__
         if new_cls_name in cls._instances.keys():
             return cls._instances[new_cls_name]

@@ -16,7 +16,6 @@ class XyceSim:
 
     def __call__(self, spice_input):
         """Run Xyce simulation and return RawFile instance."""
-
         tmp_dir = tempfile.mkdtemp()
         input_filename = os.path.join(tmp_dir, "input.cir")
         output_filename = os.path.join(tmp_dir, "output.raw")

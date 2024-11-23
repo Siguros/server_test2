@@ -52,7 +52,7 @@ def test_eqprop_precision(cfg_train, ckpt_path):
 
     # compare when initialized with same weights
     beta = cfg_train.model.beta
-    model = torch.load(cfg_train.ckpt_path)
+    model = torch.load(cfg_train.ckpt_path)  # nosec B614
     batch = load_batch()
     vout_torch = eqprop_torch(batch, model, beta)
     vout_xyce = eqprop_xyce(batch, model, beta)

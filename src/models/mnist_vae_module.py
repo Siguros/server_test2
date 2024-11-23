@@ -58,6 +58,7 @@ class MNISTVAELitModule(LightningModule):
 
         Returns:
             torch.Tensor: Output tensor.
+
         """
         return self.net(x)
 
@@ -125,6 +126,7 @@ class MNISTVAELitModule(LightningModule):
 
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
+
         """
         optimizer = self.hparams.optimizer(params=self.parameters())
         if self.hparams.scheduler is not None:

@@ -94,9 +94,7 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
     :math:`z_k = x_k + v_k`
     """
 
-    def __init__(
-        self, dim, read_noise_std: float, update_noise_std: float, iterative_update: bool
-    ):
+    def __init__(self, dim, read_noise_std: float, update_noise_std: float, iterative_update: bool):
         self.dim = dim
         self.q = update_noise_std**2  # covariance of process noise
         self.r = read_noise_std**2  # covariance of measurement noise
@@ -280,7 +278,6 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
 
 
 class LinearDeviceEKF(BaseDeviceEKF):
-
     # TODO: Add drift, lifetime(decay rate), clipping, reverse_down
     # TODO: Consider parameter variation
     def __init__(
@@ -345,13 +342,16 @@ class LinearDeviceEKF(BaseDeviceEKF):
         """Computes the Jacobian matrices df/dx and df/du of the _summation_update function with
         respect to x and u.
 
-        Parameters:
+        Parameters
+        ----------
         - x: Float[np.ndarray,"dim1"], state vector
         - u: Float[np.ndarray,"dim1"], control input vector
 
-        Returns:
+        Returns
+        -------
         - df_dx_matrix: Float[np.ndarray,"dim1"], Jacobian matrix of shape (n, n) with respect to x
         - df_du_matrix: Float[np.ndarray,"dim1"], Jacobian matrix of shape (n, n) with respect to u
+
         """
         # f(x, u) = _summation_update(x, u)
         # f(x,u) = (x - b/(1-r)) * r^k + b/(1-r), k = n_up & n_down, r = 1 + slope_up, b = scale_up
@@ -401,9 +401,7 @@ class LinearDeviceEKF(BaseDeviceEKF):
             df_dx_vector[indices_up] = r_up_pow_n_up[indices_up]
 
             # df/du
-            df_du_vector[indices_up] = (
-                A_up[indices_up] * r_up_pow_n_up[indices_up] * ln_r_up / b_up
-            )
+            df_du_vector[indices_up] = A_up[indices_up] * r_up_pow_n_up[indices_up] * ln_r_up / b_up
 
         # Compute df/dx and df/du for u ≤ 0
         if np.any(indices_down):
@@ -513,7 +511,6 @@ class LinearDeviceEKF(BaseDeviceEKF):
 
 
 class ExpDeviceEKF(BaseDeviceEKF):
-
     # TODO: Add drift, lifetime(decay rate), clipping
     # TODO: Consider parameter variation
     def __init__(

@@ -62,9 +62,9 @@ class Neuron(SubCircuitFactory):
 
     def __init__(
         self,
-        Rectifier: Union[str, SubCircuitFactory] = "BidRectifier",
+        Rectifier: str | SubCircuitFactory = "BidRectifier",
         diodeModel: str = "1N4148",
-        A: Union[int, float] = 4,
+        A: int | float = 4,
     ):
         super().__init__()
         if Rectifier == "BidRectifier":

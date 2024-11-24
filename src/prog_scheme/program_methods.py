@@ -1,10 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Literal, Optional
 
-import numpy as np
 import torch
-from jaxtyping import Float
-from scipy import linalg as sla
 from torch import Tensor
 
 from src.core.aihwkit.utils import get_persistent_weights
@@ -18,14 +15,6 @@ NormType = Literal["nuc", "fro", "inf", "1", "-inf", "2"]  # codespell:ignore fr
 
 class AbstractProgramMethods(ABC):
     """Abstract class for programming methods."""
-
-    @abstractmethod
-    def __init__(self): ...
-
-    @abstractmethod
-    def __call__(self) -> None:
-        """Program the target weights into the conductances using the pulse update defined."""
-        ...
 
     @staticmethod
     def init_setup(atile, w_init: float | Tensor) -> None:
@@ -129,12 +118,30 @@ class AbstractProgramMethods(ABC):
                 return (weight / alpha.view(-1, 1), bias / alpha if self.analog_bias else bias)
         return weight, bias
 
+    @abstractmethod
+    def program_weights(
+        cls,
+        atile,
+        fnc,
+        batch_size: int = 1,
+        learning_rate: float = 1,
+        max_iter: int = 100,
+        tolerance: float | None = 0.01,
+        w_init: float | Tensor = 0.0,
+        norm_type: NormType = "nuc",
+        x_rand: bool = False,
+        over_sampling: int = 10,
+        **kwargs: Any,
+    ) -> None:
+        """Program the target weights into the conductances using the pulsed update."""
+        pass
+
 
 class GDP(AbstractProgramMethods):
     """Program the target weights into the conductances using the pulse update defined."""
 
     @classmethod
-    def call_Program_Method(
+    def program_weights(
         cls,
         atile,
         fnc,
@@ -143,7 +150,7 @@ class GDP(AbstractProgramMethods):
         max_iter: int = 100,
         tolerance: float | None = 0.01,
         w_init: float | Tensor = 0.0,
-        norm_type: str = "nuc",
+        norm_type: NormType = "nuc",
         x_rand: bool = False,
         over_sampling: int = 10,
         **kwargs: Any,
@@ -175,11 +182,7 @@ class GDP(AbstractProgramMethods):
             # Set the corresponding indices in x
             x[row_indices, col_indices] = 1
             target = x @ atile.target_weights.T
-            yo = []
-            for j in range(over_sampling):
-                output = atile.tile.forward(x, False)
-                yo.append(output)
-
+            yo = [atile.tile.forward(x, False) for _ in range(over_sampling)]
             # Calculate the average over-sampled outputs
             yo = torch.stack(yo, dim=0)
             y = yo.mean(dim=0)
@@ -214,8 +217,7 @@ class GDP(AbstractProgramMethods):
                 L_diag = fnc.get_lqg_gain(None)
                 u_vec = -L_diag * (fnc.x_est - atile.target_weights.flatten().numpy())
 
-            u_matrix = torch.from_numpy(u_vec).reshape(output_size, input_size).double()
-            fnc.predict(u_matrix.flatten().numpy())
+            fnc.predict(u_vec)
         # Restore learning rate
         atile.tile.set_learning_rate(atile.lr_save)  # type: ignore
 
@@ -224,7 +226,7 @@ class SVD(AbstractProgramMethods):
     """Perform singular value decomposition (SVD) based weight programming."""
 
     @classmethod
-    def call_Program_Method(
+    def program_weights(
         cls,
         atile,
         fnc: AbstractDeviceFilternCtrl | None = None,
@@ -320,12 +322,12 @@ class SVD(AbstractProgramMethods):
                 break
 
             # Recompute SVD if required
-            if (iter + 1) % svd_every_k_iter == 0:
-                diff_realistic = (
-                    cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
-                    - atile.target_weights
-                )
-                U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
+            # if (iter + 1) % svd_every_k_iter == 0:
+            #     diff_realistic = (
+            #         cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
+            #         - atile.target_weights
+            #     )
+            #     U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
 
 
 @torch.no_grad()

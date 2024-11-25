@@ -38,7 +38,7 @@ class AbstractProgramMethods(ABC):
         x_values: Float[Tensor, "batch in"] | None = None,  # noqa: F722
         x_rand: bool = False,
         over_sampling: int = 10,
-        input_percent: float = 1.0,
+        input_ratio: float = 1.0,
     ) -> tuple[Tensor, Tensor | None]:
         """Reads the weights (and biases) in a realistic manner by using the forward pass for
         weights readout.
@@ -65,7 +65,7 @@ class AbstractProgramMethods(ABC):
                 ``over_sampling * in_size`` random vectors are used
                 for the estimation
 
-            input_percent: Percentage of input neurons to use for the estimation
+            input_ratio: Ratio of input neurons to use for the estimation
 
         Returns:
             a tuple where the first item is the ``[out_size, in_size]`` weight
@@ -77,7 +77,7 @@ class AbstractProgramMethods(ABC):
         """
         dtype = self.get_dtype()
         if x_values is None:
-            batch_size = round(self.in_size * input_percent)
+            batch_size = round(self.in_size * input_ratio)
             x_values = torch.eye(batch_size, self.in_size, device=self.device, dtype=dtype)
             if x_rand:
                 x_values = torch.rand(
@@ -232,6 +232,7 @@ class SVD(AbstractProgramMethods):
         cls,
         atile,
         fnc: AbstractDeviceFilternCtrl | None = None,
+        batch_size: int = 1,
         max_iter: int = 100,
         tolerance: float | None = 0.01,
         w_init: float | Tensor = 0.0,

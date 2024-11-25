@@ -102,7 +102,6 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
         # diagonal entries of P(Initial covariance matrix)
         self.P_diag = np.ones(dim)
         self.F_diag = np.ones(dim)
-        self.S_diag = None
         self.K_diag = None
         self.x_est = None
 
@@ -271,8 +270,7 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
         """Update the state(weight) estimation of the device."""
         y_res = z - self.x_est
         # H_diag = np.ones(self.dim)
-        self.S_diag = self.P_diag + self.r
-        self.K_diag = self.P_diag / self.S_diag
+        self.K_diag = self.P_diag / (self.P_diag + self.r)
         self.x_est += self.K_diag * y_res
         self.P_diag = (1 - self.K_diag) * self.P_diag
 
@@ -283,6 +281,15 @@ class LinearDeviceEKF(BaseDeviceEKF):
     def __init__(
         self, dim, read_noise_std: float, update_noise_std: float, iterative_update: bool, **kwargs
     ):
+        """Extended Kalman filter for linear device programming.
+
+        Args:
+        - dim: int, dimension of the device state
+        - read_noise_std: float, standard deviation of the read noise
+        - update_noise_std: float, standard deviation of the update noise
+        - iterative_update: bool, whether to iteratively update or update at once
+        - kwargs: dict, device parameters
+        """
         super().__init__(dim, read_noise_std, update_noise_std, iterative_update)
         self.update_x_plus_u = None
         # device parameters. See below for details

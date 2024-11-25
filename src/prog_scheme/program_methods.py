@@ -3,6 +3,7 @@ from typing import Any, Literal, Optional
 
 import torch
 from torch import Tensor
+from jaxtyping import Float
 
 from src.core.aihwkit.utils import get_persistent_weights
 from src.prog_scheme.kalman import AbstractDeviceFilternCtrl, BaseDeviceEKF, DeviceKF, NoFilter
@@ -18,14 +19,14 @@ class AbstractProgramMethods(ABC):
 
     @staticmethod
     def init_setup(atile, w_init: float | Tensor) -> None:
-        """Initialize the setup for programming methods."""
+        """Initializes the tile with the given initial weights & save lr."""
 
         if isinstance(w_init, Tensor):
             atile.tile.set_weights(w_init)
         else:
             atile.tile.set_weights_uniform_random(-w_init, w_init)
 
-        atile.initial_weights = get_persistent_weights(atile.tile)
+        atile._initial_weights = get_persistent_weights(atile.tile)
 
         atile.lr_save = atile.tile.get_learning_rate()
         atile.tile.set_learning_rate(1)
@@ -34,10 +35,10 @@ class AbstractProgramMethods(ABC):
     def read_weights_(
         self,
         apply_weight_scaling: bool = False,
-        x_values: Tensor | None = None,
+        x_values: Float[Tensor, "batch in"] | None = None,  # noqa: F722
         x_rand: bool = False,
         over_sampling: int = 10,
-        input_percent: float = 1.0,
+        input_ratio: float = 1.0,
     ) -> tuple[Tensor, Tensor | None]:
         """Reads the weights (and biases) in a realistic manner by using the forward pass for
         weights readout.
@@ -64,6 +65,8 @@ class AbstractProgramMethods(ABC):
                 ``over_sampling * in_size`` random vectors are used
                 for the estimation
 
+            input_ratio: Ratio of input neurons to use for the estimation
+
         Returns:
             a tuple where the first item is the ``[out_size, in_size]`` weight
             matrix; and the second item is either the ``[out_size]`` bias vector
@@ -74,12 +77,11 @@ class AbstractProgramMethods(ABC):
         """
         dtype = self.get_dtype()
         if x_values is None:
-            x_values = torch.eye(
-                round(self.in_size * input_percent), self.in_size, device=self.device, dtype=dtype
-            )
+            batch_size = round(self.in_size * input_ratio)
+            x_values = torch.eye(batch_size, self.in_size, device=self.device, dtype=dtype)
             if x_rand:
                 x_values = torch.rand(
-                    round(self.in_size * input_percent),
+                    batch_size,
                     self.in_size,
                     device=self.device,
                     dtype=dtype,
@@ -87,7 +89,9 @@ class AbstractProgramMethods(ABC):
         else:
             x_values = x_values.to(self.device)
 
-        x_values = x_values.repeat(over_sampling, 1)
+        x_values = x_values.expand(over_sampling, batch_size, self.in_size).reshape(
+            over_sampling * batch_size, self.in_size
+        )
 
         # forward pass in eval mode
         was_training = self.training
@@ -145,7 +149,7 @@ class GDP(AbstractProgramMethods):
         cls,
         atile,
         fnc,
-        batch_size: int = 5,
+        batch_size: int = 1,
         learning_rate: float = 1,
         max_iter: int = 100,
         tolerance: float | None = 0.01,
@@ -182,10 +186,7 @@ class GDP(AbstractProgramMethods):
             # Set the corresponding indices in x
             x[row_indices, col_indices] = 1
             target = x @ atile.target_weights.T
-            yo = [atile.tile.forward(x, False) for _ in range(over_sampling)]
-            # Calculate the average over-sampled outputs
-            yo = torch.stack(yo, dim=0)
-            y = yo.mean(dim=0)
+            y = atile.tile.forward(x.expand(over_sampling, -1), False).mean(dim=0)
 
             # Calculate error and norm
             error = y - target
@@ -207,6 +208,7 @@ class GDP(AbstractProgramMethods):
             x[row_indices, col_indices] = 0
 
             # Update the state estimate
+            # TODO: Update the state estimate with a realistic method using atile.read_weights_()
             z = atile.tile.get_weights().clone().flatten().detach().numpy()
             fnc.update(z)
 
@@ -230,6 +232,7 @@ class SVD(AbstractProgramMethods):
         cls,
         atile,
         fnc: AbstractDeviceFilternCtrl | None = None,
+        batch_size: int = 1,
         max_iter: int = 100,
         tolerance: float | None = 0.01,
         w_init: float | Tensor = 0.0,

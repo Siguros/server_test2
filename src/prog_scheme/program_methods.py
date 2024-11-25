@@ -184,7 +184,10 @@ class GDP(AbstractProgramMethods):
             col_indices = (start_idx + row_indices) % input_size
 
             # Set the corresponding indices in x
-            x[row_indices, col_indices] = 1
+            if x_rand:
+                x = torch.rand(batch_size, input_size).to(atile.device)
+            else:
+                x[row_indices, col_indices] = 1
             target = x @ atile.target_weights.T
             y = atile.tile.forward(x.expand(over_sampling, -1), False).mean(dim=0)
 

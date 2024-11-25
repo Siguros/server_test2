@@ -260,13 +260,6 @@ class SVD(AbstractProgramMethods):
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
 
-        # Initial weight difference
-        diff_realistic = (
-            cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
-            - atile.target_weights
-        ).detach()
-        U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
-
         if fnc is None:
             fnc = NoFilter(state_size)
 

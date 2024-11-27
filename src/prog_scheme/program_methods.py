@@ -171,9 +171,11 @@ class GDP(AbstractProgramMethods):
         state_size = input_size * output_size
 
         if fnc is None:
-            fnc = NoFilter(state_size)
+            f = NoFilter(state_size)
+        else:
+            f = fnc
 
-        fnc.x_est = atile.tile.get_weights().clone().flatten().detach().numpy()  # Initialize x_est
+        f.x_est = atile.tile.get_weights().clone().flatten().detach().numpy()  # Initialize x_est
 
         x = torch.zeros(batch_size, input_size).to(atile.device)
         for i in range(max_iter):
@@ -189,10 +191,25 @@ class GDP(AbstractProgramMethods):
             else:
                 x[row_indices, col_indices] = 1
             target = x @ atile.target_weights.T
-            y = atile.tile.forward(x.expand(over_sampling, -1), False).mean(dim=0)
+
+            y = atile.tile.forward(x.repeat(over_sampling, 1), False)
+            # mean over oversampling dim
+            y_mean = y.view(over_sampling, batch_size, output_size).mean(dim=0)
 
             # Calculate error and norm
-            error = y - target
+            if fnc is not None:
+                z = (
+                    torch.linalg.lstsq(x.repeat(over_sampling, 1), y)
+                    .solution.flatten()
+                    .detach()
+                    .numpy()
+                )
+                f.update(z)
+                W_est = f.x_est.reshape(output_size, input_size)
+                y_est = x @ W_est.T
+                error = y_est - target
+            else:
+                error = y_mean - target
 
             current_weights = get_persistent_weights(atile.tile)
             mtx_diff = current_weights - atile.target_weights
@@ -210,19 +227,6 @@ class GDP(AbstractProgramMethods):
             # Reset x for the next iteration
             x[row_indices, col_indices] = 0
 
-            # Update the state estimate
-            # TODO: Update the state estimate with a realistic method using atile.read_weights_()
-            z = atile.tile.get_weights().clone().flatten().detach().numpy()
-            fnc.update(z)
-
-            # Compute the control input
-            if isinstance(fnc, NoFilter | DeviceKF):
-                u_vec = -(fnc.x_est - atile.target_weights.flatten().numpy())
-            elif isinstance(fnc, BaseDeviceEKF):
-                L_diag = fnc.get_lqg_gain(None)
-                u_vec = -L_diag * (fnc.x_est - atile.target_weights.flatten().numpy())
-
-            fnc.predict(u_vec)
         # Restore learning rate
         atile.tile.set_learning_rate(atile.lr_save)  # type: ignore
 

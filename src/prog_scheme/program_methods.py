@@ -88,9 +88,10 @@ class AbstractProgramMethods(ABC):
                 )
         else:
             x_values = x_values.to(self.device)
+            batch_size = x_values.size(0)
 
-        x_values = x_values.expand(over_sampling, batch_size, self.in_size).reshape(
-            over_sampling * batch_size, self.in_size
+        x_values = x_values.expand(over_sampling, batch_size, -1).reshape(
+            over_sampling * batch_size, -1
         )
 
         # forward pass in eval mode
@@ -148,7 +149,7 @@ class GDP(AbstractProgramMethods):
     def program_weights(
         cls,
         atile,
-        fnc,
+        fnc: AbstractDeviceFilternCtrl | None = None,
         batch_size: int = 1,
         learning_rate: float = 1,
         max_iter: int = 100,
@@ -170,12 +171,10 @@ class GDP(AbstractProgramMethods):
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
 
-        if fnc is None:
-            f = NoFilter(state_size)
-        else:
-            f = fnc
-
-        f.x_est = atile.tile.get_weights().clone().flatten().detach().numpy()  # Initialize x_est
+        if fnc:
+            fnc.x_est = (
+                atile.tile.get_weights().clone().flatten().detach().numpy()
+            )  # Initialize x_est
 
         x = torch.zeros(batch_size, input_size).to(atile.device)
         for i in range(max_iter):
@@ -190,27 +189,36 @@ class GDP(AbstractProgramMethods):
                 x = torch.rand(batch_size, input_size).to(atile.device)
             else:
                 x[row_indices, col_indices] = 1
-            target = x @ atile.target_weights.T
-
-            y = atile.tile.forward(x.repeat(over_sampling, 1), False)
-            # mean over oversampling dim
-            y_mean = y.view(over_sampling, batch_size, output_size).mean(dim=0)
-
-            # Calculate error and norm
-            if fnc is not None:
+            y_target = x @ atile.target_weights.T
+            if fnc:
                 z = (
-                    torch.linalg.lstsq(x.repeat(over_sampling, 1), y)
-                    .solution.flatten()
+                    cls.read_weights_(atile, over_sampling=over_sampling, x_values=x)[0]
+                    .flatten()
                     .detach()
                     .numpy()
                 )
-                f.update(z)
-                W_est = f.x_est.reshape(input_size, output_size)
+                fnc.update(z)
+                # Calculate error and norm
+                W_est = fnc.x_est.reshape(input_size, output_size)
                 y_est = x @ W_est
-                error = y_est - target
+                error = y_est - y_target
             else:
-                error = y_mean - target
+                y = atile.tile.forward(x.expand(over_sampling, batch_size, input_size)).mean(0)
+                error = y - y_target
 
+            # Update the tile with the error
+            atile.tile.update(x, error, False)
+            if fnc:
+                u = -(x.T @ error).flatten().numpy()
+                fnc.predict(u)
+                # for i in range(batch_size):
+                #     u = -torch.outer(x[i], error[i])
+                #     fnc.predict(u.flatten().numpy())  # type: ignore
+
+            # Reset x for the next iteration
+            x[row_indices, col_indices] = 0
+
+            # Logging and convergence checking
             current_weights = get_persistent_weights(atile.tile)
             mtx_diff = current_weights - atile.target_weights
             norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
@@ -220,17 +228,6 @@ class GDP(AbstractProgramMethods):
             if tolerance is not None and norm < tolerance:
                 log.debug("Tolerance reached, stopping early.")
                 break
-
-            # Update the tile with the error
-            if fnc is None:
-                atile.tile.update(x, error, False)
-            else:
-                for i in range(batch_size):
-                    u = -torch.outer(x[i], error[i])
-                    f.predict(u.flatten().numpy())  # type: ignore
-
-            # Reset x for the next iteration
-            x[row_indices, col_indices] = 0
 
         # Restore learning rate
         atile.tile.set_learning_rate(atile.lr_save)  # type: ignore
@@ -283,8 +280,6 @@ class SVD(AbstractProgramMethods):
         fnc.x_est = atile.tile.get_weights().clone().flatten().detach().numpy()  # Initialize x_est
 
         for iter in range(max_iter):
-            i = iter % svd_every_k_iter
-
             # Read the current weights and update the state estimate
             z = (
                 cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
@@ -294,7 +289,7 @@ class SVD(AbstractProgramMethods):
             )
             fnc.update(z)
 
-            if i == 0:
+            if (i := iter % svd_every_k_iter) == 0:
                 # Compute the control input
                 if isinstance(fnc, NoFilter | DeviceKF):
                     u_vec = -(fnc.x_est - atile.target_weights.flatten().numpy())
@@ -303,7 +298,7 @@ class SVD(AbstractProgramMethods):
                     L_diag = 1
                     u_vec = -L_diag * (fnc.x_est - atile.target_weights.flatten().numpy())
 
-                u_matrix = torch.from_numpy(u_vec).reshape(output_size, input_size).double()
+                u_matrix = torch.from_numpy(u_vec).view(output_size, input_size).double()
                 U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
 
             # Perform SVD update

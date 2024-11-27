@@ -205,8 +205,8 @@ class GDP(AbstractProgramMethods):
                     .numpy()
                 )
                 f.update(z)
-                W_est = f.x_est.reshape(output_size, input_size)
-                y_est = x @ W_est.T
+                W_est = f.x_est.reshape(input_size, output_size)
+                y_est = x @ W_est
                 error = y_est - target
             else:
                 error = y_mean - target
@@ -222,7 +222,12 @@ class GDP(AbstractProgramMethods):
                 break
 
             # Update the tile with the error
-            atile.tile.update(x, error, False)  # type: ignore
+            if fnc is None:
+                atile.tile.update(x, error, False)
+            else:
+                for i in range(batch_size):
+                    u = -torch.outer(x[i], error[i])
+                    f.predict(u.flatten().numpy())  # type: ignore
 
             # Reset x for the next iteration
             x[row_indices, col_indices] = 0

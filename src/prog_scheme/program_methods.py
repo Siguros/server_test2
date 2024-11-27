@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Any, Literal, Optional
 
+from aihwkit.simulator.tiles.module import TileModule
+from aihwkit.simulator.tiles.periphery import TileWithPeriphery
+from aihwkit.simulator.tiles.base import SimulatorTile
 import torch
 from torch import Tensor
 from jaxtyping import Float
@@ -14,12 +17,25 @@ log = RankedLogger(rank_zero_only=True)
 NormType = Literal["nuc", "fro", "inf", "1", "-inf", "2"]  # codespell:ignore fro
 
 
+class TileModuleWithPeriphery(TileModule, TileWithPeriphery):
+    """Dummy class for type hinting."""
+
+    def __init__(self) -> None:
+        self.tile: SimulatorTile
+
+    ...
+
+
 class AbstractProgramMethods(ABC):
     """Abstract class for programming methods."""
 
     @staticmethod
-    def init_setup(atile, w_init: float | Tensor) -> None:
+    def init_setup(atile: TileModuleWithPeriphery, w_init: float | Tensor) -> None:
         """Initializes the tile with the given initial weights & save lr."""
+        atile.actual_weight_updates = []
+        atile.desired_weight_updates = []
+        if atile.reference_combined_weights is None:
+            atile.reference_combined_weights = atile.tile.get_weights()  # type: ignore
 
         if isinstance(w_init, Tensor):
             atile.tile.set_weights(w_init)
@@ -33,7 +49,7 @@ class AbstractProgramMethods(ABC):
 
     @staticmethod
     def read_weights_(
-        self,
+        atile: TileModuleWithPeriphery,
         apply_weight_scaling: bool = False,
         x_values: Float[Tensor, "batch in"] | None = None,  # noqa: F722
         x_rand: bool = False,
@@ -75,19 +91,19 @@ class AbstractProgramMethods(ABC):
         Raises:
             TileError: in case wrong code usage of TileWithPeriphery
         """
-        dtype = self.get_dtype()
+        dtype = atile.get_dtype()
         if x_values is None:
-            batch_size = round(self.in_size * input_ratio)
-            x_values = torch.eye(batch_size, self.in_size, device=self.device, dtype=dtype)
+            batch_size = round(atile.in_size * input_ratio)
+            x_values = torch.eye(batch_size, atile.in_size, device=atile.device, dtype=dtype)
             if x_rand:
                 x_values = torch.rand(
                     batch_size,
-                    self.in_size,
-                    device=self.device,
+                    atile.in_size,
+                    device=atile.device,
                     dtype=dtype,
                 )
         else:
-            x_values = x_values.to(self.device)
+            x_values = x_values.to(atile.device)
             batch_size = x_values.size(0)
 
         x_values = x_values.expand(over_sampling, batch_size, -1).reshape(
@@ -95,38 +111,37 @@ class AbstractProgramMethods(ABC):
         )
 
         # forward pass in eval mode
-        was_training = self.training
-        is_indexed = self.is_indexed()
-        self.eval()
+        was_training = atile.training
+        is_indexed = atile.is_indexed()
+        atile.eval()
         if is_indexed:
-            self.analog_ctx.set_indexed(False)
-        y_values = self.forward(x_values)
+            atile.analog_ctx.set_indexed(False)
+        y_values = atile.forward(x_values)
         if was_training:
-            self.train()
+            atile.train()
         if is_indexed:
-            self.analog_ctx.set_indexed(True)
+            atile.analog_ctx.set_indexed(True)
 
-        if self.bias is not None:
-            y_values -= self.bias
+        if atile.bias is not None:
+            y_values -= atile.bias
 
         est_weight = torch.linalg.lstsq(x_values, y_values).solution.T.cpu()
-        weight, bias = self._separate_weights(est_weight)
+        weight, bias = atile._separate_weights(est_weight)
 
-        if self.digital_bias:
-            bias = self.bias.detach().cpu()
+        if atile.digital_bias:
+            bias = atile.bias.detach().cpu()
 
         if not apply_weight_scaling:
             # we de-apply all scales
-            alpha = self.get_scales()
+            alpha = atile.get_scales()
             if alpha is not None:
                 alpha = alpha.detach().cpu()
-                return (weight / alpha.view(-1, 1), bias / alpha if self.analog_bias else bias)
+                return (weight / alpha.view(-1, 1), bias / alpha if atile.analog_bias else bias)
         return weight, bias
 
     @abstractmethod
     def program_weights(
-        cls,
-        atile,
+        atile: TileModuleWithPeriphery,
         fnc,
         batch_size: int = 1,
         learning_rate: float = 1,
@@ -145,10 +160,9 @@ class AbstractProgramMethods(ABC):
 class GDP(AbstractProgramMethods):
     """Program the target weights into the conductances using the pulse update defined."""
 
-    @classmethod
+    @staticmethod
     def program_weights(
-        cls,
-        atile,
+        atile: TileModuleWithPeriphery,
         fnc: AbstractDeviceFilternCtrl | None = None,
         batch_size: int = 1,
         learning_rate: float = 1,
@@ -163,13 +177,9 @@ class GDP(AbstractProgramMethods):
         """Program the target weights into the conductances using the pulse update defined.
 
         Bases aihwkit.simulator.tiles.periphery.TileWithPeriphery."""
-        # Ensure self has required methods and attributes
-        assert hasattr(atile, "init_setup") and hasattr(atile, "tile"), AttributeError(
-            "Instance must have 'init_setup' and 'tile' attributes"
-        )
 
         # Initialize with the given weight
-        cls.init_setup(atile, w_init)
+        AbstractProgramMethods.init_setup(atile, w_init)
         input_size = atile.tile.get_x_size()
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
@@ -195,7 +205,9 @@ class GDP(AbstractProgramMethods):
             y_target = (target_weights @ x.T).T  # (o,i)@(i,b).T -> b,o
             if fnc:
                 z = (
-                    cls.read_weights_(atile, over_sampling=over_sampling, x_values=x)[0]
+                    AbstractProgramMethods.read_weights_(
+                        atile, over_sampling=over_sampling, x_values=x
+                    )[0]
                     .flatten()
                     .detach()
                     .numpy()
@@ -240,10 +252,9 @@ class GDP(AbstractProgramMethods):
 class SVD(AbstractProgramMethods):
     """Perform singular value decomposition (SVD) based weight programming."""
 
-    @classmethod
+    @staticmethod
     def program_weights(
-        cls,
-        atile,
+        atile: TileModuleWithPeriphery,
         fnc: AbstractDeviceFilternCtrl | None = None,
         batch_size: int = 1,
         max_iter: int = 100,
@@ -274,7 +285,7 @@ class SVD(AbstractProgramMethods):
             **kwargs: Additional keyword arguments.
         """
         # Initialize the tile with the given initial weights
-        cls.init_setup(atile, w_init)
+        AbstractProgramMethods.init_setup(atile, w_init)
         input_size = atile.tile.get_x_size()
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
@@ -287,7 +298,7 @@ class SVD(AbstractProgramMethods):
         for iter in range(max_iter):
             # Read the current weights and update the state estimate
             z = (
-                cls.read_weights_(
+                AbstractProgramMethods.read_weights_(
                     atile, over_sampling=over_sampling, x_rand=x_rand, input_ratio=input_ratio
                 )[0]
                 .flatten()
@@ -359,7 +370,7 @@ def iterative_compressed(
         **kwargs: Additional keyword arguments.
 
     """
-    init_setup(self, w_init)
+    AbstractProgramMethods.init_setup(self, w_init)
     target_weights = self.reference_combined_weights
     prev_weights = self.initial_weights
     ncol, nrow = self.tile.get_d_size(), self.tile.get_x_size()
@@ -376,23 +387,6 @@ def iterative_compressed(
             break
 
     self.tile.set_learning_rate(self.lr_save)
-
-
-def init_setup(self, w_init) -> None:
-    self.actual_weight_updates = []
-    self.desired_weight_updates = []
-    if self.reference_combined_weights is None:
-        self.reference_combined_weights = self.tile.get_weights()  # type: ignore
-
-    if isinstance(w_init, Tensor):
-        self.tile.set_weights(w_init)
-    else:
-        self.tile.set_weights_uniform_random(-w_init, w_init)
-
-    self.initial_weights = get_persistent_weights(self.tile)
-
-    self.lr_save = self.tile.get_learning_rate()
-    self.tile.set_learning_rate(1)
 
 
 def compensate_half_selection(v: Tensor) -> Tensor:

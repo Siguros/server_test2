@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
+import torch
 from jaxtyping import Float
 from joblib import Parallel, delayed
 from scipy import sparse
@@ -12,8 +13,11 @@ StateVec = Float[np.ndarray, "ixo"]
 class AbstractDeviceFilternCtrl(ABC):
     """Abstract class for device programming with Kalman filter and control."""
 
-    @abstractmethod
-    def __init__(self, dim: int, read_noise_std: float, update_noise_std: float, **kwargs): ...
+    def __init__(self, dim: int, read_noise_std: float, update_noise_std: float, **kwargs):
+        self.dim = dim
+        self.x_est = None
+        self.q = update_noise_std**2  # covariance of process noise
+        self.r = read_noise_std**2  # covariance of measurement noise
 
     @abstractmethod
     def predict(self, u: StateVec) -> None:
@@ -29,6 +33,10 @@ class AbstractDeviceFilternCtrl(ABC):
     def get_lqg_gain(self, u) -> StateVec | int:
         """Return diagonal entries of Linear Quadratic Gaussian(LQG) control gain matrix."""
         ...
+
+    def get_x_est(self) -> torch.Tensor:
+        """Return the copied tensor of current state estimation of the device."""
+        return torch.tensor(self.x_est)
 
 
 class NoFilter(AbstractDeviceFilternCtrl):
@@ -58,17 +66,14 @@ class DeviceKF(AbstractDeviceFilternCtrl):
     """
 
     def __init__(self, dim: int, read_noise_std: float, update_noise_std: float):
-        self.dim = dim
-        self.q = update_noise_std**2
-        self.r = read_noise_std**2
-        self.P_scale = 1
+        super().__init__(dim, read_noise_std, update_noise_std)
         self.S_scale = None
         self.K_scale = None
+        self.P_scale = 1
         # Solve Riccati equation for S_scale
         # poly = np.array([1, -(self.r), -(self.r) * (self.q)])
         # self.S_scale = np.roots(poly).max()
         # self.K_scale = self.S_scale / (self.S_scale + q)
-        self.x_est = None
 
     def predict(self, u: StateVec):
         """Predict the next state of the device."""
@@ -97,9 +102,7 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
     """
 
     def __init__(self, dim, read_noise_std: float, update_noise_std: float, iterative_update: bool):
-        self.dim = dim
-        self.q = update_noise_std**2  # covariance of process noise
-        self.r = read_noise_std**2  # covariance of measurement noise
+        super().__init__(dim, read_noise_std, update_noise_std)
         self.iterative_update = iterative_update
         # diagonal entries of P(Initial covariance matrix)
         self.P_diag = np.ones(dim)

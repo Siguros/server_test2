@@ -160,17 +160,20 @@ class GDP(AbstractProgramMethods):
         over_sampling: int = 10,
         **kwargs: Any,
     ) -> None:
-        """Program the target weights into the conductances using the pulse update defined."""
+        """Program the target weights into the conductances using the pulse update defined.
+
+        Bases aihwkit.simulator.tiles.periphery.TileWithPeriphery."""
         # Ensure self has required methods and attributes
-        if not hasattr(atile, "init_setup") or not hasattr(atile, "tile"):
-            raise AttributeError("Instance must have 'init_setup' and 'tile' attributes")
+        assert hasattr(atile, "init_setup") and hasattr(atile, "tile"), AttributeError(
+            "Instance must have 'init_setup' and 'tile' attributes"
+        )
 
         # Initialize with the given weight
         cls.init_setup(atile, w_init)
         input_size = atile.tile.get_x_size()
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
-
+        target_weights = atile.reference_combined_weights
         if fnc:
             fnc.x_est = (
                 atile.tile.get_weights().clone().flatten().detach().numpy()
@@ -189,7 +192,7 @@ class GDP(AbstractProgramMethods):
                 x = torch.rand(batch_size, input_size).to(atile.device)
             else:
                 x[row_indices, col_indices] = 1
-            y_target = x @ atile.target_weights.T
+            y_target = (target_weights @ x.T).T  # (o,i)@(i,b).T -> b,o
             if fnc:
                 z = (
                     cls.read_weights_(atile, over_sampling=over_sampling, x_values=x)[0]
@@ -199,20 +202,20 @@ class GDP(AbstractProgramMethods):
                 )
                 fnc.update(z)
                 # Calculate error and norm
-                W_est = fnc.x_est.reshape(input_size, output_size)
-                y_est = x @ W_est
+                W_est = fnc.get_x_est().reshape(output_size, input_size)  # (o,i)
+                y_est = (W_est @ x.T).T  # (o,i)@(i,b).T -> b,o
                 error = y_est - y_target
             else:
                 y = atile.tile.forward(x.expand(over_sampling, batch_size, input_size)).mean(0)
                 error = y - y_target
 
             # Update the tile with the error
-            atile.tile.update(x, error, False)
+            atile.tile.update(x, error, False)  # (b,i), (b,o) -> -(o,i)
             if fnc:
-                u = -(x.T @ error).flatten().numpy()
+                u = -(x.T @ error).T.flatten().numpy()
                 fnc.predict(u)
                 # for i in range(batch_size):
-                #     u = -torch.outer(x[i], error[i])
+                #     u = -torch.outer(error[i], x[i])  # (o,1) @ (1,i) -> (o,i)
                 #     fnc.predict(u.flatten().numpy())  # type: ignore
 
             # Reset x for the next iteration
@@ -220,7 +223,8 @@ class GDP(AbstractProgramMethods):
 
             # Logging and convergence checking
             current_weights = get_persistent_weights(atile.tile)
-            mtx_diff = current_weights - atile.target_weights
+            mtx_diff = current_weights - target_weights
+            # TODO: normalize norm
             norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
             log.debug(f"Error: {norm}")
 
@@ -250,6 +254,7 @@ class SVD(AbstractProgramMethods):
         norm_type: NormType = "nuc",
         over_sampling: int = 10,
         x_rand: bool = False,
+        input_ratio: float = 1.0,
         **kwargs: Any,
     ) -> None:
         """Perform singular value decomposition (SVD) based weight programming.
@@ -273,7 +278,7 @@ class SVD(AbstractProgramMethods):
         input_size = atile.tile.get_x_size()
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
-
+        target_weights = atile.reference_combined_weights
         if fnc is None:
             fnc = NoFilter(state_size)
 
@@ -282,7 +287,9 @@ class SVD(AbstractProgramMethods):
         for iter in range(max_iter):
             # Read the current weights and update the state estimate
             z = (
-                cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
+                cls.read_weights_(
+                    atile, over_sampling=over_sampling, x_rand=x_rand, input_ratio=input_ratio
+                )[0]
                 .flatten()
                 .detach()
                 .numpy()
@@ -291,14 +298,14 @@ class SVD(AbstractProgramMethods):
 
             if (i := iter % svd_every_k_iter) == 0:
                 # Compute the control input
-                if isinstance(fnc, NoFilter | DeviceKF):
-                    u_vec = -(fnc.x_est - atile.target_weights.flatten().numpy())
-                elif isinstance(fnc, BaseDeviceEKF):
-                    # L_diag = fnc.get_lqg_gain(u_prev)
-                    L_diag = 1
-                    u_vec = -L_diag * (fnc.x_est - atile.target_weights.flatten().numpy())
-
-                u_matrix = torch.from_numpy(u_vec).view(output_size, input_size).double()
+                # L_diag = fnc.get_lqg_gain()
+                L_diag = 1
+                u_matrix = (
+                    -L_diag
+                    * (fnc.get_x_est() - target_weights.flatten())
+                    .view(output_size, input_size)
+                    .double()
+                )
                 U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
 
             # Perform SVD update
@@ -317,7 +324,7 @@ class SVD(AbstractProgramMethods):
 
             # Logging and convergence checking
             current_weights = get_persistent_weights(atile.tile)
-            norm = torch.linalg.matrix_norm(current_weights - atile.target_weights, ord=norm_type)
+            norm = torch.linalg.matrix_norm(current_weights - target_weights, ord=norm_type)
             log.debug(f"Error: {norm}")
 
             if tolerance is not None and norm < tolerance:
@@ -353,16 +360,17 @@ def iterative_compressed(
 
     """
     init_setup(self, w_init)
+    target_weights = self.reference_combined_weights
     prev_weights = self.initial_weights
     ncol, nrow = self.tile.get_d_size(), self.tile.get_x_size()
     for iter in range(max_iter):
-        self.tile.update(self.target_weights, self.target_weights - prev_weights, False)
+        self.tile.update(target_weights, target_weights - prev_weights, False)
         current_weights = get_persistent_weights(self.tile)
-        norm = torch.linalg.matrix_norm(current_weights - self.target_weights, ord=norm_type)
+        norm = torch.linalg.matrix_norm(current_weights - target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
         self.actual_weight_updates.append(current_weights - prev_weights)
-        self.desired_weight_updates.append(self.target_weights - current_weights)
+        self.desired_weight_updates.append(target_weights - current_weights)
         prev_weights = current_weights
         if tolerance is not None and norm < tolerance:
             break
@@ -371,9 +379,10 @@ def iterative_compressed(
 
 
 def init_setup(self, w_init) -> None:
-    # self.target_weights = self.tile.get_weights().clone()
     self.actual_weight_updates = []
     self.desired_weight_updates = []
+    if self.reference_combined_weights is None:
+        self.reference_combined_weights = self.tile.get_weights()  # type: ignore
 
     if isinstance(w_init, Tensor):
         self.tile.set_weights(w_init)

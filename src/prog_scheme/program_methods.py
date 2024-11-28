@@ -1,39 +1,26 @@
 from abc import ABC, abstractmethod
-from typing import Any, Literal, Optional
+from typing import Any
 
-from aihwkit.simulator.tiles.module import TileModule
-from aihwkit.simulator.tiles.periphery import TileWithPeriphery
-from aihwkit.simulator.tiles.base import SimulatorTile
 import torch
 from torch import Tensor
 from jaxtyping import Float
 
 from src.core.aihwkit.utils import get_persistent_weights
-from src.prog_scheme.kalman import AbstractDeviceFilternCtrl, BaseDeviceEKF, DeviceKF, NoFilter
+from src.prog_scheme.kalman import AbstractDeviceFilternCtrl, NoFilter
 from src.utils.pylogger import RankedLogger
+from src.core.aihwkit.types import TileModuleWithPeriphery, NormType
 
 log = RankedLogger(rank_zero_only=True)
 
-NormType = Literal["nuc", "fro", "inf", "1", "-inf", "2"]  # codespell:ignore fro
 
-
-class TileModuleWithPeriphery(TileModule, TileWithPeriphery):
-    """Dummy class for type hinting."""
-
-    def __init__(self) -> None:
-        self.tile: SimulatorTile
-
-    ...
-
-
-class AbstractProgramMethods(ABC):
+class ProgramMethod(ABC):
     """Abstract class for programming methods."""
 
     @staticmethod
     def init_setup(atile: TileModuleWithPeriphery, w_init: float | Tensor) -> None:
         """Initializes the tile with the given initial weights & save lr."""
-        atile.actual_weight_updates = []
-        atile.desired_weight_updates = []
+        # atile.actual_weight_updates = []
+        # atile.desired_weight_updates = []
         if atile.reference_combined_weights is None:
             atile.reference_combined_weights = atile.tile.get_weights()  # type: ignore
 
@@ -142,7 +129,7 @@ class AbstractProgramMethods(ABC):
     @abstractmethod
     def program_weights(
         atile: TileModuleWithPeriphery,
-        fnc,
+        fnc: AbstractDeviceFilternCtrl | None = None,
         batch_size: int = 1,
         learning_rate: float = 1,
         max_iter: int = 100,
@@ -153,12 +140,14 @@ class AbstractProgramMethods(ABC):
         over_sampling: int = 10,
         **kwargs: Any,
     ) -> None:
-        """Program the target weights into the conductances using the pulsed update."""
+        """Program the target weights into the conductances using the pulsed update.
+
+        All the programming methods should implement this method."""
         pass
 
 
-class GDP(AbstractProgramMethods):
-    """Program the target weights into the conductances using the pulse update defined."""
+class GDP(ProgramMethod):
+    """Modified Gradient Descent Programming (GDP) method."""
 
     @staticmethod
     def program_weights(
@@ -174,12 +163,33 @@ class GDP(AbstractProgramMethods):
         over_sampling: int = 10,
         **kwargs: Any,
     ) -> None:
-        """Program the target weights into the conductances using the pulse update defined.
+        """
+        Program the target weights into the conductances using the pulse update method.
 
-        Bases aihwkit.simulator.tiles.periphery.TileWithPeriphery."""
+        This function programs the target weights into the conductances of the given tile module
+        using a pulse update method. The implementation is based on the original method from
+        `TileWithPeriphery.program_weights()` in `aihwkit.simulator.tiles.periphery.py`.
+
+        Args:
+            atile (TileModuleWithPeriphery): The tile module with periphery to be programmed.
+            fnc (AbstractDeviceFilternCtrl, optional): An optional filter control object for
+                estimating and updating weights. Defaults to None.
+            batch_size (int, optional): The size of the batch for each iteration. Defaults to 1.
+            learning_rate (float, optional): The learning rate for the update process. Defaults to 1.
+            max_iter (int, optional): The maximum number of iterations for the update process. Defaults to 100.
+            tolerance (float, optional): The tolerance level for early stopping based on the norm of the weight difference. Defaults to 0.01.
+            w_init (float or Tensor, optional): The initial weight value or tensor. Defaults to 0.0.
+            norm_type (NormType, optional): The type of norm to use for calculating the weight difference. Defaults to "nuc".
+            x_rand (bool, optional): If True, random input vectors are used; otherwise, a deterministic pattern is used. Defaults to False.
+            over_sampling (int, optional): The oversampling factor for reading weights. Defaults to 10.
+            **kwargs (Any): Additional keyword arguments.
+
+        Returns:
+            None
+        """
 
         # Initialize with the given weight
-        AbstractProgramMethods.init_setup(atile, w_init)
+        ProgramMethod.init_setup(atile, w_init)
         input_size = atile.tile.get_x_size()
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
@@ -205,9 +215,7 @@ class GDP(AbstractProgramMethods):
             y_target = (target_weights @ x.T).T  # (o,i)@(i,b).T -> b,o
             if fnc:
                 z = (
-                    AbstractProgramMethods.read_weights_(
-                        atile, over_sampling=over_sampling, x_values=x
-                    )[0]
+                    ProgramMethod.read_weights_(atile, over_sampling=over_sampling, x_values=x)[0]
                     .flatten()
                     .detach()
                     .numpy()
@@ -249,7 +257,7 @@ class GDP(AbstractProgramMethods):
         atile.tile.set_learning_rate(atile.lr_save)  # type: ignore
 
 
-class SVD(AbstractProgramMethods):
+class SVD(ProgramMethod):
     """Perform singular value decomposition (SVD) based weight programming."""
 
     @staticmethod
@@ -285,7 +293,7 @@ class SVD(AbstractProgramMethods):
             **kwargs: Additional keyword arguments.
         """
         # Initialize the tile with the given initial weights
-        AbstractProgramMethods.init_setup(atile, w_init)
+        ProgramMethod.init_setup(atile, w_init)
         input_size = atile.tile.get_x_size()
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
@@ -298,7 +306,7 @@ class SVD(AbstractProgramMethods):
         for iter in range(max_iter):
             # Read the current weights and update the state estimate
             z = (
-                AbstractProgramMethods.read_weights_(
+                ProgramMethod.read_weights_(
                     atile, over_sampling=over_sampling, x_rand=x_rand, input_ratio=input_ratio
                 )[0]
                 .flatten()
@@ -370,7 +378,7 @@ def iterative_compressed(
         **kwargs: Additional keyword arguments.
 
     """
-    AbstractProgramMethods.init_setup(self, w_init)
+    ProgramMethod.init_setup(self, w_init)
     target_weights = self.reference_combined_weights
     prev_weights = self.initial_weights
     ncol, nrow = self.tile.get_d_size(), self.tile.get_x_size()

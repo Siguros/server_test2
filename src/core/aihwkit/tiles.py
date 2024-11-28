@@ -41,6 +41,7 @@ def new_atile_cls(tile_class: type[SimulatorTile], override_func: callable) -> t
 def _replace_atile(amodule: AnalogLayerBase, new_program_func):
     """Replace the program_weights function of a tile module."""
     for atile in amodule.analog_tiles():
+        atile: TileWithPeriphery
         # AtileCls = new_tile_cls(atile.tile.__class__, new_program_func)
         # new_atile = AtileCls(atile.tile.device, atile.tile.in_features, atile.tile.out_features)
         atile.program_weights = new_program_func.__get__(atile, TileWithPeriphery)

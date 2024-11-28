@@ -1,8 +1,9 @@
 import re
 import time
+from typing import Literal
 
 import torch
-from aihwkit.simulator.tiles.base import BaseTile
+from aihwkit.simulator.tiles.periphery import TileWithPeriphery
 
 from src.utils.logging_utils import LogCapture
 
@@ -25,18 +26,21 @@ def extract_error(log_list, prefix: str = "Error: ") -> list:
     return err_list
 
 
+def get_program_method_name(tile: TileWithPeriphery) -> Literal["gdp-aihw", "gdp", "svd"]:
+    """Get the name of the programming method."""
+    name = tile.program_weights.__func__.__qualname__.lower().split(".")[0]
+    return name if name != "TileWithPeriphery" else "gdp-aihw"
+
+
 def program_n_log(
-    tiles: tuple[BaseTile, ...], target_weight: torch.Tensor, method_kwargs: dict
-) -> list[list[float]]:
-    err_lists = []
-    for tile in tiles:
-        with LogCapture() as logc:
-            # tile.tile.set_weights(target_weight)
-            tile.target_weights = target_weight.clone()
-            start = time.time()
-            tile.program_weights(tile, **method_kwargs)
-            print(f"Programming time: {time.time() - start:.2f}s")
-            log = logc.get_log_list()
-        err_list = extract_error(log)
-        err_lists.append(err_list)
-    return err_lists
+    tile: TileWithPeriphery, target_weight: torch.Tensor, method_kwargs: dict
+) -> list[float]:
+    """Program the tile and return the error log."""
+    with LogCapture() as logc:
+        tile.reference_combined_weights = target_weight.clone()
+        start = time.time()
+        tile.program_weights(tile, **method_kwargs)
+        print(f"Programming time: {time.time() - start:.2f}s")
+        log = logc.get_log_list()
+    err_list = extract_error(log)
+    return err_list

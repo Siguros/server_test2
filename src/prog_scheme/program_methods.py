@@ -6,7 +6,7 @@ from torch import Tensor
 from jaxtyping import Float
 
 from src.core.aihwkit.utils import get_persistent_weights
-from src.prog_scheme.kalman import AbstractDeviceFilternCtrl, NoFilter
+from src.prog_scheme.filters import AbstractDeviceFilter, NoFilter
 from src.utils.pylogger import RankedLogger
 from src.core.aihwkit.types import TileModuleWithPeriphery, NormType
 
@@ -129,7 +129,7 @@ class ProgramMethod(ABC):
     @abstractmethod
     def program_weights(
         atile: TileModuleWithPeriphery,
-        fnc: AbstractDeviceFilternCtrl | None = None,
+        filter: AbstractDeviceFilter | None = None,
         batch_size: int = 1,
         learning_rate: float = 1,
         max_iter: int = 100,
@@ -152,7 +152,7 @@ class GDP(ProgramMethod):
     @staticmethod
     def program_weights(
         atile: TileModuleWithPeriphery,
-        fnc: AbstractDeviceFilternCtrl | None = None,
+        filter: AbstractDeviceFilter | None = None,
         batch_size: int = 1,
         learning_rate: float = 1,
         max_iter: int = 100,
@@ -172,7 +172,7 @@ class GDP(ProgramMethod):
 
         Args:
             atile (TileModuleWithPeriphery): The tile module with periphery to be programmed.
-            fnc (AbstractDeviceFilternCtrl, optional): An optional filter control object for
+            filter (AbstractDeviceFilter, optional): An optional filter control object for
                 estimating and updating weights. Defaults to None.
             batch_size (int, optional): The size of the batch for each iteration. Defaults to 1.
             learning_rate (float, optional): The learning rate for the update process. Defaults to 1.
@@ -194,8 +194,8 @@ class GDP(ProgramMethod):
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
         target_weights = atile.reference_combined_weights
-        if fnc:
-            fnc.x_est = (
+        if filter:
+            filter.x_est = (
                 atile.tile.get_weights().clone().flatten().detach().numpy()
             )  # Initialize x_est
 
@@ -213,16 +213,16 @@ class GDP(ProgramMethod):
             else:
                 x[row_indices, col_indices] = 1
             y_target = (target_weights @ x.T).T  # (o,i)@(i,b).T -> b,o
-            if fnc:
+            if filter:
                 z = (
                     ProgramMethod.read_weights_(atile, over_sampling=over_sampling, x_values=x)[0]
                     .flatten()
                     .detach()
                     .numpy()
                 )
-                fnc.update(z)
+                filter.correct(z)
                 # Calculate error and norm
-                W_est = fnc.get_x_est().reshape(output_size, input_size)  # (o,i)
+                W_est = filter.get_x_est().reshape(output_size, input_size)  # (o,i)
                 y_est = (W_est @ x.T).T  # (o,i)@(i,b).T -> b,o
                 error = y_est - y_target
             else:
@@ -231,12 +231,12 @@ class GDP(ProgramMethod):
 
             # Update the tile with the error
             atile.tile.update(x, error, False)  # (b,i), (b,o) -> -(o,i)
-            if fnc:
+            if filter:
                 u = -(x.T @ error).T.flatten().numpy()
-                fnc.predict(u)
+                filter.predict(u)
                 # for i in range(batch_size):
                 #     u = -torch.outer(error[i], x[i])  # (o,1) @ (1,i) -> (o,i)
-                #     fnc.predict(u.flatten().numpy())  # type: ignore
+                #     filter.predict(u.flatten().numpy())  # type: ignore
 
             # Reset x for the next iteration
             x[row_indices, col_indices] = 0
@@ -263,7 +263,7 @@ class SVD(ProgramMethod):
     @staticmethod
     def program_weights(
         atile: TileModuleWithPeriphery,
-        fnc: AbstractDeviceFilternCtrl | None = None,
+        filter: AbstractDeviceFilter = NoFilter(),
         batch_size: int = 1,
         max_iter: int = 100,
         tolerance: float | None = 0.01,
@@ -280,7 +280,7 @@ class SVD(ProgramMethod):
 
         Args:
             atile: The analog tile instance.
-            fnc: Instance of Kalman Filter or Extended Kalman Filter.
+            filter: Instance of Kalman Filter or Extended Kalman Filter.
             max_iter: Maximum number of iterations.
             use_rank_as_criterion: Use rank as stopping criterion.
             tolerance: Tolerance for convergence.
@@ -298,10 +298,10 @@ class SVD(ProgramMethod):
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
         target_weights = atile.reference_combined_weights
-        if fnc is None:
-            fnc = NoFilter(state_size)
 
-        fnc.x_est = atile.tile.get_weights().clone().flatten().detach().numpy()  # Initialize x_est
+        filter.x_est = (
+            atile.tile.get_weights().clone().flatten().detach().numpy()
+        )  # Initialize x_est
 
         for iter in range(max_iter):
             # Read the current weights and update the state estimate
@@ -313,15 +313,15 @@ class SVD(ProgramMethod):
                 .detach()
                 .numpy()
             )
-            fnc.update(z)
+            filter.correct(z)
 
             if (i := iter % svd_every_k_iter) == 0:
                 # Compute the control input
-                # L_diag = fnc.get_lqg_gain()
+                # L_diag = filter.get_lqg_gain()
                 L_diag = 1
                 u_matrix = (
                     -L_diag
-                    * (fnc.get_x_est() - target_weights.flatten())
+                    * (filter.get_x_est() - target_weights.flatten())
                     .view(output_size, input_size)
                     .double()
                 )
@@ -339,7 +339,7 @@ class SVD(ProgramMethod):
             u_rank1 = -torch.outer(u1, v1)
 
             # Predict the next state
-            fnc.predict(u_rank1.flatten().numpy())
+            filter.predict(u_rank1.flatten().numpy())
 
             # Logging and convergence checking
             current_weights = get_persistent_weights(atile.tile)

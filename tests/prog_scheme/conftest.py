@@ -12,7 +12,7 @@ from aihwkit.simulator.parameters.enums import PulseType
 from aihwkit.simulator.tiles.analog import AnalogTile
 from omegaconf import DictConfig, OmegaConf
 
-from src.prog_scheme.kalman import DeviceKF, LinearDeviceEKF
+from src.prog_scheme.filters import DeviceKF, LinearDeviceEKF
 from src.prog_scheme.utils import generate_target_weights
 
 

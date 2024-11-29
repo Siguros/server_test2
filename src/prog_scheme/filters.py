@@ -5,17 +5,123 @@ import torch
 from jaxtyping import Float
 from joblib import Parallel, delayed
 from scipy import sparse
-from scipy.optimize import minimize
 
-StateVec = Float[np.ndarray, "ixo"]
+StateVec = Float[np.ndarray, "out*in"]
 
 
-class AbstractDeviceFilternCtrl(ABC):
-    """Abstract class for device programming with Kalman filter and control."""
+class KalmanFilter:
+    """Class for Kalman filter."""
+
+    def __init__(self, state_dim: int = 3, obs_dim: int = 2) -> None:
+        self.x_est = np.zeros(state_dim)
+        self.P = np.eye(state_dim)
+        self.F = np.eye(state_dim)
+        self.H = np.eye(obs_dim)
+        self.Q = np.eye(state_dim)
+        self.R = np.eye(obs_dim)
+        self.K = np.zeros((state_dim, obs_dim))
+
+    def predict(self, u: StateVec) -> None:
+        """Predict the next state of the device using the state transition matrix."""
+        self.x_est = self.F @ self.x_est + u
+        self.P = self.F @ self.P @ self.F.T + self.Q
+
+    def correct(self, z: StateVec) -> None:
+        """Update the state estimation of the device."""
+        y_res = z - self.H @ self.x_est
+        S = self.H @ self.P @ self.H.T + self.R
+        self.K = self.P @ self.H.T @ np.linalg.inv(S)
+        self.x_est += self.K @ y_res
+        self.P = (np.eye(self.x_est.shape[0]) - self.K @ self.H) @ self.P
+
+
+class ExtendedKalmanFilter(KalmanFilter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.f = None
+        self.F = None
+        self.H = None
+
+    def predict(self, u: StateVec) -> None:
+        """Predict the next state of the device using the state transition matrix."""
+        self.x_est = self.f(self.x_est, u)
+        self.P = self.F @ self.P @ self.F.T + self.Q
+
+    def correct(self, z: StateVec) -> None:
+        super().correct(z)
+
+    def f(self, x: StateVec, u: StateVec) -> StateVec:
+        """Transition function."""
+        pass
+
+    def f_jacobian_x(self, x: StateVec, u: StateVec) -> StateVec:
+        """Jacobian of f at x."""
+        pass
+
+    def f_jacobian_u(self, x: StateVec, u: StateVec) -> StateVec:
+        """Jacobian of f at u."""
+        pass
+
+
+class ErrorStateKalmanFilter(KalmanFilter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.f = None
+        self.F = None
+        self.H = None
+        self.x_err = None
+        self.P_err = None
+
+    def predict(self, u: StateVec) -> None:
+        """Predict the next state of the device using the state transition matrix."""
+        self.x_est = self.f(self.x_est, u)
+        self.F = self.f_jacobian_x(self.x_est, u)
+        self.P = self.F @ self.P @ self.F.T + self.Q
+        self.x_err = np.zeros_like(self.x_est)
+        self.P_err = self.F @ self.P_err @ self.F.T + self.Q
+
+    def correct(self, z: StateVec) -> None:
+        y_res = z - self.H @ self.x_est
+        S = self.H @ self.P @ self.H.T + self.R
+        self.K = self.P @ self.H.T @ np.linalg.inv(S)
+        self.x_err = self.K @ y_res
+        self.P_err = (np.eye(self.x_est.shape[0]) - self.K @ self.H) @ self.P
+        self.x_est += self.x_err
+        self.P = self.P_err
+
+    def f_jacobian_x(self, x: StateVec, u: StateVec) -> StateVec:
+        pass
+
+    def f_jacobian_u(self, x: StateVec, u: StateVec) -> StateVec:
+        pass
+
+
+class IteratedErrorStateKalmanFilter(ErrorStateKalmanFilter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.correct_tol: float = 1e-3
+
+    def predict(self, u: StateVec) -> None: ...
+
+    def correct(self, z: StateVec) -> None:
+        while True:
+            y_res = z - self.H @ self.x_est
+            S = self.H @ self.P @ self.H.T + self.R
+            self.K = self.P @ self.H.T @ np.linalg.inv(S)
+            self.x_err = self.K @ y_res
+            self.P_err = (np.eye(self.x_est.shape[0]) - self.K @ self.H) @ self.P
+            self.x_est += self.x_err
+            self.P = self.P_err
+            if np.linalg.norm(self.x_err) < self.correct_tol:
+                break
+
+
+class AbstractDeviceFilter(ABC):
+    """Abstract class for device programming with (mainly Kalman) filter."""
 
     def __init__(self, dim: int, read_noise_std: float, update_noise_std: float, **kwargs):
         self.dim = dim
-        self.x_est = None
+        self.x_est = np.empty(dim)
         self.q = update_noise_std**2  # covariance of process noise
         self.r = read_noise_std**2  # covariance of measurement noise
 
@@ -25,13 +131,8 @@ class AbstractDeviceFilternCtrl(ABC):
         ...
 
     @abstractmethod
-    def update(self, z: StateVec) -> None:
+    def correct(self, z: StateVec) -> None:
         """Update the state estimation of the device after reading the device state."""
-        ...
-
-    @abstractmethod
-    def get_lqg_gain(self, u) -> StateVec | int:
-        """Return diagonal entries of Linear Quadratic Gaussian(LQG) control gain matrix."""
         ...
 
     def get_x_est(self) -> torch.Tensor:
@@ -39,10 +140,10 @@ class AbstractDeviceFilternCtrl(ABC):
         return torch.tensor(self.x_est)
 
 
-class NoFilter(AbstractDeviceFilternCtrl):
+class NoFilter(AbstractDeviceFilter):
     """Class for device programming without any filtering."""
 
-    def __init__(self, dim: int, read_noise_std: float = 0.0, update_noise_std: float = 0.0):
+    def __init__(self, dim: int = 0, read_noise_std: float = 0.0, update_noise_std: float = 0.0):
         self.dim = dim
         self.x_est = None
 
@@ -50,16 +151,12 @@ class NoFilter(AbstractDeviceFilternCtrl):
         """Predict the next state of the device without any filtering."""
         self.x_est += u
 
-    def update(self, z: StateVec) -> None:
+    def correct(self, z: StateVec) -> None:
         """Update the state estimation of the device without any filtering."""
         self.x_est = z
 
-    def get_lqg_gain(self, u) -> StateVec | int:
-        """Return a default gain of 1."""
-        return 1
 
-
-class DeviceKF(AbstractDeviceFilternCtrl):
+class DeviceKF(AbstractDeviceFilter):
     """Class for device programming with Kalman filter.
 
     x_k = x_{k-1} + u_k + w_k z_k = x_k + v_k
@@ -67,8 +164,6 @@ class DeviceKF(AbstractDeviceFilternCtrl):
 
     def __init__(self, dim: int, read_noise_std: float, update_noise_std: float):
         super().__init__(dim, read_noise_std, update_noise_std)
-        self.S_scale = None
-        self.K_scale = None
         self.P_scale = 1
         # Solve Riccati equation for S_scale
         # poly = np.array([1, -(self.r), -(self.r) * (self.q)])
@@ -80,19 +175,67 @@ class DeviceKF(AbstractDeviceFilternCtrl):
         self.x_est += u
         self.P_scale += self.q
 
-    def update(self, z: StateVec):
+    def correct(self, z: StateVec):
         """Update the state estimation of the device after reading the device state."""
         y_res = z - self.x_est
-        self.S_scale = self.P_scale + self.r
-        self.K_scale = self.P_scale / self.S_scale
-        self.x_est += self.K_scale * y_res
-        self.P_scale = (1 - self.K_scale) * self.P_scale
-
-    def get_lqg_gain(self, u: StateVec | None) -> StateVec | int:
-        return 1
+        S_scale = self.P_scale + self.r
+        K_scale = self.P_scale / S_scale
+        self.x_est += K_scale * y_res
+        self.P_scale = (1 - K_scale) * self.P_scale
 
 
-class BaseDeviceEKF(AbstractDeviceFilternCtrl):
+class DeviceProjKF(AbstractDeviceFilter):
+    """Class for device programming with Kalman filter with projected update."""
+
+    def __init__(
+        self,
+        dim: int,
+        read_noise_std: float,
+        update_noise_std: float,
+        batch_size: int,
+        output_dim: int,
+    ):
+        super().__init__(dim, read_noise_std, update_noise_std)
+        self.P = np.eye(output_dim)
+
+    def predict(self, u: StateVec):
+        """Predict the next state of the device."""
+        self.x_est += u
+        self.P += self.q
+
+    def correct(
+        self,
+        z_proj: Float[np.ndarray, "batch out"],  # noqa: F722
+        x_input: Float[np.ndarray, "batch in"],  # noqa: F722
+    ) -> None:
+        """Update the state estimation of the device from the projected(partial) measurement.
+
+        Assume observation dynamics as below:
+        z_proj = x_inp@Z = x_inp@(W + v)
+        after vectorization,
+        \vec(z_proj) = P@X_hat + v,
+
+        where W is the true state, v is the read noise, and self.x_est=\vec{Z}
+        In case of the programming weights, z_proj = tile.forward(x_inp).
+        """
+        output_dim = z_proj.shape[1]
+        input_dim = x_input.shape[1]
+        Proj = x_input
+        x_est_mtx = self.x_est.reshape(input_dim, output_dim)
+        # Measurement residual (b x o matrix)
+        residual = z_proj - Proj @ x_est_mtx
+        # Innovation covariance S (b x b matrix)
+        S = self.P * Proj @ Proj.T + self.r
+        # Kalman gain K (o x b matrix)
+        K_k = self.P @ Proj.T @ np.linalg.inv(S)
+        # Update state estimate X_hat_new (o x o matrix)
+        x_est_mtx += K_k @ residual
+        self.x_est = x_est_mtx.flatten()
+        # Update state covariance P_xx_new (o x o matrix)
+        self.P -= K_k @ S @ K_k.T
+
+
+class BaseDeviceEKF(AbstractDeviceFilter):
     """Extended Kalman filter for pusled device programming.
 
     Model:
@@ -202,41 +345,42 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
 
     def get_lqg_gain(self, u: StateVec | None):
         """Return Linear Quadratic Gaussian (LQG) control gain using Direct Collocation."""
-        if u is None:
-            return np.ones(self.dim)
-        else:
-            # Cost function weights
-            # Q = np.eye(self.dim) # State cost
-            # R = np.zeros(len(u))
 
-            # Initial guess for control inputs
-            U0 = np.tile(u, (N, 1)).flatten()
+        # if u is None:
+        #     return np.ones(self.dim)
+        # else:
+        #     # Cost function weights
+        #     # Q = np.eye(self.dim) # State cost
+        #     # R = np.zeros(len(u))
 
-            # Define the cost function
-            def cost(U_flat):
-                U = U_flat.reshape(N, -1)
-                xk = x0
-                total_cost = xk**2
-                for k in range(N):
-                    # State update using Euler integration
-                    uk = U[k]
-                    xk1 = xk + dt * self.f(xk, uk)
-                    xk = xk1
-                    # Accumulate cost
-                    total_cost += xk**2
-                return total_cost
+        #     # Initial guess for control inputs
+        #     U0 = np.tile(u, (N, 1)).flatten()
 
-            # Optimize control inputs
-            res = minimize(cost, U0, method="SLSQP")
+        #     # Define the cost function
+        #     def cost(U_flat):
+        #         U = U_flat.reshape(N, -1)
+        #         xk = x0
+        #         total_cost = xk**2
+        #         for k in range(N):
+        #             # State update using Euler integration
+        #             uk = U[k]
+        #             xk1 = xk + dt * self.f(xk, uk)
+        #             xk = xk1
+        #             # Accumulate cost
+        #             total_cost += xk**2
+        #         return total_cost
 
-            # Optimal control at the first timestep
-            U_opt = res.x.reshape(N, -1)
-            u0_opt = U_opt[0]
+        #     # Optimize control inputs
+        #     res = minimize(cost, U0, method="SLSQP")
 
-            # Estimate gain K assuming linear control law u = -K * x
-            K = np.linalg.pinv(x0) @ u0_opt
+        #     # Optimal control at the first timestep
+        #     U_opt = res.x.reshape(N, -1)
+        #     u0_opt = U_opt[0]
 
-            return K
+        #     # Estimate gain K assuming linear control law u = -K * x
+        #     K = np.linalg.pinv(x0) @ u0_opt
+
+        #     return K
 
     def _solve_dre(
         self,
@@ -272,7 +416,7 @@ class BaseDeviceEKF(AbstractDeviceFilternCtrl):
         # self.P = F @ self.P @ F.T + self.Q
         self.P_diag = self.P_diag * self.F_diag**2 + self.q
 
-    def update(self, z: StateVec):
+    def correct(self, z: StateVec):
         """Update the state(weight) estimation of the device."""
         y_res = z - self.x_est
         # H_diag = np.ones(self.dim)

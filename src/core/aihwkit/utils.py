@@ -7,7 +7,10 @@ from aihwkit.simulator.tiles.base import SimulatorTile
 
 
 def get_persistent_weights(tile: SimulatorTile) -> torch.Tensor:
-    """Get the hidden noiseless weights from the tile."""
+    """Get the hidden noiseless weights from the physical tile.
+
+    It is different from `tile.get_weights()` method in general.
+    """
     name_list = tile.get_hidden_parameter_names()
     if "persistent_weights" in name_list:
         idx = name_list.index("persistent_weights")

@@ -3,6 +3,7 @@ from typing import Any
 
 import torch
 from torch import Tensor
+from torch import linalg as tla
 from jaxtyping import Float
 
 from src.core.aihwkit.utils import get_persistent_weights
@@ -112,7 +113,7 @@ class ProgramMethod(ABC):
         if atile.bias is not None:
             y_values -= atile.bias
 
-        est_weight = torch.linalg.lstsq(x_values, y_values).solution.T.cpu()
+        est_weight = tla.lstsq(x_values, y_values).solution.T.cpu()
         weight, bias = atile._separate_weights(est_weight)
 
         if atile.digital_bias:
@@ -152,7 +153,7 @@ class GDP(ProgramMethod):
     @staticmethod
     def program_weights(
         atile: TileModuleWithPeriphery,
-        filter: AbstractDeviceFilter | None = None,
+        filter: AbstractDeviceFilter = NoFilter(),
         batch_size: int = 1,
         learning_rate: float = 1,
         max_iter: int = 100,
@@ -172,8 +173,8 @@ class GDP(ProgramMethod):
 
         Args:
             atile (TileModuleWithPeriphery): The tile module with periphery to be programmed.
-            filter (AbstractDeviceFilter, optional): An optional filter control object for
-                estimating and updating weights. Defaults to None.
+            filter (AbstractDeviceFilter): An optional filter control object for
+                estimating and updating weights. Defaults to NoFilter().
             batch_size (int, optional): The size of the batch for each iteration. Defaults to 1.
             learning_rate (float, optional): The learning rate for the update process. Defaults to 1.
             max_iter (int, optional): The maximum number of iterations for the update process. Defaults to 100.
@@ -194,10 +195,10 @@ class GDP(ProgramMethod):
         output_size = atile.tile.get_d_size()
         state_size = input_size * output_size
         target_weights = atile.reference_combined_weights
-        if filter:
-            filter.x_est = (
-                atile.tile.get_weights().clone().flatten().detach().numpy()
-            )  # Initialize x_est
+
+        filter.x_est = (
+            atile.tile.get_weights().clone().flatten().detach().numpy()
+        )  # Initialize x_est
 
         x = torch.zeros(batch_size, input_size).to(atile.device)
         for i in range(max_iter):
@@ -213,7 +214,10 @@ class GDP(ProgramMethod):
             else:
                 x[row_indices, col_indices] = 1
             y_target = (target_weights @ x.T).T  # (o,i)@(i,b).T -> b,o
-            if filter:
+            if isinstance(filter, NoFilter):
+                y = atile.tile.forward(x.expand(over_sampling, batch_size, input_size)).mean(0)
+                error = y - y_target
+            else:
                 z = (
                     ProgramMethod.read_weights_(atile, over_sampling=over_sampling, x_values=x)[0]
                     .flatten()
@@ -225,18 +229,14 @@ class GDP(ProgramMethod):
                 W_est = filter.get_x_est().reshape(output_size, input_size)  # (o,i)
                 y_est = (W_est @ x.T).T  # (o,i)@(i,b).T -> b,o
                 error = y_est - y_target
-            else:
-                y = atile.tile.forward(x.expand(over_sampling, batch_size, input_size)).mean(0)
-                error = y - y_target
 
             # Update the tile with the error
             atile.tile.update(x, error, False)  # (b,i), (b,o) -> -(o,i)
-            if filter:
-                u = -(x.T @ error).T.flatten().numpy()
-                filter.predict(u)
-                # for i in range(batch_size):
-                #     u = -torch.outer(error[i], x[i])  # (o,1) @ (1,i) -> (o,i)
-                #     filter.predict(u.flatten().numpy())  # type: ignore
+            u = -(x.T @ error).T.flatten().numpy()
+            filter.predict(u)
+            # for i in range(batch_size):
+            #     u = -torch.outer(error[i], x[i])  # (o,1) @ (1,i) -> (o,i)
+            #     filter.predict(u.flatten().numpy())  # type: ignore
 
             # Reset x for the next iteration
             x[row_indices, col_indices] = 0
@@ -245,7 +245,7 @@ class GDP(ProgramMethod):
             current_weights = get_persistent_weights(atile.tile)
             mtx_diff = current_weights - target_weights
             # TODO: normalize norm
-            norm = torch.linalg.matrix_norm(mtx_diff, ord=norm_type)
+            norm = tla.matrix_norm(mtx_diff, ord=norm_type)
             log.debug(f"Error: {norm}")
 
             # Optionally break if tolerance is met
@@ -325,7 +325,7 @@ class SVD(ProgramMethod):
                     .view(output_size, input_size)
                     .double()
                 )
-                U, S, Vh = torch.linalg.svd(-u_matrix, full_matrices=False)
+                U, S, Vh = tla.svd(-u_matrix, full_matrices=False)
 
             # Perform SVD update
             u_svd = U[:, i]
@@ -343,7 +343,7 @@ class SVD(ProgramMethod):
 
             # Logging and convergence checking
             current_weights = get_persistent_weights(atile.tile)
-            norm = torch.linalg.matrix_norm(current_weights - target_weights, ord=norm_type)
+            norm = tla.matrix_norm(current_weights - target_weights, ord=norm_type)
             log.debug(f"Error: {norm}")
 
             if tolerance is not None and norm < tolerance:
@@ -356,7 +356,7 @@ class SVD(ProgramMethod):
             #         cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
             #         - atile.target_weights
             #     )
-            #     U, S, Vh = torch.linalg.svd(diff_realistic.double(), full_matrices=False)
+            #     U, S, Vh = tla.svd(diff_realistic.double(), full_matrices=False)
 
 
 @torch.no_grad()
@@ -385,7 +385,7 @@ def iterative_compressed(
     for iter in range(max_iter):
         self.tile.update(target_weights, target_weights - prev_weights, False)
         current_weights = get_persistent_weights(self.tile)
-        norm = torch.linalg.matrix_norm(current_weights - target_weights, ord=norm_type)
+        norm = tla.matrix_norm(current_weights - target_weights, ord=norm_type)
         log.debug(f"Error: {norm}")
 
         self.actual_weight_updates.append(current_weights - prev_weights)

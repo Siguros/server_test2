@@ -33,13 +33,13 @@ def get_program_method_name(tile: TileWithPeriphery) -> Literal["gdp-aihw", "gdp
 
 
 def program_n_log(
-    tile: TileWithPeriphery, target_weight: torch.Tensor, method_kwargs: dict
+    tile: TileWithPeriphery, target_weight: torch.Tensor, **method_kwargs: dict
 ) -> list[float]:
     """Program the tile and return the error log."""
     with LogCapture() as logc:
         tile.reference_combined_weights = target_weight.clone()
         start = time.time()
-        tile.program_weights(tile, **method_kwargs)
+        tile.program_weights(**method_kwargs)
         print(f"Programming time: {time.time() - start:.2f}s")
         log = logc.get_log_list()
     err_list = extract_error(log)

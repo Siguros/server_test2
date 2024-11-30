@@ -4,12 +4,13 @@ from typing import Any
 import torch
 from torch import Tensor
 from torch import linalg as tla
-from jaxtyping import Float
 
 from src.core.aihwkit.utils import get_persistent_weights
 from src.prog_scheme.filters import AbstractDeviceFilter, NoFilter
+from src.prog_scheme.controllers import BaseDeviceController, SVDController
 from src.utils.pylogger import RankedLogger
 from src.core.aihwkit.types import TileModuleWithPeriphery, NormType
+from src.prog_scheme.types import BatchedInput
 
 log = RankedLogger(rank_zero_only=True)
 
@@ -39,7 +40,7 @@ class ProgramMethod(ABC):
     def read_weights_(
         atile: TileModuleWithPeriphery,
         apply_weight_scaling: bool = False,
-        x_values: Float[Tensor, "batch in"] | None = None,  # noqa: F722
+        x_values: BatchedInput | None = None,  # noqa: F722
         x_rand: bool = False,
         over_sampling: int = 10,
         input_ratio: float = 1.0,
@@ -263,13 +264,12 @@ class SVD(ProgramMethod):
     @staticmethod
     def program_weights(
         atile: TileModuleWithPeriphery,
-        filter: AbstractDeviceFilter = NoFilter(),
-        batch_size: int = 1,
+        filter: AbstractDeviceFilter,
+        controller: SVDController,
         max_iter: int = 100,
         tolerance: float | None = 0.01,
         w_init: float | Tensor = 0.0,
         rank_atol: float | None = 1e-2,
-        svd_every_k_iter: int = 1,
         norm_type: NormType = "nuc",
         over_sampling: int = 10,
         x_rand: bool = False,
@@ -314,32 +314,13 @@ class SVD(ProgramMethod):
                 .numpy()
             )
             filter.correct(z)
-
-            if (i := iter % svd_every_k_iter) == 0:
-                # Compute the control input
-                # L_diag = filter.get_lqg_gain()
-                L_diag = 1
-                u_matrix = (
-                    -L_diag
-                    * (filter.get_x_est() - target_weights.flatten())
-                    .view(output_size, input_size)
-                    .double()
-                )
-                U, S, Vh = tla.svd(-u_matrix, full_matrices=False)
-
-            # Perform SVD update
-            u_svd = U[:, i]
-            v_svd = Vh[i, :]
-            s = S[i]
-            sqrt_s = torch.sqrt(s)
-            v_svd *= sqrt_s
-            u_svd *= sqrt_s
-            u1, v1 = compensate_half_selection(u_svd), compensate_half_selection(v_svd)
-            atile.tile.update(v1.float(), u1.float(), False)
-            u_rank1 = -torch.outer(u1, v1)
+            W_est = filter.get_x_est().view(output_size, input_size).double()
+            v1, u1 = controller(W_est)
+            atile.tile.update(v1.float(), -u1.float(), False)
+            u_rank_b = -u1.T @ v1
 
             # Predict the next state
-            filter.predict(u_rank1.flatten().numpy())
+            filter.predict(u_rank_b.flatten().numpy())
 
             # Logging and convergence checking
             current_weights = get_persistent_weights(atile.tile)
@@ -349,14 +330,6 @@ class SVD(ProgramMethod):
             if tolerance is not None and norm < tolerance:
                 log.debug("Tolerance reached, stopping early.")
                 break
-
-            # Recompute SVD if required
-            # if (iter + 1) % svd_every_k_iter == 0:
-            #     diff_realistic = (
-            #         cls.read_weights_(atile, over_sampling=over_sampling, x_rand=x_rand)[0]
-            #         - atile.target_weights
-            #     )
-            #     U, S, Vh = tla.svd(diff_realistic.double(), full_matrices=False)
 
 
 @torch.no_grad()

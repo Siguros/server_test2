@@ -6,7 +6,7 @@ from jaxtyping import Float
 from joblib import Parallel, delayed
 from scipy import sparse
 
-StateVec = Float[np.ndarray, "out*in"]
+from src.prog_scheme.types import StateVec
 
 
 class KalmanFilter:

@@ -9,7 +9,6 @@ from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
 
 from configs import register_everything
-from configs.model import optimizer
 
 from src.core.aihwkit.tiles import override_program_weights
 # import local modules, not methods or classes directly

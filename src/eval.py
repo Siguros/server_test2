@@ -8,6 +8,8 @@ from omegaconf import DictConfig, OmegaConf
 
 from configs import register_everything
 
+from src.core.aihwkit.tiles import override_program_weights
+
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
 # the setup_root above is equivalent to:
@@ -48,6 +50,24 @@ def evaluate(cfg: DictConfig) -> dict[str, Any]:
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = instantiate(cfg.model)
+
+    if "aihw" in cfg:
+        log.info("Converting model to analog...")
+        from aihwkit.nn.conversion import convert_to_analog
+
+        assert (
+            "analog" in cfg.model.optimizer._target_
+        ), "Analog RPU config is only supported with analog optimizer"
+
+        rpu_config = instantiate(cfg.aihw.rpu_config)
+        model = convert_to_analog(
+            model, rpu_config=rpu_config, inplace=True, verbose=False, ensure_analog_root=False
+        )
+        model = (
+            override_program_weights(model, cfg.aihw.program_method)
+            if cfg.aihw.get("program_method")
+            else model
+        )
 
     log.info("Instantiating loggers...")
     logger: list[Logger] = instantiate_loggers(cfg.get("logger"))

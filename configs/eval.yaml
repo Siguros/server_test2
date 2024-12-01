@@ -4,6 +4,7 @@ defaults:
   - _self_
   - data: mnist # choose datamodule with `test_dataloader()` for evaluation
   - model: mnist
+  - aihw: null
   - logger: wandb
   - trainer: default
   - paths: default

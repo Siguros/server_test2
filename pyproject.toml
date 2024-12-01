@@ -1,5 +1,17 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
+name = "src"
+version = "0.0.1"
 requires-python = ">=3.10"
+description = "NMDL ML Codebase"
+urls = { "Homepage" = "https://github.com/nmdlkg/ml/" }
+
+[project.scripts]
+train_command = "src.train:main"
+eval_command = "src.eval:main"
 
 [tool.pytest.ini_options]
 addopts = [

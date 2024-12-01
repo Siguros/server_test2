@@ -47,7 +47,7 @@ git clone https://github.com/nmdlkg/ml
 cd ml
 
 # create common conda environment and install dependencies
-conda env create -f environment.yaml -n ml
+CONDA_OVERRIDE_CUDA="12.1" conda env create -f environment.yaml
 
 # activate conda environment
 conda activate ml

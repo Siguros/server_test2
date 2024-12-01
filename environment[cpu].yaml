@@ -11,7 +11,6 @@ channels:
   - pytorch
   - conda-forge
   - defaults
-  - nvidia
 
 # it is strongly recommended to specify versions of packages installed through conda
 # to avoid situation when version-unspecified packages install their latest major
@@ -22,8 +21,9 @@ channels:
 # compatibility is usually guaranteed
 
 dependencies:
-  - aihwkit-gpu
+  - aihwkit>=0.9.1
   - python>=3.10
+  - cpuonly
   - pytorch=2.* #
   - torchvision
   - lightning=2.*
@@ -48,4 +48,4 @@ dependencies:
       - hydra-colorlog
       - rootutils
       - hydra_zen
-      - jaxtyping     # type hints for torch & numpy
+      - jaxtyping # type hints for torch & numpy

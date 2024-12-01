@@ -19,7 +19,7 @@ class EqPropBackbone(nn.Module):
         bias: bool | list[bool] = [True, False],
         scale_input: int = 2,
         scale_output: int = 2,
-        param_adjuster: Optional[eqprop_utils.AdjustParams] = eqprop_utils.AdjustParams(),
+        param_adjuster: eqprop_utils.AdjustParams | None = eqprop_utils.AdjustParams(),
         dummy: bool = False,
     ) -> None:
         super().__init__()

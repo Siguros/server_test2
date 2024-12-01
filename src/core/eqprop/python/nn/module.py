@@ -224,7 +224,6 @@ class EqPropLinear(_EqPropMixin, nn.Linear):
 
 
 class EqPropConv2d(_EqPropMixin, nn.LazyConv2d):
-
     def __init__(
         self,
         out_channels: int,

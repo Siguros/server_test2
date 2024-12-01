@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import torch
 from lightning import LightningDataModule
@@ -37,7 +37,7 @@ class CIFAR10DataModule(LightningDataModule):
     def __init__(
         self,
         data_dir: str = "data/",
-        train_val_test_split: Tuple[int, int, int] = (45_000, 5_000, 10_000),
+        train_val_test_split: tuple[int, int, int] = (45_000, 5_000, 10_000),
         batch_size: int = 64,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -53,22 +53,22 @@ class CIFAR10DataModule(LightningDataModule):
             [
                 transforms.RandomCrop(32, padding=4),
                 transforms.RandomHorizontalFlip(),
-                transforms.Grayscale(num_output_channels=1),
+                # transforms.Grayscale(num_output_channels=1),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914,), (0.2023,)),
             ]
         )
         self.transforms_test = transforms.Compose(
             [
-                transforms.Grayscale(num_output_channels=1),
+                # transforms.Grayscale(num_output_channels=1),
                 transforms.ToTensor(),
                 transforms.Normalize((0.4914,), (0.2023,)),
             ]
         )
 
-        self.data_train: Optional[Dataset] = None
-        self.data_val: Optional[Dataset] = None
-        self.data_test: Optional[Dataset] = None
+        self.data_train: Dataset | None = None
+        self.data_val: Dataset | None = None
+        self.data_test: Dataset | None = None
 
     @property
     def num_classes(self):
@@ -82,7 +82,7 @@ class CIFAR10DataModule(LightningDataModule):
         CIFAR10(self.hparams.data_dir, train=True, download=True)
         CIFAR10(self.hparams.data_dir, train=False, download=True)
 
-    def setup(self, stage: Optional[str] = None):
+    def setup(self, stage: str | None = None):
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
 
         This method is called by lightning with both `trainer.fit()` and `trainer.test()`, so be
@@ -100,6 +100,7 @@ class CIFAR10DataModule(LightningDataModule):
             )
 
     def train_dataloader(self):
+        """Return train dataloader."""
         return DataLoader(
             dataset=self.data_train,
             batch_size=self.hparams.batch_size,
@@ -109,6 +110,7 @@ class CIFAR10DataModule(LightningDataModule):
         )
 
     def val_dataloader(self):
+        """Return validation dataloader."""
         return DataLoader(
             dataset=self.data_val,
             batch_size=self.hparams.batch_size,
@@ -118,6 +120,7 @@ class CIFAR10DataModule(LightningDataModule):
         )
 
     def test_dataloader(self):
+        """Return test dataloader."""
         return DataLoader(
             dataset=self.data_test,
             batch_size=self.hparams.batch_size,
@@ -126,7 +129,7 @@ class CIFAR10DataModule(LightningDataModule):
             shuffle=False,
         )
 
-    def teardown(self, stage: Optional[str] = None):
+    def teardown(self, stage: str | None = None):
         """Clean up after fit or test."""
         pass
 
@@ -134,7 +137,7 @@ class CIFAR10DataModule(LightningDataModule):
         """Extra things to save to checkpoint."""
         return {}
 
-    def load_state_dict(self, state_dict: Dict[str, Any]):
+    def load_state_dict(self, state_dict: dict[str, Any]):
         """Things to do when loading checkpoint."""
         pass
 

@@ -17,6 +17,7 @@ def second_order_strategy(toymodel) -> strategy.SecondOrderStrategy:
 
     Returns:
         strategy.SecondOrderStrategy: _description_
+
     """
     st = strategy.NewtonStrategy(
         activation=activation.SymReLU(Vl=-0.6, Vr=0.6),
@@ -39,6 +40,7 @@ def toy_backbone(cfg_train_global) -> AnalogEP2:
 
     Returns:
         AnalogEP2: _description_
+
     """
     cfg = cfg_train_global.copy()
     HydraConfig().set_config(cfg)

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import rootutils
 from hydra_zen import instantiate, store, zen
@@ -7,6 +7,8 @@ from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig, OmegaConf
 
 from configs import register_everything
+
+from src.core.aihwkit.tiles import override_program_weights
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -33,7 +35,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def evaluate(cfg: DictConfig) -> Dict[str, Any]:
+def evaluate(cfg: DictConfig) -> dict[str, Any]:
     """Evaluates given checkpoint on a datamodule testset.
 
     This method is wrapped in optional @task_wrapper decorator, that controls the behavior during
@@ -50,8 +52,26 @@ def evaluate(cfg: DictConfig) -> Dict[str, Any]:
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = instantiate(cfg.model)
 
+    if "aihw" in cfg:
+        log.info("Converting model to analog...")
+        from aihwkit.nn.conversion import convert_to_analog
+
+        assert (
+            "analog" in cfg.model.optimizer._target_
+        ), "Analog RPU config is only supported with analog optimizer"
+
+        rpu_config = instantiate(cfg.aihw.rpu_config)
+        model = convert_to_analog(
+            model, rpu_config=rpu_config, inplace=True, verbose=False, ensure_analog_root=False
+        )
+        model = (
+            override_program_weights(model, cfg.aihw.program_method)
+            if cfg.aihw.get("program_method")
+            else model
+        )
+
     log.info("Instantiating loggers...")
-    logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+    logger: list[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = instantiate(cfg.trainer, logger=logger)

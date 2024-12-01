@@ -1,0 +1,3 @@
+aihwkit==0.9.0
+torch <= 2.4.0 # Its dependencies conflict with aihwkit
+plotly

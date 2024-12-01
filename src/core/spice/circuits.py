@@ -21,7 +21,6 @@ def create_circuit(
     <SubcircuitFactory>         }   "alpha" : learning rate of each layer <List/float>   "beta" :
     weight for Cost function <Float> }
     """
-
     # make circuit
     circuit = Circuit("EPspice")
     # include diode model
@@ -41,7 +40,6 @@ def create_circuit(
     circuit.subcircuit(Neuron(Rectifier=Rectifier, diodeModel=DiodeName, A=params["A"]))
 
     for i in range(n_layers - 2):  # exclude out, input layers: 0~n-2
-
         inNodes = dims[i]
         outNodes = dims[i + 1]
         Prefix1 = "I" if i == 0 else "H" + str(i) + "_o"  # ith hidden input layer
@@ -177,9 +175,7 @@ class ShallowCircuit:
     def _appendnodes(self):
         """Append nodes to netlist."""
         Rarrays = [
-            self.raw_elements[key].nodes
-            for key in self.raw_elements.keys()
-            if key.startswith("XR")
+            self.raw_elements[key].nodes for key in self.raw_elements.keys() if key.startswith("XR")
         ]
         for string in Rarrays:
             self.nodes += tuple(string.upper().split(" ")[1:])

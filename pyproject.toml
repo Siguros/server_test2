@@ -1,3 +1,18 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "src"
+version = "0.0.1"
+requires-python = ">=3.10"
+description = "NMDL ML Codebase"
+urls = { "Homepage" = "https://github.com/nmdlkg/ml/" }
+
+[project.scripts]
+train_command = "src.train:main"
+eval_command = "src.eval:main"
+
 [tool.pytest.ini_options]
 addopts = [
   "--color=yes",
@@ -24,12 +39,28 @@ exclude_lines = [
     "if __name__ == .__main__.:",
 ]
 
-[tool.isort]
-profile = "black"
-line_length = 100
-
-[tool.black]
+[tool.ruff]
 line-length = 100
+
+[tool.ruff.format]
+docstring-code-format = true
+exclude = [
+  "logs/*",
+  "data/*",
+]
+
+[tool.ruff.lint]
+ignore = ["E203","E402","E501","F401","F841"]
+extend-select = [
+  "UP",  # pyupgrade
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/prog_scheme/kalman.py" = ["F821"]
+
+[tool.ruff.lint.mccabe]
+# Unlike Flake8, default to a complexity level of 10.
+max-complexity = 10
 
 [tool.interrogate]
 ignore-init-method = true
@@ -39,5 +70,3 @@ ignore-semiprivate = false
 ignore-private = false
 ignore-setters = false
 exclude = ["setup.py", "docs", "build"]
-generate-badge = "."
-badge-format = "svg"

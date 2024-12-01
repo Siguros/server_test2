@@ -56,6 +56,7 @@ class AbstractStrategy(ABC):
         activation (Callable | str): activation function of the network.
         max_iter (int): maximum number of iterations.
         atol (float): absolute tolerance.
+
     """
 
     def __init__(
@@ -83,6 +84,7 @@ class AbstractStrategy(ABC):
 
         Returns:
             list[torch.Tensor]: list of layer node potentials.
+
         """
         ...
 
@@ -240,6 +242,7 @@ class FirstOrderStrategy(PythonStrategy):
 
         Returns:
             torch.Tensor: (size, size)
+
         """
         if self._L is None:
             dims = self.dims
@@ -269,6 +272,7 @@ class FirstOrderStrategy(PythonStrategy):
 
         Returns:
             torch.Tensor: batched 2D RHS vector. (batchsize, size)
+
         """
         dims = self.dims
         if self._R is None:
@@ -303,6 +307,7 @@ class FirstOrderStrategy(PythonStrategy):
 
         Returns:
             torch.Tensor: residual vector. (batchsize, size)
+
         """
         L = self.laplacian()
         R = self.rhs(x)
@@ -350,6 +355,7 @@ class SecondOrderStrategy(FirstOrderStrategy):
 
     Args:
         eps (float): small value to add to the diagonal of the Laplacian matrix.
+
     """
 
     def __init__(self, eps: float = 1e-8, **kwargs) -> None:
@@ -418,6 +424,7 @@ class GradientDescentStrategy(FirstOrderStrategy):
 
     Args:
         alpha (float): attenuation rate.
+
     """
 
     def __init__(self, alpha: float = 1.0, **kwargs) -> None:
@@ -443,10 +450,7 @@ class GradientDescentStrategy(FirstOrderStrategy):
 
 
 class QPStrategy(FirstOrderStrategy):
-
-    def __init__(
-        self, add_nonlin_last: bool = True, solver_type: str = "proxqp", **kwargs
-    ) -> None:
+    def __init__(self, add_nonlin_last: bool = True, solver_type: str = "proxqp", **kwargs) -> None:
         """Solve for the equilibrium point of the network with qpsolvers library."""
         super().__init__(add_nonlin_last, **kwargs)
         self.solver_type = solver_type
@@ -479,13 +483,14 @@ class QPStrategy(FirstOrderStrategy):
 
         Returns:
             _type_: _description_
+
         """
 
 
 class ProxQPStrategy(QPStrategy):
     """Solve for the equilibrium point of the network with ProxQP."""
 
-    def __init__(self, num_threads: Optional[int], **kwargs) -> None:
+    def __init__(self, num_threads: int | None, **kwargs) -> None:
         super().__init__(solver_type="proxqp", **kwargs)
         self.num_threads = (
             proxsuite.proxqp.omp_get_max_threads() - 1 if num_threads is None else num_threads
@@ -533,6 +538,7 @@ class NewtonStrategy(SecondOrderStrategy):
     Args:
         clip_threshold (float): threshold for voltage change.
         attn_factor (float): attenuation factor for voltage change.
+
     """
 
     def __init__(
@@ -558,6 +564,7 @@ class NewtonStrategy(SecondOrderStrategy):
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
+
         """
         self.check_and_set_attrs(kwargs)
         if isinstance(self.OTS, activation.SymOTS):
@@ -583,6 +590,7 @@ class NewtonStrategy(SecondOrderStrategy):
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+
         """
         v = self.lin_solve(x, i_ext)
         residual_v = self.residual(v, x, i_ext).unsqueeze(-1)
@@ -650,6 +658,7 @@ class NewtonStrategy(SecondOrderStrategy):
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+
         """
         dims = self.dims
         batchsize = x.size(0)
@@ -741,6 +750,7 @@ class NewtonStrategy(SecondOrderStrategy):
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+
         """
         dims = self.dims
         batchsize = x.size(0)
@@ -804,6 +814,7 @@ class NewtonStrategy(SecondOrderStrategy):
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+
         """
         dims = self.dims
         batchsize = x.size(0)
@@ -964,6 +975,7 @@ class LMStrategy(PythonStrategy):
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
+
         """
         self.check_and_set_attrs(kwargs)
         (W, B) = kwargs.get("params", (self.W, self.B))
@@ -993,6 +1005,7 @@ class LMStrategy(PythonStrategy):
             self.max_iter (int, optional): Maximum number of iterations. Defaults to 30.
             self.atol (float, optional): Absolute tolerance. Defaults to 1e-6.
             self.amp_factor (float, optional): Layerwise voltage&current amplitude factor. Defaults to 1.0.
+
         """
         dims = self.dims
         batchsize = x.size(0)
@@ -1070,9 +1083,7 @@ class LMStrategy(PythonStrategy):
             v += dv
             new_residuals = torch.bmm(L, v.unsqueeze(-1)) - B.clone().unsqueeze(-1)
             new_residuals[:, : -dims[-1], 0] += self.OTS.i(v[:, : -dims[-1]])
-            if torch.all(
-                torch.norm(new_residuals, dim=(1, 2)) < torch.norm(residuals, dim=(1, 2))
-            ):
+            if torch.all(torch.norm(new_residuals, dim=(1, 2)) < torch.norm(residuals, dim=(1, 2))):
                 lambda_ /= 10
 
             idx += 1
@@ -1111,6 +1122,7 @@ def _sparsecholsol(x, W, dims, B, i_ext):
         W (_type_): _description_
         B (_type_): _description_
         i_ext (_type_): _description_
+
     """
     raise NotImplementedError
 
@@ -1126,8 +1138,8 @@ def _block_tri_cholesky(W: list[torch.Tensor]):
     Returns:
         L (List[torch.Tensor]): List of lower triangular blocks.
         C (List[torch.Tensor]): List of diagonal blocks. as column vectors.
-    """
 
+    """
     n = len(W)
     C = [torch.zeros_like(W[i]) for i in range(n)]
     L = [None] * (n + 1)
@@ -1151,8 +1163,8 @@ def _block_tri_cholesky_solve(L, C, B):
 
     Returns:
         X (torch.Tensor): Solution.
-    """
 
+    """
     n = len(L)
     X = torch.zeros_like(B)
     for i in range(n):

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -46,7 +46,7 @@ class ClassifierLitModule(LightningModule):
         self,
         net: torch.nn.Module,
         optimizer: torch.optim.Optimizer,
-        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
         compile: bool = False,
         num_classes: int = 10,
         criterion: type[nn.modules.loss._Loss] = nn.CrossEntropyLoss,
@@ -60,7 +60,6 @@ class ClassifierLitModule(LightningModule):
         :param compile: Whether to compile the model before training.
         :param num_classes: The number of classes in the dataset.
         """
-
         super().__init__()
 
         # this line allows to access init params with 'self.hparams' attribute
@@ -69,7 +68,6 @@ class ClassifierLitModule(LightningModule):
         self.hparams: AttributeDict
 
         self.net = net
-
         # loss function
         self.criterion = criterion()
 
@@ -103,8 +101,8 @@ class ClassifierLitModule(LightningModule):
         self.val_acc_best.reset()
 
     def model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self, batch: tuple[torch.Tensor, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
@@ -121,7 +119,7 @@ class ClassifierLitModule(LightningModule):
         return loss, preds, y
 
     def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
@@ -142,10 +140,10 @@ class ClassifierLitModule(LightningModule):
         return loss
 
     def on_train_epoch_end(self) -> None:
-        "Lightning hook that is called when a training epoch ends."
+        """Lightning hook that is called when a training epoch ends."""
         pass
 
-    def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single validation step on a batch of data from the validation set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
@@ -161,14 +159,14 @@ class ClassifierLitModule(LightningModule):
         self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
-        "Lightning hook that is called when a validation epoch ends."
+        """Lightning hook that is called when a validation epoch ends."""
         acc = self.val_acc.compute()  # get current val acc
         self.val_acc_best(acc)  # update best so far val acc
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
         # otherwise metric would be reset by lightning after each epoch
         self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
 
-    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
@@ -199,7 +197,7 @@ class ClassifierLitModule(LightningModule):
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
 
-    def configure_optimizers(self) -> Dict[str, Any]:
+    def configure_optimizers(self) -> dict[str, Any]:
         """Choose what optimizers and learning-rate schedulers to use in your optimization.
         Normally you'd need one. But in the case of GANs or similar you might have multiple.
 
@@ -207,8 +205,11 @@ class ClassifierLitModule(LightningModule):
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
+
         """
         optimizer = self.hparams.optimizer(params=self.net.parameters())
+        if hasattr(optimizer, "regroup_param_groups"):
+            optimizer.regroup_param_groups(self.net)
         if self.hparams.scheduler is not None:
             scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
@@ -224,7 +225,6 @@ class ClassifierLitModule(LightningModule):
 
 
 class MSELitModule(ClassifierLitModule):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.criterion = torch.nn.MSELoss(reduction="mean")
@@ -241,7 +241,6 @@ class MSELitModule(ClassifierLitModule):
 
 
 class BinaryClassifierLitModule(ClassifierLitModule):
-
     def __init__(
         self,
         net: torch.nn.Module,
@@ -274,8 +273,8 @@ class BinaryClassifierLitModule(ClassifierLitModule):
         self.val_acc_best = MaxMetric()
 
     def model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self, batch: tuple[torch.Tensor, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.

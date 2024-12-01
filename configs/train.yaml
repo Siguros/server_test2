@@ -6,6 +6,7 @@ defaults:
   - _self_
   - data: mnist
   - model: mnist
+  - aihw: null
   - callbacks: default
   - logger: wandb # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: default
@@ -26,6 +27,9 @@ defaults:
 
   # debugging config (enable through command line, e.g. `python train.py debug=default)
   - debug: null
+
+  # aihwkit config
+  - rpu_config: null
 
 # task name, determines output directory path
 task_name: "train"

@@ -32,12 +32,12 @@ class EqPropLitModule(ClassifierLitModule):
         self,
         net: AnalogEP2,
         optimizer: torch.optim.Optimizer,
-        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
         compile: bool = False,
         num_classes: int = 10,
         criterion: type[torch.nn.modules.loss._Loss] = torch.nn.CrossEntropyLoss,
-        param_adjuster: Optional[eqprop_utils.AdjustParams] = eqprop_utils.AdjustParams(),
-        gaussian_std: Optional[float] = None,
+        param_adjuster: eqprop_utils.AdjustParams | None = eqprop_utils.AdjustParams(),
+        gaussian_std: float | None = None,
     ):
         super().__init__(net, optimizer, scheduler, compile, num_classes, criterion)
         self.automatic_optimization = False
@@ -99,7 +99,6 @@ class EqPropLitModule(ClassifierLitModule):
 
 
 class EqPropMSELitModule(EqPropLitModule):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.criterion = torch.nn.MSELoss(reduction="sum")
@@ -116,17 +115,16 @@ class EqPropMSELitModule(EqPropLitModule):
 
 
 class EqPropBinaryLitModule(BinaryClassifierLitModule):
-
     def __init__(
         self,
         net: AnalogEP2,
         optimizer: torch.optim.Optimizer,
-        scheduler: Optional[torch.optim.lr_scheduler.LRScheduler] = None,
+        scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
         compile: bool = False,
         num_classes: int = 10,
         criterion: type[torch.nn.modules.loss._Loss] = torch.nn.BCEWithLogitsLoss,
-        param_adjuster: Optional[eqprop_utils.AdjustParams] = eqprop_utils.AdjustParams(),
-        gaussian_std: Optional[float] = None,
+        param_adjuster: eqprop_utils.AdjustParams | None = eqprop_utils.AdjustParams(),
+        gaussian_std: float | None = None,
     ):
         super().__init__(net, optimizer, scheduler, compile, num_classes, criterion)
         self.automatic_optimization = False

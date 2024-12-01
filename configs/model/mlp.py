@@ -1,3 +1,5 @@
+from ast import mod
+
 from hydra_zen import MISSING, builds, make_config, store
 from torch.nn import MSELoss, Sigmoid
 
@@ -33,12 +35,13 @@ eqprop_backbone = EqPropBackboneConfig(
 
 ModuleConfig = make_config(net=MISSING, optimizer=MISSING, scheduler=MISSING, compile=False)
 
-CEModuleConfig = builds(
+MNISTModuleConfig = builds(
     ClassifierLitModule,
+    net=mnist_narrow_backbone,
     scheduler=None,
-    num_classes=MISSING,
+    num_classes=10,
     builds_bases=(ModuleConfig,),
-    hydra_defaults=[{"optimizer": "adam"}, {"net": "mnist-narrow"}, "_self_"],
+    hydra_defaults=[{"optimizer": "adam"}, "_self_"],
 )  # beartype not supported, so we use builds instead of full_builds
 
 MSEModuleConfig = builds(
@@ -77,7 +80,7 @@ MNISTModuleConfigXYCE = builds(
     hydra_defaults=[{"optimizer": "adam"}, "_self_"],
 )  # beartype not supported, so we use builds instead of full_builds
 
-basic_module = CEModuleConfig(num_classes=10)
+mnist_module = MNISTModuleConfig()
 mse_module = MSEModuleConfig(num_classes=10)
 xor_module = XORModuleConfig()
 xor_oh_module = XOROneHotModuleConfig()
@@ -90,5 +93,5 @@ def _register_configs():
     backbone_store(mnist_wide_backbone, name="mnist-wide")
 
     model_store = store(group="model")
-    model_store(basic_module, name="mnist")
+    model_store(mnist_module, name="mnist")
     model_store(mse_module, name="mnist-mse")

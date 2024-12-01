@@ -47,7 +47,7 @@ git clone https://github.com/nmdlkg/ml
 cd ml
 
 # create common conda environment and install dependencies
-conda env create -f environment.yaml -n ml
+CONDA_OVERRIDE_CUDA="12.1" conda env create -f environment.yaml
 
 # activate conda environment
 conda activate ml
@@ -59,7 +59,7 @@ conda activate ml
 python -m setup develop
 ```
 
-#### \[Optional\] eqprop
+#### [Optional] eqprop
 
 ```bash
 #you can create environment for specific project with additional packages
@@ -74,7 +74,7 @@ conda activate ml
 src/core/eqprop/build_proxsuite_w_openmp.sh
 ```
 
-#### \[Optional\] SPICE
+#### [Optional] SPICE
 
 ```bash
 conda install -c conda-forge pyspice

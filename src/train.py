@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import lightning as L
 import rootutils
@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 
 from configs import register_everything
 
+from src.core.aihwkit.tiles import override_program_weights
 # import local modules, not methods or classes directly
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -37,7 +38,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 @task_wrapper
-def train(cfg: DictConfig) -> Dict[str, Any]:
+def train(cfg: DictConfig) -> dict[str, Any]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
     training.
 
@@ -57,11 +58,29 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = instantiate(cfg.model)
 
+    if "aihw" in cfg:
+        log.info("Converting model to analog...")
+        from aihwkit.nn.conversion import convert_to_analog
+
+        assert (
+            "analog" in cfg.model.optimizer._target_
+        ), "Analog RPU config is only supported with analog optimizer"
+
+        rpu_config = instantiate(cfg.aihw.rpu_config)
+        model = convert_to_analog(
+            model, rpu_config=rpu_config, inplace=True, verbose=False, ensure_analog_root=False
+        )
+        model = (
+            override_program_weights(model, cfg.aihw.program_method)
+            if cfg.aihw.get("program_method")
+            else model
+        )
+
     log.info("Instantiating callbacks...")
-    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+    callbacks: list[Callback] = instantiate_callbacks(cfg.get("callbacks"))
 
     log.info("Instantiating loggers...")
-    logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+    logger: list[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
@@ -110,7 +129,7 @@ def train(cfg: DictConfig) -> Dict[str, Any]:
     return metric_dict  # , object_dict
 
 
-def main(zen_cfg: DictConfig) -> Optional[float]:
+def main(zen_cfg: DictConfig) -> float | None:
     """Main entry point for training.
 
     :param cfg: DictConfig configuration composed by Hydra.

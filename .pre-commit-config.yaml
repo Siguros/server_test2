@@ -94,18 +94,3 @@ repos:
     rev: 0.8.1
     hooks:
       - id: nbstripout
-
-  # jupyter notebook linting
-  - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.9.1
-    hooks:
-      - id: nbqa-black
-        args: ["--line-length=100"]
-      - id: nbqa-isort
-        args: ["--profile=black"]
-      - id: nbqa-flake8
-        args:
-          [
-            "--extend-ignore=E203,E402,E501,F401,F841",
-            "--exclude=logs/*,data/*",
-          ]

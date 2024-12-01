@@ -1,0 +1,5 @@
+# @package _global_
+defaults:
+  - rpu_config: singlerpu
+  - program_method: null
+  - override /model/optimizer: analog_sgd

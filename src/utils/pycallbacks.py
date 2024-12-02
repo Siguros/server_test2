@@ -100,7 +100,6 @@ class AdvLoggerCallback(Callback):
             step (int, optional): _description_. Defaults to None.
             key_prefix (str, optional): _description_. Defaults to "".
             key_suffix (str, optional): _description_. Defaults to None.
-
         """
         if Vdrops is not None:
             for idx, value in enumerate(Vdrops):
@@ -151,7 +150,6 @@ class AdvLoggerCallback(Callback):
         Args:
             Weights (Iterable[torch.Tensor]): _description_
             step (int, optional): _description_. Defaults to None.
-
         """
         for key, value in Weights:
             self.log_histogram(key, value, step, **kwargs)
@@ -186,7 +184,6 @@ class AdvLoggerCallback(Callback):
         Args:
             Weights (Iterable[torch.Tensor]): model weights
             step (int, optional): _description_. Defaults to None.
-
         """
         conds = dict()
         conds.update({key: torch.linalg.cond(value) for key, value in Weights})

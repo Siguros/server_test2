@@ -35,7 +35,6 @@ class EP(nn.Module):
             activation (_type_, optional): nonlinear activation function for nodes. Defaults to torch.sigmoid.
             epsilon (float, optional): step size for minimizing Energy. Defaults to 0.5.
             criterion (_type_, optional): loss function. Defaults to nn.MSELoss(reduction='none').
-
         """
         super().__init__()
 
@@ -130,7 +129,6 @@ class EP(nn.Module):
             x (_type_): _description_
             y (_type_, optional): _description_. Defaults to None.
             beta (float, optional): _description_. Defaults to 0.0.
-
         """
         # compute grads(dE/du)
         E, __ = self.Tenergy(Nodes, x, y, beta=beta)
@@ -151,7 +149,6 @@ class EP(nn.Module):
             x (_type_): _description_
             y (_type_, optional): _description_. Defaults to None.
             beta (float, optional): _description_. Defaults to 0.0.
-
         """
         E, _ = self.Tenergy(Nodes, x, y, beta)
         E.sum().backward()
@@ -181,7 +178,6 @@ class EP(nn.Module):
 
             Returns:
                 E_layer = E_nodes - E_weights - E_biases
-
             """
             nodes_energy = 0.5 * torch.sum(torch.pow(n, 2), dim=1)
             weights_energy = 0.5 * (torch.matmul(act(m), w.weight) * act(n)).sum(dim=1)
@@ -232,7 +228,6 @@ class EP(nn.Module):
             free_nodes (list[torch.Tensor]): _description_
             nudge_nodes (list[torch.Tensor]): _description_
             x (_type_): _description_
-
         """
         # lr = 1e-1
         act = self.activation
@@ -258,7 +253,8 @@ class EP(nn.Module):
                 ) / (-self.beta)
 
     def update_(self, free_nodes, nudge_nodes, x, y) -> tuple[torch.Tensor, torch.Tensor, Any]:
-        """Update weights from optimized free_nodes & nudge_nodes using autograd.backward()
+        """Update weights from optimized free_nodes & nudge_nodes using
+        autograd.backward()
 
         Args:
             free_nodes (_type_): _description_
@@ -268,7 +264,6 @@ class EP(nn.Module):
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, Any]: Free Energy, Nudge Energy, (optional) loss
-
         """
         self.W.requires_grad_(True)
         self.W.zero_grad()
@@ -378,7 +373,6 @@ class AnalogEP(EP):
 
         Returns:
             torch.Tensor: (B x) O x I
-
         """
         if len(n.shape) == 2:
             assert n.shape[0] == m.shape[0], ValueError("n and m must have the same batch size")
@@ -393,7 +387,8 @@ class AnalogEP(EP):
 
     @torch.no_grad()
     def update(self, free_opt_Vout: list[torch.Tensor], nudge_opt_Vout: list[torch.Tensor], x):
-        """Update weights from optimized Node Voltages (free_opt_Vout & nudge_opt_Vout)"""
+        """Update weights from optimized Node Voltages (free_opt_Vout &
+        nudge_opt_Vout)"""
         self.W.requires_grad_(True)
         self.W.zero_grad()
         self.fdV.clear()
@@ -425,7 +420,6 @@ class AnalogEP2(nn.Module):
         max_w_gain (Optional[float], optional): maximum weight gain. Defaults to 0.28.
         scale_input (int, optional): input scaling. Defaults to 2.
         scale_output (int, optional): output scaling. Defaults to 2.
-
     """
 
     def __init__(
@@ -482,7 +476,6 @@ class AnalogEP2(nn.Module):
 
         Returns:
             _type_: _description_
-
         """
         # assert self.training is False
         self.reset_nodes()
@@ -512,7 +505,6 @@ class AnalogEP2(nn.Module):
 
         Args:
             submodule (nn.Module): submodule of self.model
-
         """
         if hasattr(submodule, "weight"):
             if submodule.weight.grad is None:
@@ -573,7 +565,6 @@ class AnalogEP2(nn.Module):
         Args:
             vout (torch.Tensor): concatenated output of each layer
             positive_phase (bool): True if positive phase, False otherwise
-
         """
 
         def _set_nodes_layer(submodule: nn.Module):

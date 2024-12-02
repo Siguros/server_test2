@@ -48,6 +48,8 @@ cd ml
 
 # create common conda environment and install dependencies
 CONDA_OVERRIDE_CUDA="12.1" conda env create -f environment.yaml
+# or for cpu only
+# conda env create -f environment-cpu.yaml
 
 # activate conda environment
 conda activate ml

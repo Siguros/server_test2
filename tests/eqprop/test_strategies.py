@@ -51,7 +51,8 @@ class TestSecondOrderStrategy:
 
     @pytest.mark.parametrize("v, x", [(-0.5, [1.0, -1.0]), (0.5, [1.0, 1.0])])
     def test_lin_solve(self, second_order_strategy, v, x):
-        """Test if the linear solve without activation is computed correctly."""
+        """Test if the linear solve without activation is computed
+        correctly."""
         st = second_order_strategy
         st.reset()
         assert torch.allclose(st.lin_solve(torch.tensor([x]), None), torch.tensor([[v, v]]))

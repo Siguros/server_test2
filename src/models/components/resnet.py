@@ -6,7 +6,8 @@ from torch import nn, no_grad, save
 
 
 class ResidualBlock(nn.Module):
-    """Residual block of a residual network with option for the skip connection."""
+    """Residual block of a residual network with option for the skip
+    connection."""
 
     def __init__(self, in_ch, hidden_ch, use_conv=False, stride=1):
         super().__init__()
@@ -36,7 +37,6 @@ def concatenate_layer_blocks(in_ch, hidden_ch, num_layer, first_layer=False):
 
     Returns:
        List: list of layer blocks
-
     """
     layers = []
     for i in range(num_layer):

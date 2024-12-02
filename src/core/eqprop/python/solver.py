@@ -19,7 +19,6 @@ class EqPropSolver:
         strategy (AbstractStrategy|str): strategy to solve for the equilibrium point of the network.
         activation (Callable): activation function.
         amp_factor (float, optional): inter-layer potential amplifying factor. Defaults to 1.0.
-
     """
 
     # # singletons
@@ -73,7 +72,6 @@ class EqPropSolver:
             x (torch.Tensor): input of the network.
             nudge_phase (bool, optional): Defaults to False.
             return_energy (bool, optional): Defaults to False.
-
         """
         i_ext = None
 
@@ -100,7 +98,6 @@ class EqPropSolver:
 
             Returns:
                 E_layer = E_nodes - E_weights - E_biases
-
             """
             nodes_energy = 0.5 * torch.sum(torch.pow(n, 2), dim=1)
             weights_energy = 0.5 * (torch.matmul(act(m), w.weight) * act(n)).sum(dim=1)

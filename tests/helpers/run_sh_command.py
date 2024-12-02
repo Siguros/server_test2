@@ -7,7 +7,8 @@ if _SH_AVAILABLE:
 
 
 def run_sh_command(command: list[str]) -> None:
-    """Default method for executing shell commands with `pytest` and `sh` package.
+    """Default method for executing shell commands with `pytest` and `sh`
+    package.
 
     :param command: A list of shell commands as strings.
     """

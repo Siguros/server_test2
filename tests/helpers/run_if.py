@@ -38,7 +38,6 @@ class RunIf:
         def test_wrapper(arg1):
             assert arg1 > 0
     ```
-
     """
 
     def __new__(

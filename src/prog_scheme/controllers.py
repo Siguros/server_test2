@@ -65,7 +65,7 @@ class BaseDeviceController(AbstractController):
         self.batch_size = batch_size
 
     def __call__(self, x) -> tuple[BatchedInput, BatchedOutput]:  # noqa F722
-        """Return the pair of (batched) update vectors"""
+        """Return the pair of (batched) update vectors."""
         ...
 
     def set_target(self, target_w: TorchDeviceArray):
@@ -117,7 +117,10 @@ class SVDController(BaseDeviceController):
         )
 
     def __call__(self, x: TorchDeviceArray) -> TorchBatchedVecPair:  # noqa F722
-        """Perform SVD every k iterations. and return the top batch_size singular vectors."""
+        """Perform SVD every k iterations.
+
+        and return the top batch_size singular vectors.
+        """
         if (i := self._idx % self.svd_every_k_iter) == 0:
             dW = self._target_w - x
             self._U, self._S, self._Vh = torch.linalg.svd(dW, full_matrices=False)
@@ -152,7 +155,10 @@ class RobustSVDController(SVDController):
         self._min_rank = batch_size * svd_every_k_iter
 
     def __call__(self, x: TorchDeviceArray) -> TorchBatchedVecPair:  # noqa F722
-        """Perform robust SVD every k iterations. and return the top batch_size singular vectors."""
+        """Perform robust SVD every k iterations.
+
+        and return the top batch_size singular vectors.
+        """
         if i := (self._idx % self.svd_every_k_iter) == 0:
             # start = time.time()
             x = x.numpy().flatten().astype(np.float64)

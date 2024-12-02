@@ -40,7 +40,6 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
 
         Args:
             weight: ``[out_size, in_size]`` weight matrix.
-
         """
         super().set_weights(weight, **kwargs)
 
@@ -51,7 +50,6 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
             a tuple where the first item is the ``[out_size, in_size]`` weight
             matrix; and the second item is either the ``[out_size]`` bias vector
             or ``None`` if the tile is set not to use bias.
-
         """
         super().get_weights()
 
@@ -64,14 +62,14 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
         out_trans: bool = False,
         non_blocking: bool = False,
     ) -> torch.Tensor:
-        """Implements rank-1 tile update with gradient noise (e.g. using pulse trains).
+        """Implements rank-1 tile update with gradient noise (e.g. using pulse
+        trains).
 
         Note:
             Ignores additional arguments
 
         Raises:
             TileError: in case transposed input / output or bias is requested
-
         """
         super().update(x_input, d_input, bias, in_trans, out_trans, non_blocking)
         self.half_selection()
@@ -103,14 +101,14 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
 
         Args:
             rpu_config: configuration to use in the next forward passes.
-
         """
         self._f_io = rpu_config.forward
         self._modifier = rpu_config.modifier
 
     @torch.no_grad()
     def clip_weights(self, clip: WeightClipParameter) -> None:
-        """Clip the weights. Called by InferenceTileWithperiphery.post_update_step()
+        """Clip the weights. Called by
+        InferenceTileWithperiphery.post_update_step()
 
         Args:
             clip: parameters specifying the clipping methof and type.
@@ -118,7 +116,6 @@ class HalfSelectedSimulatorTile(_HalfSelectMixin, CustomSimulatorTile):
         Raises:
             NotImplementedError: For unsupported WeightClipTypes
             ConfigError: If unknown WeightClipType used.
-
         """
         if clip.type == WeightClipType.FIXED_VALUE:
             self.weight.data = torch.clamp(self.weight, -clip.fixed_value, clip.fixed_value)
@@ -184,7 +181,6 @@ class RealisticTile(TileModule, InferenceTileWithPeriphery, SimulatorTileWrapper
 
         Returns:
             a simulator tile based on the specified configuration.
-
         """
         return rpu_config.simulator_tile_class(x_size=x_size, d_size=d_size, rpu_config=rpu_config)
 

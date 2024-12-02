@@ -45,8 +45,8 @@ class ProgramMethod(ABC):
         over_sampling: int = 10,
         input_ratio: float = 1.0,
     ) -> tuple[Tensor, Tensor | None]:
-        """Reads the weights (and biases) in a realistic manner by using the forward pass for
-        weights readout.
+        """Reads the weights (and biases) in a realistic manner by using the
+        forward pass for weights readout.
 
             If the tile includes digital periphery (e.g. out scaling),
             these will be applied. Thus this weight is the logical
@@ -142,9 +142,11 @@ class ProgramMethod(ABC):
         over_sampling: int = 10,
         **kwargs: Any,
     ) -> None:
-        """Program the target weights into the conductances using the pulsed update.
+        """Program the target weights into the conductances using the pulsed
+        update.
 
-        All the programming methods should implement this method."""
+        All the programming methods should implement this method.
+        """
         pass
 
 
@@ -165,8 +167,8 @@ class GDP(ProgramMethod):
         over_sampling: int = 10,
         **kwargs: Any,
     ) -> None:
-        """
-        Program the target weights into the conductances using the pulse update method.
+        """Program the target weights into the conductances using the pulse
+        update method.
 
         This function programs the target weights into the conductances of the given tile module
         using a pulse update method. The implementation is based on the original method from
@@ -341,7 +343,8 @@ def iterative_compressed(
     norm_type: NormType = "nuc",
     **kwargs: Any,
 ) -> None:
-    """Iterative weight programming per row. The target weights are programmed row by row.
+    """Iterative weight programming per row. The target weights are programmed
+    row by row.
 
     Args:
         max_iter (int, optional): Maximum number of iterations. Defaults to 100.
@@ -349,7 +352,6 @@ def iterative_compressed(
         w_init (Union[float, Tensor], optional): Initial value for weights. Defaults to 0.01.
         norm_type (str, optional): Type of matrix norm to use. Defaults to "nuc".
         **kwargs: Additional keyword arguments.
-
     """
     ProgramMethod.init_setup(self, w_init)
     target_weights = self.reference_combined_weights
@@ -378,6 +380,5 @@ def compensate_half_selection(v: Tensor) -> Tensor:
 
     Returns:
         Compensated vector.
-
     """
     return v

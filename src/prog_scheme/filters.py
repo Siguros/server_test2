@@ -22,7 +22,8 @@ class KalmanFilter:
         self.K = np.zeros((state_dim, obs_dim))
 
     def predict(self, u: StateVec) -> None:
-        """Predict the next state of the device using the state transition matrix."""
+        """Predict the next state of the device using the state transition
+        matrix."""
         self.x_est = self.F @ self.x_est + u
         self.P = self.F @ self.P @ self.F.T + self.Q
 
@@ -43,7 +44,8 @@ class ExtendedKalmanFilter(KalmanFilter):
         self.H = None
 
     def predict(self, u: StateVec) -> None:
-        """Predict the next state of the device using the state transition matrix."""
+        """Predict the next state of the device using the state transition
+        matrix."""
         self.x_est = self.f(self.x_est, u)
         self.P = self.F @ self.P @ self.F.T + self.Q
 
@@ -73,7 +75,8 @@ class ErrorStateKalmanFilter(KalmanFilter):
         self.P_err = None
 
     def predict(self, u: StateVec) -> None:
-        """Predict the next state of the device using the state transition matrix."""
+        """Predict the next state of the device using the state transition
+        matrix."""
         self.x_est = self.f(self.x_est, u)
         self.F = self.f_jacobian_x(self.x_est, u)
         self.P = self.F @ self.P @ self.F.T + self.Q
@@ -132,11 +135,13 @@ class AbstractDeviceFilter(ABC):
 
     @abstractmethod
     def correct(self, z: StateVec) -> None:
-        """Update the state estimation of the device after reading the device state."""
+        """Update the state estimation of the device after reading the device
+        state."""
         ...
 
     def get_x_est(self) -> torch.Tensor:
-        """Return the copied tensor of current state estimation of the device."""
+        """Return the copied tensor of current state estimation of the
+        device."""
         return torch.tensor(self.x_est)
 
 
@@ -176,7 +181,8 @@ class DeviceKF(AbstractDeviceFilter):
         self.P_scale += self.q
 
     def correct(self, z: StateVec):
-        """Update the state estimation of the device after reading the device state."""
+        """Update the state estimation of the device after reading the device
+        state."""
         y_res = z - self.x_est
         S_scale = self.P_scale + self.r
         K_scale = self.P_scale / S_scale
@@ -185,7 +191,8 @@ class DeviceKF(AbstractDeviceFilter):
 
 
 class DeviceProjKF(AbstractDeviceFilter):
-    """Class for device programming with Kalman filter with projected update."""
+    """Class for device programming with Kalman filter with projected
+    update."""
 
     def __init__(
         self,
@@ -208,7 +215,8 @@ class DeviceProjKF(AbstractDeviceFilter):
         z_proj: Float[np.ndarray, "batch out"],  # noqa: F722
         x_input: Float[np.ndarray, "batch in"],  # noqa: F722
     ) -> None:
-        """Update the state estimation of the device from the projected(partial) measurement.
+        """Update the state estimation of the device from the
+        projected(partial) measurement.
 
         Assume observation dynamics as below:
         z_proj = x_inp@Z = x_inp@(W + v)
@@ -279,7 +287,8 @@ class BaseDeviceEKF(AbstractDeviceFilter):
     ):
         """Transition function.
 
-        Optionally store the output of the function for jacobian calculation until the next call.
+        Optionally store the output of the function for jacobian
+        calculation until the next call.
         """
         if u is None:
             out = x
@@ -344,7 +353,8 @@ class BaseDeviceEKF(AbstractDeviceFilter):
         pass
 
     def get_lqg_gain(self, u: StateVec | None):
-        """Return Linear Quadratic Gaussian (LQG) control gain using Direct Collocation."""
+        """Return Linear Quadratic Gaussian (LQG) control gain using Direct
+        Collocation."""
 
         # if u is None:
         #     return np.ones(self.dim)

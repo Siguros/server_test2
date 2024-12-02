@@ -16,8 +16,9 @@ __all__ = ["EqPropLinear", "EqPropConv2d", "EqPropSequential", "to_eqprop"]
 class PositiveEqPropFunc(torch.autograd.Function):
     """EqProp function class.
 
-    This class behaves similar to activation functions in torch.nn.functionals. Determines specific
-    EqProp implementation. e.g. 3rd order, 2nd order, etc. Used internally with EqPropMixin.
+    This class behaves similar to activation functions in
+    torch.nn.functionals. Determines specific EqProp implementation.
+    e.g. 3rd order, 2nd order, etc. Used internally with EqPropMixin.
     """
 
     @staticmethod
@@ -277,8 +278,9 @@ class EqPropConv2d(_EqPropMixin, nn.LazyConv2d):
 class EqPropSequential(_EqPropMixin, nn.Sequential):
     """EqProp wrapper for nn.Sequential.
 
-    Merges multiple EqProp submodules and solve equilibrium altogether. This is different from
-    putting multiple EqProp layers into nn.Sequential.
+    Merges multiple EqProp submodules and solve equilibrium altogether.
+    This is different from putting multiple EqProp layers into
+    nn.Sequential.
     """
 
     IS_CONTAINER = True

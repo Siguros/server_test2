@@ -4,7 +4,8 @@ from omegaconf import DictConfig
 
 
 def test_train_config(cfg_train: DictConfig) -> None:
-    """Tests the training configuration provided by the `cfg_train` pytest fixture.
+    """Tests the training configuration provided by the `cfg_train` pytest
+    fixture.
 
     :param cfg_train: A DictConfig containing a valid training configuration.
     """
@@ -21,7 +22,8 @@ def test_train_config(cfg_train: DictConfig) -> None:
 
 
 def test_eval_config(cfg_eval: DictConfig) -> None:
-    """Tests the evaluation configuration provided by the `cfg_eval` pytest fixture.
+    """Tests the evaluation configuration provided by the `cfg_eval` pytest
+    fixture.
 
     :param cfg_train: A DictConfig containing a valid evaluation configuration.
     """

@@ -121,7 +121,8 @@ class ClassifierLitModule(LightningModule):
     def training_step(
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
-        """Perform a single training step on a batch of data from the training set.
+        """Perform a single training step on a batch of data from the training
+        set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
             labels.
@@ -144,7 +145,8 @@ class ClassifierLitModule(LightningModule):
         pass
 
     def validation_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
-        """Perform a single validation step on a batch of data from the validation set.
+        """Perform a single validation step on a batch of data from the
+        validation set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
             labels.
@@ -186,8 +188,8 @@ class ClassifierLitModule(LightningModule):
         pass
 
     def setup(self, stage: str) -> None:
-        """Lightning hook that is called at the beginning of fit (train + validate), validate,
-        test, or predict.
+        """Lightning hook that is called at the beginning of fit (train +
+        validate), validate, test, or predict.
 
         This is a good hook when you need to build models dynamically or adjust something about
         them. This hook is called on every process when using DDP.
@@ -198,14 +200,14 @@ class ClassifierLitModule(LightningModule):
             self.net = torch.compile(self.net)
 
     def configure_optimizers(self) -> dict[str, Any]:
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar you might have multiple.
+        """Choose what optimizers and learning-rate schedulers to use in your
+        optimization. Normally you'd need one. But in the case of GANs or
+        similar you might have multiple.
 
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
 
         :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
-
         """
         optimizer = self.hparams.optimizer(params=self.net.parameters())
         if hasattr(optimizer, "regroup_param_groups"):

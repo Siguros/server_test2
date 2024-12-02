@@ -73,7 +73,8 @@ class TestAnalogEP2XOR:
 
     @pytest.mark.parametrize("x", torch.tensor([[-1.0, -1.0]]))
     def test_nudge(self, toy_backbone, x):
-        """Test whether output grad and node potentials are computed correctly in nudge phase."""
+        """Test whether output grad and node potentials are computed correctly
+        in nudge phase."""
         toy_backbone.reset_nodes()
         ypred = toy_backbone(x)
         criterion = torch.nn.MSELoss()

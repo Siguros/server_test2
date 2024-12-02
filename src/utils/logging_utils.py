@@ -73,7 +73,6 @@ class LogCapture:
             >>>    logger.info("Hello")
             >>>    logger.info("World")
             >>>    log_list = logc.get_log_list()
-
         """
         self.log_stream = io.StringIO()
         self.logger = logging.getLogger(logger_name)
@@ -95,6 +94,7 @@ class LogCapture:
     def get_log_list(self):
         """Get the log messages as a list.
 
-        Note that torch.set_printoptions() will affect the output precision.
+        Note that torch.set_printoptions() will affect the output
+        precision.
         """
         return self.log_stream.getvalue().strip().split("\n")

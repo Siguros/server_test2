@@ -58,7 +58,6 @@ class MNISTVAELitModule(LightningModule):
 
         Returns:
             torch.Tensor: Output tensor.
-
         """
         return self.net(x)
 
@@ -121,12 +120,12 @@ class MNISTVAELitModule(LightningModule):
         pass
 
     def configure_optimizers(self):
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar you might have multiple.
+        """Choose what optimizers and learning-rate schedulers to use in your
+        optimization. Normally you'd need one. But in the case of GANs or
+        similar you might have multiple.
 
         Examples:
             https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
-
         """
         optimizer = self.hparams.optimizer(params=self.parameters())
         if self.hparams.scheduler is not None:

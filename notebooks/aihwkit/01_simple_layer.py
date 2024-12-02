@@ -3,8 +3,8 @@
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 """aihwkit example 1: simple network with one layer.
 
-Simple network that consist of one analog layer. The network aims to learn
-to sum all the elements from one array.
+Simple network that consist of one analog layer. The network aims to
+learn to sum all the elements from one array.
 """
 # pylint: disable=invalid-name
 

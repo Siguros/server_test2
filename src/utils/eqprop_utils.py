@@ -15,9 +15,9 @@ log = RankedLogger(__name__, rank_zero_only=True)
 class interleave:
     """Decorator class for interleaving in/out nodes.
 
-    If type is "in", doubles and flips adjacent element for first input tensor. \n If type is
-    "out", sum every num_output elems to one for all output tensor. \n If type is "both", does
-    both.
+    If type is "in", doubles and flips adjacent element for first input
+    tensor. \n If type is "out", sum every num_output elems to one for
+    all output tensor. \n If type is "both", does both.
     """
 
     def __init__(self, type: Literal["in", "out", "both"]):
@@ -285,7 +285,6 @@ def deltaV(n: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
     Returns:
         torch.Tensor: (B x) O x I
-
     """
     assert len(n.shape) in [1, 2], "n must be 1D or 2D"
     if len(n.shape) == 2:

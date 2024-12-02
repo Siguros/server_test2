@@ -94,9 +94,10 @@ class MNISTDataModule(LightningDataModule):
         return 10
 
     def prepare_data(self) -> None:
-        """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
-        within a single process on CPU, so you can safely add your downloading logic within. In
-        case of multi-node training, the execution of this hook depends upon
+        """Download data if needed. Lightning ensures that
+        `self.prepare_data()` is called only within a single process on CPU, so
+        you can safely add your downloading logic within. In case of multi-node
+        training, the execution of this hook depends upon
         `self.prepare_data_per_node()`.
 
         Do not use it to assign state (self.x = y).
@@ -105,7 +106,8 @@ class MNISTDataModule(LightningDataModule):
         MNIST(self.hparams.data_dir, train=False, download=True)
 
     def setup(self, stage: str | None = None) -> None:
-        """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
+        """Load data. Set variables: `self.data_train`, `self.data_val`,
+        `self.data_test`.
 
         This method is called by Lightning before `trainer.fit()`, `trainer.validate()`, `trainer.test()`, and
         `trainer.predict()`, so be careful not to execute things like random split twice! Also, it is called after
@@ -173,8 +175,8 @@ class MNISTDataModule(LightningDataModule):
         )
 
     def teardown(self, stage: str | None = None) -> None:
-        """Lightning hook for cleaning up after `trainer.fit()`, `trainer.validate()`,
-        `trainer.test()`, and `trainer.predict()`.
+        """Lightning hook for cleaning up after `trainer.fit()`,
+        `trainer.validate()`, `trainer.test()`, and `trainer.predict()`.
 
         :param stage: The stage being torn down. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
             Defaults to ``None``.
@@ -182,15 +184,16 @@ class MNISTDataModule(LightningDataModule):
         pass
 
     def state_dict(self) -> dict[Any, Any]:
-        """Called when saving a checkpoint. Implement to generate and save the datamodule state.
+        """Called when saving a checkpoint. Implement to generate and save the
+        datamodule state.
 
         :return: A dictionary containing the datamodule state that you want to save.
         """
         return {}
 
     def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-        """Called when loading a checkpoint. Implement to reload datamodule state given datamodule
-        `state_dict()`.
+        """Called when loading a checkpoint. Implement to reload datamodule
+        state given datamodule `state_dict()`.
 
         :param state_dict: The datamodule state returned by `self.state_dict()`.
         """

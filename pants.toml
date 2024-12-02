@@ -3,14 +3,9 @@ pants_version = "2.18.0"
 colors = true
 backend_packages = [
     "pants.backend.python",
-    "pants.backend.python.lint.isort",
-    "pants.backend.python.lint.flake8",
+    "pants.backend.experimental.python.lint.ruff",
     "pants.backend.python.typecheck.mypy",
     "pants.backend.python.lint.docformatter",
-    "pants.backend.python.lint.black",
-    "pants.backend.python.lint.pydocstyle",
-    "pants.backend.python.lint.bandit",
-    "pants.backend.python.lint.pyupgrade",
 ]
 
 [source]
@@ -21,6 +16,3 @@ root_patterns = [
 
 [python]
 interpreter_constraints = [">=3.10.*"]
-
-[pyupgrade]
-args = ["--py310-plus"]

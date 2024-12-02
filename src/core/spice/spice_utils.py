@@ -12,7 +12,8 @@ class SPICENNParser:
         self.circuit = ShallowCircuit()
 
     def updateWeight(netlist: ShallowCircuit, W: list[torch.Tensor]):  # resetState
-        """Append Rarray subcircuit to netlist corresponding to updated weight."""
+        """Append Rarray subcircuit to netlist corresponding to updated
+        weight."""
         Rarrays = [key for key in netlist.raw_subcircuits.keys() if key.endswith("_resistor_array")]
         for idx, key in enumerate(Rarrays):
             last = True if idx == len(Rarrays) - 1 else False
@@ -24,7 +25,6 @@ class SPICENNParser:
         Args:
             netlist (_type_): _description_
             x (torch.Tensor): _description_
-
         """
         Vsources = [
             (key, elem) for key, elem in netlist.raw_elements.items() if key.startswith("Vs")
@@ -45,7 +45,6 @@ class SPICENNParser:
         Args:
             netlist (_type_): _description_
             I (_type_): _description_
-
         """
         netlist.I_enabled = True
         Isources = [

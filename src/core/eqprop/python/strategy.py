@@ -50,13 +50,13 @@ def cache_free_solution(func: callable):
 
 
 class AbstractStrategy(ABC):
-    """Abstract class for different strategies to solve for the equilibrium point of the network.
+    """Abstract class for different strategies to solve for the equilibrium
+    point of the network.
 
     Args:
         activation (Callable | str): activation function of the network.
         max_iter (int): maximum number of iterations.
         atol (float): absolute tolerance.
-
     """
 
     def __init__(
@@ -84,7 +84,6 @@ class AbstractStrategy(ABC):
 
         Returns:
             list[torch.Tensor]: list of layer node potentials.
-
         """
         ...
 
@@ -215,7 +214,8 @@ class PythonStrategy(AbstractStrategy):
 
 
 class FirstOrderStrategy(PythonStrategy):
-    """Solve for the equilibrium point of the network with first order approximation."""
+    """Solve for the equilibrium point of the network with first order
+    approximation."""
 
     def __init__(self, add_nonlin_last: bool = True, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -242,7 +242,6 @@ class FirstOrderStrategy(PythonStrategy):
 
         Returns:
             torch.Tensor: (size, size)
-
         """
         if self._L is None:
             dims = self.dims
@@ -265,14 +264,14 @@ class FirstOrderStrategy(PythonStrategy):
 
     @torch.no_grad()
     def rhs(self, x) -> torch.Tensor:
-        """Compute the batched 2D RHS vector {-bias +-[x@W0.T,0]} without i_ext and cache it.
+        """Compute the batched 2D RHS vector {-bias +-[x@W0.T,0]} without i_ext
+        and cache it.
 
         Args:
             x (torch.Tensor): input of the network. (batchsize, size)
 
         Returns:
             torch.Tensor: batched 2D RHS vector. (batchsize, size)
-
         """
         dims = self.dims
         if self._R is None:
@@ -298,7 +297,8 @@ class FirstOrderStrategy(PythonStrategy):
         x: torch.Tensor,
         i_ext: torch.Tensor | None,
     ):
-        """Compute the residual v(L+b) + R + i_r(v) where v, R, i_r(v) are batched vectors.
+        """Compute the residual v(L+b) + R + i_r(v) where v, R, i_r(v) are
+        batched vectors.
 
         Args:
             v (NpOrTensor): node potentials. (batchsize, size)
@@ -307,7 +307,6 @@ class FirstOrderStrategy(PythonStrategy):
 
         Returns:
             torch.Tensor: residual vector. (batchsize, size)
-
         """
         L = self.laplacian()
         R = self.rhs(x)
@@ -351,11 +350,11 @@ class FirstOrderStrategy(PythonStrategy):
 
 
 class SecondOrderStrategy(FirstOrderStrategy):
-    """Solve for the equilibrium point of the network with second order approximation.
+    """Solve for the equilibrium point of the network with second order
+    approximation.
 
     Args:
         eps (float): small value to add to the diagonal of the Laplacian matrix.
-
     """
 
     def __init__(self, eps: float = 1e-8, **kwargs) -> None:
@@ -395,7 +394,8 @@ class ScipyStrategy(SecondOrderStrategy):
     def solve(self, x: torch.Tensor, i_ext: torch.Tensor, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network.
 
-        Currently only supports cpu. & does not support batched operation in parallel.
+        Currently only supports cpu. & does not support batched
+        operation in parallel.
         """
         if x.device != torch.device("cpu"):
             raise ValueError("ScipyStrategy only supports cpu.")
@@ -424,7 +424,6 @@ class GradientDescentStrategy(FirstOrderStrategy):
 
     Args:
         alpha (float): attenuation rate.
-
     """
 
     def __init__(self, alpha: float = 1.0, **kwargs) -> None:
@@ -434,7 +433,8 @@ class GradientDescentStrategy(FirstOrderStrategy):
     @cache_free_solution
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
-        """Solve for the equilibrium point of the network with gradient descent."""
+        """Solve for the equilibrium point of the network with gradient
+        descent."""
         self.check_and_set_attrs(kwargs)
         v = self.lin_solve(x, i_ext)
         for idx in range(self.max_iter):
@@ -451,7 +451,8 @@ class GradientDescentStrategy(FirstOrderStrategy):
 
 class QPStrategy(FirstOrderStrategy):
     def __init__(self, add_nonlin_last: bool = True, solver_type: str = "proxqp", **kwargs) -> None:
-        """Solve for the equilibrium point of the network with qpsolvers library."""
+        """Solve for the equilibrium point of the network with qpsolvers
+        library."""
         super().__init__(add_nonlin_last, **kwargs)
         self.solver_type = solver_type
 
@@ -483,7 +484,6 @@ class QPStrategy(FirstOrderStrategy):
 
         Returns:
             _type_: _description_
-
         """
 
 
@@ -564,7 +564,6 @@ class NewtonStrategy(SecondOrderStrategy):
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
-
         """
         self.check_and_set_attrs(kwargs)
         if isinstance(self.OTS, activation.SymOTS):
@@ -975,7 +974,6 @@ class LMStrategy(PythonStrategy):
             max_iter (int): maximum number of iterations.
             atol (float): absolute tolerance.
             amp_factor (float): inter-layer potential amplifying factor.
-
         """
         self.check_and_set_attrs(kwargs)
         (W, B) = kwargs.get("params", (self.W, self.B))
@@ -1122,15 +1120,14 @@ def _sparsecholsol(x, W, dims, B, i_ext):
         W (_type_): _description_
         B (_type_): _description_
         i_ext (_type_): _description_
-
     """
     raise NotImplementedError
 
 
 # TODO: custom CUDA kernel
 def _block_tri_cholesky(W: list[torch.Tensor]):
-    """Blockwise cholesky decomposition for a size varying block tridiagonal matrix. see spftrf()
-    in LAPACK.
+    """Blockwise cholesky decomposition for a size varying block tridiagonal
+    matrix. see spftrf() in LAPACK.
 
     Args:
         W (List[torch.Tensor]): List of lower triangular blocks.
@@ -1138,7 +1135,6 @@ def _block_tri_cholesky(W: list[torch.Tensor]):
     Returns:
         L (List[torch.Tensor]): List of lower triangular blocks.
         C (List[torch.Tensor]): List of diagonal blocks. as column vectors.
-
     """
     n = len(W)
     C = [torch.zeros_like(W[i]) for i in range(n)]
@@ -1163,7 +1159,6 @@ def _block_tri_cholesky_solve(L, C, B):
 
     Returns:
         X (torch.Tensor): Solution.
-
     """
     n = len(L)
     X = torch.zeros_like(B)

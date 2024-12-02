@@ -137,7 +137,8 @@ def analogtile(rpu_config, prog_cfg):
 
 @pytest.fixture(scope="class")
 def ideal_analogtile(ideal_rpu_config, prog_cfg):
-    """Return an AnalogTile set with target weights for ideal rpu configuration."""
+    """Return an AnalogTile set with target weights for ideal rpu
+    configuration."""
     atile = AnalogTile(
         out_size=prog_cfg.input_size, in_size=prog_cfg.output_size, rpu_config=ideal_rpu_config
     )
@@ -149,7 +150,8 @@ def ideal_analogtile(ideal_rpu_config, prog_cfg):
 
 @pytest.fixture(scope="class")
 def idealized_analogtile(const_rpu_config_idealized):
-    """Return an AnalogTile set with target weights for ideal rpu configuration."""
+    """Return an AnalogTile set with target weights for ideal rpu
+    configuration."""
     atile = AnalogTile(out_size=2, in_size=2, rpu_config=const_rpu_config_idealized)
     atile.tile.set_learning_rate(1)
     return atile
@@ -157,7 +159,8 @@ def idealized_analogtile(const_rpu_config_idealized):
 
 @pytest.fixture(scope="class")
 def kf_analogtile(kf_rpu_config, prog_cfg):
-    """Return an AnalogTile set with target weights for Kalman Filter rpu configuration."""
+    """Return an AnalogTile set with target weights for Kalman Filter rpu
+    configuration."""
     atile = AnalogTile(
         out_size=prog_cfg.input_size, in_size=prog_cfg.output_size, rpu_config=kf_rpu_config
     )

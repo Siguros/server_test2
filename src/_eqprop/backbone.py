@@ -9,8 +9,8 @@ from src.utils import eqprop_utils
 class EqPropBackbone(nn.Module):
     """EqPropBackbone with Default EqPropLinear layers.
 
-    Each EqPropLinear layer uses PositiveEqPropFunc as eqprop function and ProxQPStrategy as
-    solver.
+    Each EqPropLinear layer uses PositiveEqPropFunc as eqprop function
+    and ProxQPStrategy as solver.
     """
 
     def __init__(

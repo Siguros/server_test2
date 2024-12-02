@@ -7,14 +7,14 @@ __all__ = ["override_program_weights"]
 
 
 class ProgramOverrideMeta(type):
-    """Metaclass to override & rename the program_weights function of a tile."""
+    """Metaclass to override & rename the program_weights function of a
+    tile."""
 
     _instances = {}
 
     def __new__(cls, name, bases, namespace, override_func):
-        """Create a new class with the overridden program_weights function with singltone
-        pattern.
-        """
+        """Create a new class with the overridden program_weights function with
+        singltone pattern."""
         new_cls_name = bases[0].__name__ + "_" + override_func.__name__
         if new_cls_name in cls._instances.keys():
             return cls._instances[new_cls_name]

@@ -5,7 +5,8 @@ from src.core.aihwkit.utils import get_persistent_weights
 
 
 def test_base_kf(ideal_analogtile, base_kf) -> None:
-    """Test the result between the kalman filter estimation and the true value."""
+    """Test the result between the kalman filter estimation and the true
+    value."""
     tile = ideal_analogtile.tile
     curr_weights = get_persistent_weights(tile)
     input_size, output_size = curr_weights.shape
@@ -18,7 +19,8 @@ def test_base_kf(ideal_analogtile, base_kf) -> None:
 
 
 def test_linear_ekf(kf_analogtile, linear_ekf) -> None:
-    """Test the result between the kalman filter estimation and the true value."""
+    """Test the result between the kalman filter estimation and the true
+    value."""
     tile = kf_analogtile.tile
     curr_weights = get_persistent_weights(tile)
     input_size, output_size = curr_weights.shape

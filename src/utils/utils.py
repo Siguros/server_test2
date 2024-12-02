@@ -44,7 +44,8 @@ def extras(cfg: DictConfig) -> None:
 
 
 def task_wrapper(task_func: Callable) -> Callable:
-    """Optional decorator that controls the failure behavior when executing the task function.
+    """Optional decorator that controls the failure behavior when executing the
+    task function.
 
     This wrapper can be used to:
         - make sure loggers are closed even if the task function raises an exception (prevents multirun failure)
@@ -63,7 +64,6 @@ def task_wrapper(task_func: Callable) -> Callable:
     :param task_func: The task function to be wrapped.
 
     :return: The wrapped task function.
-
     """
 
     def wrap(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -124,7 +124,8 @@ def get_metric_value(metric_dict: dict[str, Any], metric_name: str | None) -> fl
 
 
 def get_dictconfig(name: str, group: str | None = None) -> DictConfig:
-    """Creates a DictConfig object from a registered hydra_zen default 'zen_store'.
+    """Creates a DictConfig object from a registered hydra_zen default
+    'zen_store'.
 
     :param name: The name of the DictConfig object.
     :param kwargs: The key-value pairs of the dictionary to be converted to DictConfig.

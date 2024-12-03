@@ -9,9 +9,8 @@ name: ml
 
 channels:
   - pytorch
-  - conda-forge
-  - defaults
   - nvidia
+  - defaults
 
 # it is strongly recommended to specify versions of packages installed through conda
 # to avoid situation when version-unspecified packages install their latest major
@@ -24,8 +23,9 @@ channels:
 dependencies:
   - aihwkit-gpu
   - python>=3.10
-  - pytorch=2.* #
-  - torchvision
+  - pytorch>=2.0 #currently only supports conda-forge version
+  - pytorch::pytorch-cuda=11.8 # aihw depends on this version (no later tha 12.0)
+  - pytorch::torchvision
   - lightning=2.*
   - torchmetrics
   - hydra-core=1.3.*
@@ -36,7 +36,7 @@ dependencies:
   - numpy=2.*
 
   # --------- loggers --------- #
-  - wandb>=0.17.2 # no lower than 0.17.2, see https://github.com/wandb/wandb/issues/7810
+  - conda-forge::wandb>=0.17.2 # no lower than 0.17.2, see https://github.com/wandb/wandb/issues/7810
   # - neptune-client
   # - mlflow
   # - comet-ml

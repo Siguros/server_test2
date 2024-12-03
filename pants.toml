@@ -10,9 +10,13 @@ backend_packages = [
 
 [source]
 root_patterns = [
+    "/configs",
     "/src",
     "/tests",
 ]
+
+[mypy]
+args = ["--linecount-report=reports"]
 
 [python]
 interpreter_constraints = [">=3.10.*"]

@@ -7,7 +7,7 @@ from scipy.optimize import minimize
 import numpy as np
 import torch
 
-from src.prog_scheme.types import (
+from src.prog_scheme.typing import (
     BatchedInput,
     BatchedOutput,
     StateVec,

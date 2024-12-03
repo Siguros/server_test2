@@ -6,7 +6,7 @@ from jaxtyping import Float
 from joblib import Parallel, delayed
 from scipy import sparse
 
-from src.prog_scheme.types import StateVec
+from src.prog_scheme.typing import StateVec
 
 
 class KalmanFilter:

@@ -10,7 +10,7 @@ from src.prog_scheme.filters import AbstractDeviceFilter, NoFilter
 from src.prog_scheme.controllers import BaseDeviceController, SVDController
 from src.utils.pylogger import RankedLogger
 from src.core.aihwkit.types import TileModuleWithPeriphery, NormType
-from src.prog_scheme.types import BatchedInput
+from src.prog_scheme.typing import BatchedInput
 
 log = RankedLogger(rank_zero_only=True)
 

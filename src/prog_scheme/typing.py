@@ -1,5 +1,4 @@
 # ruff: noqa: F722
-
 from numpy import ndarray
 from torch import Tensor
 from jaxtyping import Float

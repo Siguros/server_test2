@@ -55,10 +55,10 @@ CONDA_OVERRIDE_CUDA="12.1" conda env create -f environment.yaml
 conda activate ml
 ```
 
-#### Setup
+#### Setup as package
 
 ```bash
-python -m setup develop
+pip install -e .
 ```
 
 #### [Optional] eqprop

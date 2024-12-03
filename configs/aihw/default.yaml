@@ -2,4 +2,8 @@
 defaults:
   - rpu_config: singlerpu
   - program_method: null
-  - override /model/optimizer: analog_sgd
+
+model:
+  optimizer:
+    _target_: aihwkit.optim.AnalogSGD
+    _partial_: true

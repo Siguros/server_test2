@@ -1,7 +1,7 @@
 # Original code from: https://github.com/groomata/vision/blob/main/src/groovis/configs/optimizer.py
 
 # import torch_optimizer
-from aihwkit.optim import AnalogSGD
+# from aihwkit.optim import AnalogSGD
 from hydra_zen import make_custom_builds_fn, store
 from torch import optim
 
@@ -15,7 +15,7 @@ AdamConfig = pbuilds(optim.Adam, lr=0.001)
 AdamWConfig = pbuilds(optim.AdamW, lr=0.001)
 RAdamConfig = pbuilds(optim.RAdam, lr=0.001)
 # LARSConfig = pbuilds(torch_optimizer.LARS, lr=0.001)
-AnalogSGDConfig = pbuilds(AnalogSGD, lr=0.01, momentum=0.9)
+# AnalogSGDConfig = pbuilds(AnalogSGD, lr=0.01, momentum=0.9)
 
 
 def _register_configs():
@@ -26,4 +26,4 @@ def _register_configs():
     optim_store(AdamWConfig, name="adamw")
     optim_store(RAdamConfig, name="radam")
     # optim_store(name="lars", LARSConfig)
-    optim_store(AnalogSGDConfig, name="analog_sgd")
+    # optim_store(AnalogSGDConfig, name="analog_sgd")

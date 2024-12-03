@@ -9,8 +9,6 @@ from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
 from configs import register_everything
-
-from src.core.aihwkit.tiles import override_program_weights
 # import local modules, not methods or classes directly
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
@@ -58,9 +56,11 @@ def train(cfg: DictConfig) -> dict[str, Any]:
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = instantiate(cfg.model)
 
-    if "aihw" in cfg:
+    if cfg.get("aihw"):
         log.info("Converting model to analog...")
+        # import aihwkit here to avoid import errors if aihwkit is not installed
         from aihwkit.nn.conversion import convert_to_analog
+        from src.core.aihwkit.tiles import override_program_weights
 
         assert (
             "analog" in cfg.model.optimizer._target_

@@ -32,7 +32,7 @@ dependencies:
   - pre-commit=3.*
   - pytest=7.*
   - beartype
-  - numpy=2.*
+  - numpy=1.* #aihwkit requires numpy 1
 
   # --------- loggers --------- #
   - conda-forge::wandb>=0.17.2 # no lower than 0.17.2, see https://github.com/wandb/wandb/issues/7810

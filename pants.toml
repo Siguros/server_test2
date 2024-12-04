@@ -12,6 +12,7 @@ backend_packages = [
 root_patterns = [
     "/configs",
     "/src",
+    "/notebooks",
     "/tests",
 ]
 

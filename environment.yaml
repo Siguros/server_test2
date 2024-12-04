@@ -21,7 +21,7 @@ channels:
 # compatibility is usually guaranteed
 
 dependencies:
-  - aihwkit # currenty aihwkit-gpu has a compatibility issue with pytorch
+  - aihwkit # currently aihwkit-gpu has a compatibility issue with pytorch
   - python>=3.10, <3.12 # aihwkit requires no later than 3.12
   - pytorch::pytorch>=2.0 # currently only supports conda-forge version
   - pytorch::pytorch-cuda=11.8 # aihw depends on this version (no later than 12.0)

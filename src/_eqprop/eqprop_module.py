@@ -99,7 +99,6 @@ class EqPropLitModule(ClassifierLitModule):
 
 
 class EqPropMSELitModule(EqPropLitModule):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.criterion = torch.nn.MSELoss(reduction="sum")
@@ -116,7 +115,6 @@ class EqPropMSELitModule(EqPropLitModule):
 
 
 class EqPropBinaryLitModule(BinaryClassifierLitModule):
-
     def __init__(
         self,
         net: AnalogEP2,

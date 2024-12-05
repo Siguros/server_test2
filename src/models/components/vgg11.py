@@ -71,7 +71,6 @@ class VGG11avg(VGG11):
 
 
 class Conv2dIm2Col(nn.Module):
-
     def __init__(self, conv2d, output_shape):
         super().__init__()
         self.unfold = nn.Unfold(

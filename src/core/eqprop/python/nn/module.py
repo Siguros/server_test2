@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -239,7 +238,6 @@ class EqPropLinear(_EqPropMixin, nn.Linear):
 
 
 class EqPropConv2d(_EqPropMixin, nn.LazyConv2d):
-
     def __init__(
         self,
         out_channels: int,

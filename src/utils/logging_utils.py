@@ -60,7 +60,6 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 
 
 class LogCapture:
-
     def __init__(self, logger_name: str = None, level=logging.DEBUG):
         """Capture log messages to a list.
 

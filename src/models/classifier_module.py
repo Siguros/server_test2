@@ -142,7 +142,7 @@ class ClassifierLitModule(LightningModule):
         return loss
 
     def on_train_epoch_end(self) -> None:
-        "Lightning hook that is called when a training epoch ends."
+        """Lightning hook that is called when a training epoch ends."""
         pass
 
     def validation_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
@@ -161,7 +161,7 @@ class ClassifierLitModule(LightningModule):
         self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_validation_epoch_end(self) -> None:
-        "Lightning hook that is called when a validation epoch ends."
+        """Lightning hook that is called when a validation epoch ends."""
         acc = self.val_acc.compute()  # get current val acc
         self.val_acc_best(acc)  # update best so far val acc
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
@@ -224,7 +224,6 @@ class ClassifierLitModule(LightningModule):
 
 
 class MSELitModule(ClassifierLitModule):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.criterion = torch.nn.MSELoss(reduction="sum")
@@ -241,7 +240,6 @@ class MSELitModule(ClassifierLitModule):
 
 
 class BinaryClassifierLitModule(ClassifierLitModule):
-
     def __init__(
         self,
         net: torch.nn.Module,

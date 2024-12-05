@@ -144,7 +144,5 @@ def package_available(package_name: str) -> bool:
 
     :return: `True` if the package is available. `False` otherwise.
     """
-    try:
-        return pkg_resources.require(package_name) is not None
-    except pkg_resources.DistributionNotFound:
-        return False
+    spec = find_spec(package_name)
+    return spec is not None

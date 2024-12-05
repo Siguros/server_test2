@@ -1,8 +1,11 @@
+import os
+
 import numpy as np
 import torch
 from PySpice.Spice.Xyce.RawFile import RawFile
 
 from . import ShallowCircuit
+from .subcircuits import Neuron, Rarray
 
 
 class SPICENNParser:
@@ -81,3 +84,27 @@ class SPICENNParser:
             Vout.append(np.array(vals[:m]).T.flatten())
             del vals[:m]
         return (Vin, Vout)
+
+    @staticmethod
+    def genRarray(W: torch.Tensor, idx, is_last: bool = False):
+        # set prefixes
+        i_pre = "I" if idx == 0 else "H" + str(idx) + "_o"
+        o_pre = "o" if is_last else "H" + str(idx + 1) + "_i"
+        # assert Rarray.genName(row, col) is title, 'invalid weight mapping'
+        row, col = W.shape  # 3,9
+        # generate nodes
+        nodes = list(Rarray.genNodes(col, row, i_pre, o_pre))
+        inodes = nodes[:col]
+        onodes = nodes[col:]
+        # header
+        title = Rarray.genName(col, row)
+        netlist = ".subckt " + title + " " + " ".join(nodes) + os.linesep
+        # resistors
+        for j in range(col):  # 9
+            for i in range(row):  # 3
+                name = "R" + str(j) + "_" + str(i)
+                node = inodes[j] + " " + onodes[i]
+                netlist += name + " " + node + " " + str(1 / W[i, j].item()) + "Ohm" + os.linesep
+        # footer
+        netlist += ".ends " + title + os.linesep
+        return netlist

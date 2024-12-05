@@ -19,6 +19,7 @@ class EqPropSolver:
         strategy (AbstractStrategy|str): strategy to solve for the equilibrium point of the network.
         activation (Callable): activation function.
         amp_factor (float, optional): inter-layer potential amplifying factor. Defaults to 1.0.
+        beta (float, optional): nudging factor. Defaults to 0.0.
     """
 
     # # singletons

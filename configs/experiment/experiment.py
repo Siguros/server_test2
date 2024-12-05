@@ -25,7 +25,7 @@ ep_xor_config = make_config(
     model=dict(optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=False)),
     hydra_defaults=[
         "_self_",
-        {"override /data": "xor"},
+        {"override /data": "xor2"},
         {"override /model": "dep-xor"},
         {"override /model/net/solver/strategy": "qp"},
     ],
@@ -34,11 +34,13 @@ ep_xor_config = make_config(
 ep_xor_mse_config = make_config(
     bases=(xor_config,),
     model=dict(
-        optimizer=dict(lr=0.001, momentum=0.0), net=dict(bias=False), criterion=just(MSELoss)
+        optimizer=dict(lr=0.001, momentum=0.0),
+        net=dict(bias=True, beta=0.01),
+        criterion=just(MSELoss),
     ),
     hydra_defaults=[
         "_self_",
-        {"override /data": "xor"},
+        {"override /data": "xor2"},
         {"override /model": "dep-xor"},
         {"override /model/net/solver/strategy": "qp"},
     ],
@@ -51,7 +53,7 @@ ep_xor_mse_xyce_config = make_config(
     ),
     hydra_defaults=[
         "_self_",
-        {"override /data": "xor"},
+        {"override /data": "xor2"},
         {"override /model": "dep-xor"},
         {"override /model/net/solver/strategy": "Xyce"},
     ],
@@ -61,7 +63,7 @@ ep_xor_onehot_config = make_config(
     bases=(xor_config,),
     hydra_defaults=[
         "_self_",
-        {"override /data": "xor"},
+        {"override /data": "xor2"},
         {"override /model": "dep-xor-onehot"},
         {"override /model/net/solver/strategy": "newton"},
     ],

@@ -118,7 +118,7 @@ python src/train.py experiment=experiment_name
 You can override any parameter from command line like this
 
 ```bash
-python src/train.py trainer.max_epochs=20 data.batch_size=64
+python src/train.py trainer.max_epochs=20 data.batch_size=64 'model.net.cfg=[784, 128, 64, 10]'
 ```
 
 You can see default/configurable parameters from command line.

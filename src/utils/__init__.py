@@ -7,3 +7,4 @@ from src.utils.utils import extras, get_metric_value, package_available, task_wr
 _SPICE_AVAILABLE = package_available("PySpice")
 _SCIPY_AVAILABLE = package_available("scipy")
 _QPSOLVERS_AVAILABLE = package_available("qpsolvers")
+_PROXSUITE_AVAILABLE = package_available("proxsuite")

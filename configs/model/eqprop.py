@@ -1,12 +1,19 @@
 from hydra_zen import MISSING, builds, make_config, store
 
-from configs.eqprop.solver import AnalogEqPropSolverConfig, ParamAdjusterConfig, xor_adjuster
+from configs.eqprop.solver import (
+    AnalogEqPropSolverConfig,
+    IdealRectifierConfig,
+    ParamAdjusterConfig,
+    ProxQPStrategyConfig,
+    xor_adjuster,
+)
 from src._eqprop import (
     AnalogEP2,
     EqPropBackbone,
     EqPropBinaryLitModule,
     EqPropLitModule,
     EqPropMSELitModule,
+    HybridEqPropBackbone,
 )
 
 # Direct EqPropBackbone
@@ -58,8 +65,28 @@ EqPropBackboneConfig = builds(
     EqPropBackbone,
     cfg=MISSING,
     bias=False,
+    beta=0.1,
     scale_input=2,
     scale_output=2,
+    solver=AnalogEqPropSolverConfig(
+        strategy=ProxQPStrategyConfig(activation=IdealRectifierConfig(Vl=0.1, Vr=0.9))
+    ),
+    param_adjuster=ParamAdjusterConfig(),
+    dummy=False,
+    populate_full_signature=True,
+    hydra_convert="partial",
+)
+
+HybEqPropBackboneConfig = builds(
+    HybridEqPropBackbone,
+    cfg=MISSING,
+    bias=False,
+    beta=0.1,
+    scale_input=2,
+    scale_output=2,
+    solver=AnalogEqPropSolverConfig(
+        strategy=ProxQPStrategyConfig(activation=IdealRectifierConfig(Vl=0.1, Vr=0.9))
+    ),
     param_adjuster=ParamAdjusterConfig(),
     dummy=False,
     populate_full_signature=True,
@@ -67,6 +94,9 @@ EqPropBackboneConfig = builds(
 )
 
 ep_mnist = EqPropBackboneConfig(
+    cfg="${eval:'[int(784*${.scale_input}), 128, int(10*${.scale_output})]'}"
+)
+hyb_ep_mnist = HybEqPropBackboneConfig(
     cfg="${eval:'[int(784*${.scale_input}), 128, int(10*${.scale_output})]'}"
 )
 dummy_ep_mnist = EqPropBackboneConfig(
@@ -138,8 +168,9 @@ EqPropMNISTMSEModuleConfig = builds(
 def _register_configs():
     backbone_store = store(group="model/net")
     backbone_store(ep_mnist, name="ep-mnist")
+    backbone_store(hyb_ep_mnist, name="hyb-ep-mnist")
     backbone_store(dummy_ep_mnist, name="dummy-ep-mnist")
-
+    # direct eqprop
     model_store = store(group="model")
     model_store(EqPropXORModuleConfig, name="dep-xor")
     model_store(EqPropXOROHModuleConfig, name="dep-xor-onehot")

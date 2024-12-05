@@ -5,13 +5,21 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.utils import _QPSOLVERS_AVAILABLE, _SCIPY_AVAILABLE, _SPICE_AVAILABLE, RankedLogger
+from src.utils import (
+    _PROXSUITE_AVAILABLE,
+    _QPSOLVERS_AVAILABLE,
+    _SCIPY_AVAILABLE,
+    _SPICE_AVAILABLE,
+    RankedLogger,
+)
 
 if _SCIPY_AVAILABLE:
     from scipy.optimize import fsolve
 
-if _QPSOLVERS_AVAILABLE:
+if _PROXSUITE_AVAILABLE:
     import proxsuite
+
+if _QPSOLVERS_AVAILABLE:
     from qpsolvers import solve_qp
 
 if _SPICE_AVAILABLE:
@@ -123,7 +131,11 @@ class XyceStrategy(AbstractSPICEStrategy):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.mpi_commands = kwargs.get("mpi_commands") or ["mpirun", "-use-hwthread-cpus"]
+        self.mpi_commands = kwargs.get("mpi_commands") or [
+            "mpirun",
+            "-use-hwthread-cpus",
+        ]
+        self.circuit = None
 
         if self.mpi_commands[-1] == "-cpu-set":
             # self.mpi_commands.append(str(id + 1))
@@ -132,6 +144,7 @@ class XyceStrategy(AbstractSPICEStrategy):
 
     def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         """Solve for the equilibrium point of the network with Xyce."""
+
         if i_ext is None:
             self.create_netlist(x)
             spice_utils.SPICENNParser.updateWeight(self.circuit, self.W)
@@ -143,7 +156,11 @@ class XyceStrategy(AbstractSPICEStrategy):
             if i_ext is None:
                 spice_utils.SPICENNParser.clampLayer(self.circuit, x[i])
             else:
-                spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext)
+                if batch_size != 1:
+                    spice_utils.SPICENNParser.clampLayer(self.circuit, x[i])
+                    spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext[i])
+                else:
+                    spice_utils.SPICENNParser.releaseLayer(self.circuit, -i_ext[i])
 
             raw_file = self.sim(spice_input=self.circuit)
             voltages = spice_utils.SPICENNParser.fastRawfileParser(
@@ -160,9 +177,16 @@ class XyceStrategy(AbstractSPICEStrategy):
     def create_netlist(self, x):
         """Convert input to netlist."""
         """self.W, self.B, self.dims / diode model name in self.SPICE_params."""
+
+        # assert x.size(0) == 1, "XyceStrategy does not support batched operation."
+
         if self.circuit is None:
             self.Pycircuit = circuits.create_circuit(
-                input=x, bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
+                input=x[0],
+                bias=self.B,
+                W=self.W,
+                dimensions=self.dims,
+                **self.SPICE_params,
             )
             self.circuit = circuits.ShallowCircuit.copyFromCircuit(self.Pycircuit)
             del self.Pycircuit
@@ -459,11 +483,11 @@ class QPStrategy(FirstOrderStrategy):
     @torch.no_grad()
     def solve(self, x, i_ext, **kwargs) -> torch.Tensor:
         self.check_and_set_attrs(kwargs)
-        P = self.laplacian()
+        P = self.laplacian().cpu().numpy()
         R = self.rhs(x)
         if i_ext is not None:
             R[:, -self.dims[-1] :] += i_ext * self.amp_factor
-        q = R.squeeze()
+        q = R.squeeze().cpu().numpy()
         lb = self.OTS.Vl * np.ones_like(q)
         ub = self.OTS.Vr * np.ones_like(q)
         v = solve_qp(P, q, lb=lb, ub=ub, solver=self.solver_type, **kwargs)

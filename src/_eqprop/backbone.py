@@ -101,8 +101,8 @@ class HybridEqPropBackbone(EqPropBackbone):
                 solver_ = deepcopy(solver) if solver else None
                 layers.extend(
                     [
-                        layers.append(nn.Linear(cfg[idx], cfg[idx], bias=bias_idx)),
-                        layers.append(nn.ReLU()),
+                        nn.Linear(cfg[idx], cfg[idx], bias=bias_idx),
+                        nn.ReLU(),
                         enn.EqPropLinear(cfg[idx], cfg[idx + 1], bias=bias_idx, solver=solver_),
                         MultiplyActivation(scale=layer_scale),
                     ]

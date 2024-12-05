@@ -41,7 +41,6 @@ def create_circuit(
     circuit.subcircuit(Neuron(Rectifier=Rectifier, diodeModel=DiodeName, A=params["A"]))
 
     for i in range(n_layers - 2):  # exclude out, input layers: 0~n-2
-
         inNodes = dims[i]
         outNodes = dims[i + 1]
         Prefix1 = "I" if i == 0 else "H" + str(i) + "_o"  # ith hidden input layer

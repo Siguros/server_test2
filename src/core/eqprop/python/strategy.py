@@ -452,7 +452,6 @@ class GradientDescentStrategy(FirstOrderStrategy):
 
 
 class QPStrategy(FirstOrderStrategy):
-
     def __init__(
         self, add_nonlin_last: bool = True, solver_type: str = "proxqp", **kwargs
     ) -> None:

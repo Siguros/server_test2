@@ -33,7 +33,6 @@ class AbstractRectifier(ABC):
 
 
 class IdealRectifier(AbstractRectifier):
-
     def __init__(self, Vl=-1.0, Vr=1.0):
         super().__init__(None, None, Vl, Vr)
 

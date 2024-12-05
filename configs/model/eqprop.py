@@ -13,6 +13,7 @@ from src._eqprop import (
     EqPropBinaryLitModule,
     EqPropLitModule,
     EqPropMSELitModule,
+    HybridEqPropBackbone,
 )
 
 # Direct EqPropBackbone
@@ -76,7 +77,26 @@ EqPropBackboneConfig = builds(
     hydra_convert="partial",
 )
 
+HybEqPropBackboneConfig = builds(
+    HybridEqPropBackbone,
+    cfg=MISSING,
+    bias=False,
+    beta=0.1,
+    scale_input=2,
+    scale_output=2,
+    solver=AnalogEqPropSolverConfig(
+        strategy=ProxQPStrategyConfig(activation=IdealRectifierConfig(Vl=0.1, Vr=0.9))
+    ),
+    param_adjuster=ParamAdjusterConfig(),
+    dummy=False,
+    populate_full_signature=True,
+    hydra_convert="partial",
+)
+
 ep_mnist = EqPropBackboneConfig(
+    cfg="${eval:'[int(784*${.scale_input}), 128, int(10*${.scale_output})]'}"
+)
+hyb_ep_mnist = HybEqPropBackboneConfig(
     cfg="${eval:'[int(784*${.scale_input}), 128, int(10*${.scale_output})]'}"
 )
 dummy_ep_mnist = EqPropBackboneConfig(
@@ -148,6 +168,7 @@ EqPropMNISTMSEModuleConfig = builds(
 def _register_configs():
     backbone_store = store(group="model/net")
     backbone_store(ep_mnist, name="ep-mnist")
+    backbone_store(hyb_ep_mnist, name="hyb-ep-mnist")
     backbone_store(dummy_ep_mnist, name="dummy-ep-mnist")
     # direct eqprop
     model_store = store(group="model")

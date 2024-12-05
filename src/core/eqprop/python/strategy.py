@@ -5,13 +5,21 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.utils import _QPSOLVERS_AVAILABLE, _SCIPY_AVAILABLE, _SPICE_AVAILABLE, RankedLogger
+from src.utils import (
+    _PROXSUITE_AVAILABLE,
+    _QPSOLVERS_AVAILABLE,
+    _SCIPY_AVAILABLE,
+    _SPICE_AVAILABLE,
+    RankedLogger,
+)
 
 if _SCIPY_AVAILABLE:
     from scipy.optimize import fsolve
 
-if _QPSOLVERS_AVAILABLE:
+if _PROXSUITE_AVAILABLE:
     import proxsuite
+
+if _QPSOLVERS_AVAILABLE:
     from qpsolvers import solve_qp
 
 if _SPICE_AVAILABLE:
@@ -122,7 +130,10 @@ class XyceStrategy(AbstractSPICEStrategy):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.mpi_commands = kwargs.get("mpi_commands") or ["mpirun", "-use-hwthread-cpus"]
+        self.mpi_commands = kwargs.get("mpi_commands") or [
+            "mpirun",
+            "-use-hwthread-cpus",
+        ]
         self.circuit = None
 
         if self.mpi_commands[-1] == "-cpu-set":
@@ -170,7 +181,11 @@ class XyceStrategy(AbstractSPICEStrategy):
 
         if self.circuit is None:
             self.Pycircuit = circuits.create_circuit(
-                input=x[0], bias=self.B, W=self.W, dimensions=self.dims, **self.SPICE_params
+                input=x[0],
+                bias=self.B,
+                W=self.W,
+                dimensions=self.dims,
+                **self.SPICE_params,
             )
             self.circuit = circuits.ShallowCircuit.copyFromCircuit(self.Pycircuit)
             del self.Pycircuit

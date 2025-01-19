@@ -8,11 +8,9 @@ defaults:
 
 net:
   _target_: src.models.components.simple_dense_net.SimpleDenseNet
-  input_size: 784  # 28 * 28
-  lin1_size: 128
-  lin2_size: 256
-  lin3_size: 64
-  output_size: 10  # number of classes
+  cfg: [784, 128, 256, 64, 10]  # [input_size, hidden_layers..., output_size]
+  batch_norm: true
+  bias: true
 
 compile: false
 

@@ -19,7 +19,7 @@ mnist_model = builds(
         weight_decay=0.0,
         populate_full_signature=True,
     ),
-    loss=builds(nn.CrossEntropyLoss),
+    criterion=builds(nn.CrossEntropyLoss),
     compile=False,
     populate_full_signature=True,
 )

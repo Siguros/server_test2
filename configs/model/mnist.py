@@ -1,4 +1,4 @@
-from torch import nn
+from torch import nn, optim
 from hydra_zen import builds, make_config
 
 from src.models.classifier_module import ClassifierLitModule
@@ -14,7 +14,7 @@ mnist_model = builds(
         bias=True,
     ),
     optimizer=builds(
-        nn.Adam,
+        optim.Adam,
         lr=0.001,
         weight_decay=0.0,
         populate_full_signature=True,

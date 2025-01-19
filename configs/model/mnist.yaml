@@ -1,0 +1,20 @@
+_target_: src.models.classifier_module.ClassifierModule
+
+defaults:
+  - loss: cross_entropy
+  - optimizer: adam
+  - scheduler: null
+  - _self_
+
+net:
+  _target_: src.models.components.simple_dense_net.SimpleDenseNet
+  input_size: 784  # 28 * 28
+  lin1_size: 128
+  lin2_size: 256
+  lin3_size: 64
+  output_size: 10  # number of classes
+
+compile: false
+
+monitor: val/acc
+mode: max

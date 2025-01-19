@@ -25,9 +25,9 @@ model:
   optimizer:
     lr: 0.002
   net:
-    lin1_size: 128
-    lin2_size: 256
-    lin3_size: 64
+    cfg: [784, 128, 256, 64, 10]
+    batch_norm: true
+    bias: true
   compile: false
 
 data:

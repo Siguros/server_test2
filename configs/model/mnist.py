@@ -1,12 +1,12 @@
 from torch import nn
 from hydra_zen import builds, make_config
 
-from src.models.classifier_module import ClassifierModule
+from src.models.classifier_module import ClassifierLitModule
 from src.models.components.simple_dense_net import SimpleDenseNet
 
 # Build the model configuration
 mnist_model = builds(
-    ClassifierModule,
+    ClassifierLitModule,
     net=builds(
         SimpleDenseNet,
         cfg=[784, 128, 256, 64, 10],
